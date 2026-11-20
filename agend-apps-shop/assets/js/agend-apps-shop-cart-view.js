@@ -162,8 +162,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			return null;
 		}
 		var continueUrl = safeContinueUrl( new URL( window.location.href ).searchParams.get( 'continue' ) || '' )
-			|| safeContinueUrl( shopConfig.continueShoppingUrl || '' ) || new URL( '/', window.location.href ).href;
-		wrapper.querySelectorAll( '.agend-shop-keep-browsing' ).forEach( function ( link ) { link.href = continueUrl; } );
+			|| safeContinueUrl( shopConfig.continueShoppingUrl || '' );
+		if ( continueUrl ) {
+			wrapper.querySelectorAll( '.agend-shop-keep-browsing' ).forEach( function ( link ) {
+				link.href = continueUrl;
+			} );
+		}
 
 		// Callback invoked when the shared confirmation modal is confirmed.
 		var pendingConfirm   = null;

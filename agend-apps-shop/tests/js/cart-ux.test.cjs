@@ -7,12 +7,12 @@ const { JSDOM } = require('jsdom');
 const source = readFileSync(join(__dirname, '../../assets/js/agend-apps-shop-cart-view.js'), 'utf8');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-async function setup(t, { member = false, query = '', amount = 2000, attendees = [] } = {}) {
+async function setup(t, { member = false, query = '', amount = 2000, attendees = [], browseUrl = 'https://shop.example/events/' } = {}) {
   const buyer = member ? '' : '<input class="agend-shop-buyer-name"><input class="agend-shop-buyer-email">';
   const html = `
     <div class="agend-apps-shop-cart-view" data-member-signed-in="${member}">
       <div class="agend-shop-cart-loading"></div>
-      <div class="agend-shop-cart-empty" hidden><p></p><a class="agend-shop-keep-browsing"></a></div>
+      <div class="agend-shop-cart-empty" hidden><p></p><a class="agend-shop-keep-browsing" href="/members/">Keep browsing</a></div>
       <div class="agend-shop-cart-locked-notice" hidden></div>
       <div class="agend-shop-cart-content" hidden>
         <table>
@@ -21,7 +21,7 @@ async function setup(t, { member = false, query = '', amount = 2000, attendees =
         </table>
         ${buyer}
         <button class="agend-shop-btn-proceed-checkout">Proceed to Checkout</button>
-        <div class="agend-shop-cart-message"></div><a class="agend-shop-keep-browsing"></a>
+        <div class="agend-shop-cart-message"></div><a class="agend-shop-keep-browsing" href="/members/">Keep browsing</a>
       </div>
     </div>`;
   const dom = new JSDOM(html, {
@@ -42,7 +42,7 @@ async function setup(t, { member = false, query = '', amount = 2000, attendees =
     metadata: { event_slug: 'event', attendees },
   };
   window.agendApps = { restUrl: 'https://shop.example/api/' };
-  window.agendAppsShop = { continueShoppingUrl: 'https://shop.example/events/' };
+  window.agendAppsShop = { continueShoppingUrl: browseUrl };
   window.AgendCartSession = { getToken: () => 'token', getHeaders: () => ({}) };
   window.fetch = async (url, options = {}) => {
     let payload = { data: { items: [item], total_amount: amount, currency: 'AUD' } };
@@ -124,4 +124,10 @@ test('choosing the default ticket holder ignores hidden named-attendee inputs', 
   await tick();
   assert.deepEqual(getSaved().attendees, [{ beneficiary_type: 'unnamed' }]);
   assert.equal(dom.querySelector('.agend-shop-attendee-summary').textContent, 'Defaults to you');
+});
+
+
+test('a cart without a continuation keeps the home link rendered by WordPress', async (t) => {
+  const { dom } = await setup(t, { browseUrl: '' });
+  assert.equal(dom.querySelector('.agend-shop-keep-browsing').href, 'https://shop.example/members/');
 });

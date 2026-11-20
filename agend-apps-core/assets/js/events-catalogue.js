@@ -1725,9 +1725,12 @@
   function cartDestination(cfg) {
     try {
       var destination = new URL(cfg.cartPageUrl, window.location.href);
-      var listing = new URL(cfg.detailBase || cfg.basePath || '/', window.location.href);
-      if (listing.origin === window.location.origin && /^https?:$/.test(listing.protocol)) {
-        destination.searchParams.set('continue', listing.href);
+      var listingPath = cfg.detailBase || cfg.basePath;
+      if (listingPath) {
+        var listing = new URL(listingPath, window.location.href);
+        if (listing.origin === window.location.origin && /^https?:$/.test(listing.protocol)) {
+          destination.searchParams.set('continue', listing.href);
+        }
       }
       return destination.href;
     } catch (e) {
