@@ -17,6 +17,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // Phone links share agend_apps_records_tel_href() with the Agend Field.
 require_once __DIR__ . '/format.php';
+// The site's own wording for the non-member price and rate.
+require_once __DIR__ . '/pricing-labels.php';
 
 /**
  * Reads a ticket's first pricing-tier value for a group key.
@@ -89,7 +91,7 @@ function agend_apps_records_ssr_ev_ticket_price_rows( array $entry, bool $is_mem
 	}
 	$non_member_price = agend_apps_records_ssr_ev_format_price( $non_member_val );
 	if ( null !== $non_member_price ) {
-		$html .= agend_apps_records_ssr_ev_price_row( __( 'Non-Members', 'agend-apps-core' ), $non_member_price, ! $is_member );
+		$html .= agend_apps_records_ssr_ev_price_row( agend_apps_records_non_member_label(), $non_member_price, ! $is_member );
 	}
 	return $html;
 }
@@ -232,7 +234,7 @@ function agend_apps_records_fragment_event_registration( array $item, string $sl
 						<?php if ( $is_member ) : ?>
 							<p class="agend-ev-detail__note"><?php esc_html_e( 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.', 'agend-apps-core' ); ?></p>
 						<?php else : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'The non-member rate is shown where available. Final pricing is confirmed at checkout.', 'agend-apps-core' ); ?></p>
+							<p class="agend-ev-detail__note"><?php echo esc_html( agend_apps_records_non_member_rate_note() ); ?></p>
 						<?php endif; ?>
 					</div>
 

@@ -543,3 +543,8 @@ test('an allowed guest still checks out by card with buyer details', async (t) =
   assert.deepEqual(JSON.parse(call.options.body).guest_buyer, { name: 'Guest Buyer', email: 'guest@example.test' });
   assert.equal(optionsCalls(calls).length, 0);
 });
+
+test('the cart quantity field is named for the product it changes', async (t) => {
+  const { dom } = await setup(t);
+  assert.equal(dom.querySelector('.agend-shop-qty-input').getAttribute('aria-label'), 'Quantity for Event');
+});

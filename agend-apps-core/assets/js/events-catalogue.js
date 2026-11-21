@@ -33,6 +33,22 @@
   // rejects.
   var orgTimeZone = '';
 
+  // The site's wording for the non-member price and rate (Settings > Agend
+  // Widgets > Event Pricing), from window.agendApps.pricingLabels. Each falls
+  // back to the built-in wording, so a page without the config renders as
+  // before.
+  var PRICING_LABEL_DEFAULTS = {
+    nonMember: 'Non-Members',
+    nonMemberNote: 'The non-member rate is shown where available. Final pricing is confirmed at checkout.',
+    freeForAll: 'Free for members and non-members.',
+  };
+
+  function pricingLabel(key) {
+    var labels = window.agendApps && window.agendApps.pricingLabels;
+    var value = labels && labels[key];
+    return typeof value === 'string' && value.trim() !== '' ? value : PRICING_LABEL_DEFAULTS[key];
+  }
+
   function restBase() {
     return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
   }
@@ -581,7 +597,7 @@
       var pricing = el('div', 'agend-ev-card__pricing');
       [
         ['Members', event.price_summary.member_from, cardActiveIsMember],
-        ['Non-Members', event.price_summary.non_member_from, !cardActiveIsMember],
+        [pricingLabel('nonMember'), event.price_summary.non_member_from, !cardActiveIsMember],
       ].forEach(function (pair) {
         var price = formatPrice(pair[1]);
         if (price === null) {
@@ -650,7 +666,7 @@
     }
     var nonMemberPrice = formatPrice(nonMemberVal);
     if (nonMemberPrice !== null) {
-      container.appendChild(priceRow('Non-Members', nonMemberPrice, !activeIsMember));
+      container.appendChild(priceRow(pricingLabel('nonMember'), nonMemberPrice, !activeIsMember));
     }
     return container;
   }
@@ -792,7 +808,7 @@
     if (group === 'member' || group === 'corporate') {
       reg.appendChild(el('p', 'agend-ev-detail__note', 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.'));
     } else {
-      reg.appendChild(el('p', 'agend-ev-detail__note', 'The non-member rate is shown where available. Final pricing is confirmed at checkout.'));
+      reg.appendChild(el('p', 'agend-ev-detail__note', pricingLabel('nonMemberNote')));
     }
     side.appendChild(reg);
 
@@ -958,13 +974,19 @@
   // A checkbox dropdown filter (US-2.5). Renders a toggle button and a panel of
   // checkboxes; onChange(values[]) fires whenever a checkbox is toggled. Options
   // are added via the returned addOption (categories/cities load asynchronously).
-  function buildCheckboxFilter(allLabel, onChange) {
+  // filterName is the accessible name ("Filter by category"): the toggle shows
+  // only the current choice, so screen readers hear the name and the choice.
+  function buildCheckboxFilter(allLabel, onChange, filterName) {
     var wrap = el('div', 'agend-ev-multiselect');
     var toggle = el('button', 'agend-ev-filter agend-ev-multiselect__toggle', allLabel);
     toggle.type = 'button';
     toggle.setAttribute('aria-expanded', 'false');
     var panel = el('div', 'agend-ev-multiselect__panel');
     panel.hidden = true;
+    if (filterName) {
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', filterName);
+    }
     var selected = [];
 
     var updateLabel = function () {
@@ -975,7 +997,11 @@
       } else {
         toggle.textContent = selected.length + ' selected';
       }
+      if (filterName) {
+        toggle.setAttribute('aria-label', filterName + ': ' + toggle.textContent);
+      }
     };
+    updateLabel();
 
     var addOption = function (value, label) {
       var row = el('label', 'agend-ev-multiselect__option');
@@ -1019,6 +1045,7 @@
       var search = el('input', 'agend-ev-search');
       search.type = 'search';
       search.placeholder = 'Search events…';
+      search.setAttribute('aria-label', 'Search events');
       var debounce;
       search.addEventListener('input', function () {
         window.clearTimeout(debounce);
@@ -1042,7 +1069,7 @@
           state.category = '';
           state.page = 1;
           reload();
-        });
+        }, 'Filter by category');
         apiGet('/events/categories', {}).then(function (body) {
           unwrapList(body).items.forEach(function (cat) {
             if (excludedCategories.indexOf(String(cat.id)) !== -1) {
@@ -1054,6 +1081,7 @@
         bar.appendChild(catMulti.wrap);
       } else {
         var category = el('select', 'agend-ev-filter');
+        category.setAttribute('aria-label', 'Filter by category');
         category.appendChild(new Option('All Categories', ''));
         apiGet('/events/categories', {}).then(function (body) {
           unwrapList(body).items.forEach(function (cat) {
@@ -1084,13 +1112,14 @@
           state.type = '';
           state.page = 1;
           reload();
-        });
+        }, 'Filter by event type');
         typeOptions.forEach(function (o) {
           typeMulti.addOption(o[0], o[1]);
         });
         bar.appendChild(typeMulti.wrap);
       } else {
         var type = el('select', 'agend-ev-filter');
+        type.setAttribute('aria-label', 'Filter by event type');
         type.appendChild(new Option('All Types', ''));
         typeOptions.forEach(function (o) {
           type.appendChild(new Option(o[1], o[0]));
@@ -1111,7 +1140,7 @@
           state.city = '';
           state.page = 1;
           reload();
-        });
+        }, 'Filter by city');
         apiGet('/events/venues', { limit: 100 }).then(function (body) {
           var seen = {};
           unwrapList(body).items.forEach(function (venue) {
@@ -1125,6 +1154,7 @@
         bar.appendChild(cityMulti.wrap);
       } else {
         var city = el('select', 'agend-ev-filter');
+        city.setAttribute('aria-label', 'Filter by city');
         city.appendChild(new Option('All Cities', ''));
         apiGet('/events/venues', { limit: 100 }).then(function (body) {
           var seen = {};
@@ -1156,6 +1186,8 @@
 
       var panel = el('div', 'agend-ev-datefilter__panel');
       panel.hidden = true;
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', 'Filter by date');
 
       var afterField = el('label', 'agend-ev-datefilter__field');
       afterField.appendChild(el('span', 'agend-ev-datefilter__label', 'Starting after'));
@@ -1193,7 +1225,9 @@
         } else {
           dateToggle.textContent = 'All Dates';
         }
+        dateToggle.setAttribute('aria-label', 'Filter by date: ' + dateToggle.textContent);
       };
+      updateLabel();
       var applyDates = function () {
         // Inclusive of both selected days: after = start of day, before = end
         // of day, so the range brackets whole days.
@@ -1381,7 +1415,7 @@
     var isSignedIn = !!viewerGroup(event);
     var rateMessage = group === 'member' || group === 'corporate'
       ? 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.'
-      : 'The non-member rate is shown where available. Final pricing is confirmed at checkout.';
+      : pricingLabel('nonMemberNote');
     var rateNote = el('p', 'agend-ev-reg__rate-note', rateMessage);
     form.insertBefore(rateNote, ticketsSection);
 
@@ -1494,7 +1528,7 @@
         return price != null && String(price).trim() !== '' && Number(price) === 0;
       });
       if (freeForEveryone) {
-        rateNote.textContent = 'Free for members and non-members.';
+        rateNote.textContent = pricingLabel('freeForAll');
       } else if (signIn) {
         form.insertBefore(signIn, ticketsSection);
       }

@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.86.0
+ * Version:           1.89.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.86.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.89.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -530,6 +530,12 @@ function agend_apps_output_config_js() {
 		'signedIn'       => get_current_user_id() > 0,
 		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
 	);
+
+	// The site's wording for the non-member price and rate, for the
+	// browser-rendered events catalogue (includes/records/pricing-labels.php).
+	if ( function_exists( 'agend_apps_records_pricing_labels_for_js' ) ) {
+		$config['pricingLabels'] = agend_apps_records_pricing_labels_for_js();
+	}
 
 	// Expose the Agend member-session state so every widget can render its
 	// signed-in view synchronously without a session probe request

@@ -15,6 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/jobs-visibility.php';
+require_once __DIR__ . '/pricing-labels.php';
 
 // The stored option names keep the pre-rename `agend_elementor_*` prefix on
 // purpose: they are live site data, and renaming them would strand every
@@ -355,6 +356,38 @@ function agend_apps_records_settings_init(): void {
 		'agend_elementor_section_detail'
 	);
 
+	// Event Pricing: the site's own word for the price that is not the member
+	// price. Blank keeps the built-in wording ("Non-Members", "non-member").
+	add_settings_section(
+		'agend_apps_section_event_pricing',
+		__( 'Event Pricing', 'agend-apps-core' ),
+		'agend_apps_records_settings_section_event_pricing',
+		'agend-elementor'
+	);
+
+	foreach ( array(
+		AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION      => array( __( 'Non-member price label', 'agend-apps-core' ), 'agend_apps_records_settings_field_non_member_label' ),
+		AGEND_APPS_RECORDS_NON_MEMBER_RATE_LABEL_OPTION => array( __( 'Non-member rate wording', 'agend-apps-core' ), 'agend_apps_records_settings_field_non_member_rate_label' ),
+	) as $option => $field ) {
+		register_setting(
+			'agend_elementor_settings',
+			$option,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'agend_apps_records_sanitize_pricing_label',
+				'default'           => '',
+			)
+		);
+		add_settings_field(
+			$option,
+			$field[0],
+			$field[1],
+			'agend-elementor',
+			'agend_apps_section_event_pricing',
+			array( 'label_for' => $option )
+		);
+	}
+
 	register_setting(
 		'agend_elementor_settings',
 		AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION,
@@ -427,6 +460,56 @@ function agend_apps_records_settings_field_directory_shared_reads(): void {
 	<?php
 }
 add_action( 'admin_init', 'agend_apps_records_settings_init' );
+
+/**
+ * Renders the Event Pricing section description.
+ */
+function agend_apps_records_settings_section_event_pricing(): void {
+	echo '<p>';
+	esc_html_e(
+		'Event cards, ticket lists and event pages show a member price and a price for everyone else. Leave these blank to keep the standard wording.',
+		'agend-apps-core'
+	);
+	echo '</p>';
+}
+
+/**
+ * Renders the non-member price label field.
+ */
+function agend_apps_records_settings_field_non_member_label(): void {
+	$value = agend_apps_records_sanitize_pricing_label( get_option( AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION, '' ) );
+	?>
+	<input type="text" class="regular-text" id="<?php echo esc_attr( AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION ); ?>" name="<?php echo esc_attr( AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION ); ?>" value="<?php echo esc_attr( $value ); ?>" placeholder="<?php echo esc_attr( agend_apps_records_default_non_member_label() ); ?>" maxlength="<?php echo esc_attr( (string) AGEND_APPS_RECORDS_PRICING_LABEL_MAX ); ?>" />
+	<p class="description">
+		<?php
+		printf(
+			/* translators: %s: The built-in label, "Non-Members". */
+			esc_html__( 'The label beside the price for visitors who are not members, for example "Public". Leave blank to show "%s".', 'agend-apps-core' ),
+			esc_html( agend_apps_records_default_non_member_label() )
+		);
+		?>
+	</p>
+	<?php
+}
+
+/**
+ * Renders the non-member rate wording field.
+ */
+function agend_apps_records_settings_field_non_member_rate_label(): void {
+	$value = agend_apps_records_sanitize_pricing_label( get_option( AGEND_APPS_RECORDS_NON_MEMBER_RATE_LABEL_OPTION, '' ) );
+	?>
+	<input type="text" class="regular-text" id="<?php echo esc_attr( AGEND_APPS_RECORDS_NON_MEMBER_RATE_LABEL_OPTION ); ?>" name="<?php echo esc_attr( AGEND_APPS_RECORDS_NON_MEMBER_RATE_LABEL_OPTION ); ?>" value="<?php echo esc_attr( $value ); ?>" placeholder="<?php echo esc_attr( agend_apps_records_default_non_member_rate_label() ); ?>" maxlength="<?php echo esc_attr( (string) AGEND_APPS_RECORDS_PRICING_LABEL_MAX ); ?>" />
+	<p class="description">
+		<?php
+		printf(
+			/* translators: %s: The built-in word, "non-member". */
+			esc_html__( 'The word used in the note under the Register button, as in "The public rate is shown where available." Write it as it should appear mid-sentence, usually in lower case. Leave blank to use "%s".', 'agend-apps-core' ),
+			esc_html( agend_apps_records_default_non_member_rate_label() )
+		);
+		?>
+	</p>
+	<?php
+}
 
 /**
  * Keeps a CARTO key to the characters a key can contain, so nothing else can
