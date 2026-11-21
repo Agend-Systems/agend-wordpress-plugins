@@ -27,6 +27,23 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	var shopConfig  = window.agendAppsShop || {};
 
 	/**
+	 * AgendCartSession.describeError(). An older cart session script without it
+	 * (never shipped alongside this file) gets the previous behaviour: the
+	 * response's own message, else the fallback.
+	 *
+	 * @param {number} status   HTTP status.
+	 * @param {Object} body     Decoded response body.
+	 * @param {string} fallback Text for an error with nothing more specific.
+	 * @return {{message: string, locked: boolean}}
+	 */
+	function describeCartError( status, body, fallback ) {
+		if ( window.AgendCartSession && 'function' === typeof window.AgendCartSession.describeError ) {
+			return window.AgendCartSession.describeError( status, body, fallback );
+		}
+		return { message: ( body && 'string' === typeof body.message && body.message ) || fallback, locked: false };
+	}
+
+	/**
 	 * Formats a monetary amount using Intl.NumberFormat when available.
 	 *
 	 * @param {number} amount   Amount in minor currency units.
@@ -267,6 +284,74 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Puts the cart into its locked view without a reload: the notice, the
+		 * disabled edit controls and the "Cancel checkout and edit cart" button.
+		 * Used when a change is refused because a checkout holds the cart.
+		 */
+		function showLockedState() {
+			cartLocked = true;
+			lockedNoticeEl.removeAttribute( 'hidden' );
+			setEditControlsDisabled( true );
+			if ( cancelBtn ) {
+				cancelBtn.hidden = false;
+				cancelBtn.disabled = false;
+			}
+		}
+
+		/**
+		 * Shows a failed cart request in plain English (see
+		 * AgendCartSession.describeError). A cart held by a checkout switches to
+		 * the locked view, whose cancel button is the way out.
+		 *
+		 * @param {number} status   HTTP status (0 when unknown).
+		 * @param {Object} body     Decoded response body.
+		 * @param {string} fallback Text for an error with nothing more specific.
+		 */
+		function showFailure( status, body, fallback ) {
+			var described = describeCartError( status, body, fallback );
+			if ( described.locked ) {
+				showLockedState();
+				showMessage( 'This cart is being checked out, so it can\'t be changed right now. Finish paying, or choose "Cancel checkout and edit cart" to make changes.', 'error' );
+				return;
+			}
+			showMessage( described.message, 'error' );
+		}
+
+		/**
+		 * A rejected promise's error for a failed cart request, carrying the
+		 * plain-English text and whether a checkout holds the cart.
+		 *
+		 * @param {Response} response The failed response.
+		 * @param {string}   fallback Text for an error with nothing more specific.
+		 * @return {Promise<never>}
+		 */
+		function failedRequest( response, fallback ) {
+			return response.json().catch( function () {
+				return null;
+			} ).then( function ( data ) {
+				var error = new Error( fallback );
+				error.cartStatus = response.status;
+				error.cartBody = data;
+				throw error;
+			} );
+		}
+
+		/**
+		 * Shows the error a failedRequest() promise rejected with, or the
+		 * fallback for a network failure.
+		 *
+		 * @param {Error}  err      The rejection.
+		 * @param {string} fallback Text for an error with nothing more specific.
+		 */
+		function showCaught( err, fallback ) {
+			if ( err && err.cartStatus ) {
+				showFailure( err.cartStatus, err.cartBody, fallback );
+				return;
+			}
+			showMessage( fallback, 'error' );
+		}
+
+		/**
 		 * Clears the cart message div.
 		 */
 		function clearMessage() {
@@ -293,6 +378,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			})
 		}
 		function unlockInputs(id) {
+			// A cart a checkout holds stays read-only until it is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			document.querySelectorAll(`[data--item-id="${id}"]`).forEach( el => {
 				el.disabled = false;
 			})
@@ -303,6 +392,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			})
 		}
 		function unlockAllInputs() {
+			if ( cartLocked ) {
+				return;
+			}
 			document.querySelectorAll('.agend-shop-qty-decrement, .agend-shop-qty-input, .agend-shop-qty-increment, .agend-shop-btn-remove-item').forEach( el => {
 				el.disabled = false;
 			})
@@ -339,10 +431,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						return null;
 					}
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
 							loadingEl.setAttribute( 'hidden', '' );
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showMessage( describeCartError( response.status, data, 'We couldn\'t load your cart. Please refresh the page to try again.' ).message, 'error' );
 							return null;
 						} );
 					}
@@ -844,9 +937,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				body: JSON.stringify( { quantity: quantity, itemId: item.id } ),
 			} ).then( function ( response ) {
 				if ( ! response.ok ) {
-					return response.json().then( function ( data ) {
-						throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
-					} );
+					return failedRequest( response, 'Unable to update tickets. Please try again.' );
 				}
 				return response.json();
 			} );
@@ -1035,7 +1126,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
-					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+					showCaught( err, 'Unable to update tickets. Please try again.' );
 				} )
 				.finally( function () {
 					unlockInputs( item.id );
@@ -1140,9 +1231,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
-						} );
+						return failedRequest( response, 'Unable to update tickets. Please try again.' );
 					}
 					scheduleCheckoutOptions();
 					// Reduce the quantity; the retained attendees are already the
@@ -1167,7 +1256,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
-					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+					showCaught( err, 'Unable to update tickets. Please try again.' );
 				} )
 				.finally( function () {
 					unlockInputs( item.id );
@@ -1538,10 +1627,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'Unable to save attendees. Please try again.';
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							var described = describeCartError( response.status, data, 'Unable to save attendees. Please try again.' );
+							if ( described.locked ) {
+								showFailure( response.status, data, '' );
+							}
 							status.className = 'agend-shop-attendee-panel__status is-error';
-							status.textContent = message;
+							status.textContent = described.locked ? 'This cart is being checked out, so attendees can\'t be changed right now.' : described.message;
 						} );
 					}
 					status.className = 'agend-shop-attendee-panel__status is-success';
@@ -1592,11 +1686,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
 							input.value = prevValue;
 							input.setAttribute( 'data-prev-value', prevValue );
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showFailure( response.status, data, 'We couldn\'t change the quantity. Please try again.' );
 						} );
 					}
 					response.json().then( data => {
@@ -1629,9 +1724,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							unlockInputs( itemId );
+							showFailure( response.status, data, 'We couldn\'t remove that item. Please try again.' );
 						} );
 					}
 					loadCart(true);
@@ -1639,7 +1736,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					return null;
 				} )
 				.catch( function () {
-					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
+					unlockInputs( itemId );
+					showMessage( 'We couldn\'t remove that item. Check your connection and try again.', 'error' );
 				} );
 		}
 
@@ -1654,9 +1752,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							unlockAllInputs();
+							showFailure( response.status, data, 'We couldn\'t clear your cart. Please try again.' );
 						} );
 					}
 					loadCart();
@@ -1761,12 +1861,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Object} body Response body.
 		 * @return {string} Message.
 		 */
-		function errorMessage( body ) {
-			var fields = body && body.data && body.data.body && body.data.body.error && body.data.body.error.details && body.data.body.error.details.fields;
-			var messages = fields ? Object.keys( fields ).reduce( function ( all, key ) {
-				return all.concat( fields[ key ] );
-			}, [] ) : [];
-			return messages.length ? messages.join( ' ' ) : ( ( body && body.message ) || 'An unexpected error occurred. Please try again.' );
+		function errorMessage( body, status ) {
+			return describeCartError( status || 0, body, 'We couldn\'t complete your checkout. Please try again.' ).message;
 		}
 
 		/**
@@ -2015,7 +2111,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					if ( result.status >= 400 && result.status < 500 ) {
 						invoiceKey = null;
 					}
-					showMessage( errorMessage( result.data ), 'error' );
+					showMessage( errorMessage( result.data, result.status ), 'error' );
 					checkoutBtn.disabled = false;
 				} )
 				.catch( function () {
@@ -2147,7 +2243,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						if ( 200 === result.status && checkoutUrl ) {
 							window.location.href = checkoutUrl;
 						} else {
-							showMessage( errorMessage( result.data ), 'error' );
+							showMessage( errorMessage( result.data, result.status ), 'error' );
 							checkoutBtn.disabled = false;
 						}
 					} )
@@ -2212,8 +2308,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
 							window.location.href = shopConfig.cartPageUrl || '';
 						} else {
-							var message = ( result.data && result.data.message ) ? result.data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showMessage( describeCartError( result.status, result.data, 'We couldn\'t cancel the checkout. Please try again.' ).message, 'error' );
 							cancelBtn.disabled = false;
 						}
 					} )

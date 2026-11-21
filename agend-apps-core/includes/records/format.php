@@ -140,7 +140,21 @@ function agend_apps_records_ssr_ev_format_price( $value ): ?string {
 		return null;
 	}
 	$num = (float) $value;
-	return 0.0 === $num ? __( 'FREE', 'agend-apps-core' ) : '$' . number_format( $num, 2, '.', '' );
+	return 0.0 === $num ? __( 'FREE', 'agend-apps-core' ) : agend_apps_records_format_money( $num );
+}
+
+/**
+ * Formats an amount as "$1,325.00": two decimals and a thousands separator.
+ *
+ * Mirrors money() in assets/js/events-catalogue.js. The separators are fixed
+ * rather than taken from the site locale, so the server-rendered price always
+ * matches the one the browser renders.
+ *
+ * @param float $num The amount in dollars.
+ * @return string The formatted amount.
+ */
+function agend_apps_records_format_money( float $num ): string {
+	return ( $num < 0 ? '-' : '' ) . '$' . number_format( abs( $num ), 2, '.', ',' );
 }
 
 /**
@@ -221,9 +235,9 @@ function agend_apps_records_ssr_lms_price( array $course ): string {
 	if ( $num <= 0.0 ) {
 		return __( 'Free', 'agend-apps-core' );
 	}
-	// No thousands separator, matching the client priceLabel() (toFixed(2)) used
-	// on the catalogue cards and the client-rendered detail.
-	return '$' . number_format( $num, 2, '.', '' );
+	// Thousands separator, matching the client priceLabel() used on the
+	// catalogue cards and the client-rendered detail.
+	return agend_apps_records_format_money( $num );
 }
 
 /**

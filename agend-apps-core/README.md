@@ -505,6 +505,17 @@ filters (an empty return is ignored). The server-rendered detail reads them
 directly; the browser-rendered catalogue receives them as
 `window.agendApps.pricingLabels`. Output is escaped where it is printed.
 
+### Member pricing for a signed-in visitor who is not a member
+
+A signed-in visitor is never asked to sign in for member pricing. When the
+viewer is signed in (`window.agendApps.signedIn`) but not on member pricing,
+the event registration form shows "Member pricing applies to current
+Members." in place of the "Sign in for member pricing" link. **Membership join
+page** (`agend_apps_member_join_url` option, same settings section) adds a
+"Become a member" link to it; blank, the default, shows the note alone. Code
+can set it with the `agend_apps_member_join_url` filter. Only http and https
+addresses are kept. The browser receives it as `window.agendApps.memberJoinUrl`.
+
 ## Deprecated names (removed in the release after 1.8.0)
 
 The page-builder-agnostic record layer under `includes/records/` shipped

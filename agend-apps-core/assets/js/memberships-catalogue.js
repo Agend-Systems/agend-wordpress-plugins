@@ -14,6 +14,89 @@
   var SUCCESS_MARKER = 'success';
   var CANCEL_MARKER = 'cancel';
 
+  // Billing period wording: "$1,540.00 a year" rather than the platform's
+  // "$1540.00/annually". An unknown period keeps the platform's "/period".
+  var PERIOD_SUFFIX = {
+    annually: ' a year',
+    yearly: ' a year',
+    annual: ' a year',
+    monthly: ' a month',
+    quarterly: ' a quarter',
+    weekly: ' a week',
+  };
+
+  // The tier's price for display, built from price_cents and billing_period
+  // the way the platform builds formatted_price ("$" and two decimals), with
+  // a thousands separator and plain wording for the period. Falls back to
+  // formatted_price when the tier carries no numeric price_cents.
+  function tierPrice(tier) {
+    var cents = tier && tier.price_cents;
+    if (typeof cents !== 'number' || !isFinite(cents) || cents < 0) {
+      return (tier && tier.formatted_price) || '';
+    }
+    var parts = (cents / 100).toFixed(2).split('.');
+    var amount = '$' + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+    var period = typeof tier.billing_period === 'string' ? tier.billing_period : '';
+    if (!period) {
+      return amount;
+    }
+    return amount + (Object.prototype.hasOwnProperty.call(PERIOD_SUFFIX, period) ? PERIOD_SUFFIX[period] : '/' + period);
+  }
+
+  // A failed request's text for the member. The platform's own message is
+  // written for developers ("The authenticated user is not a member of the
+  // API key's account"), so it is shown only when it names fields the member
+  // can correct; everything else gets the caller's plain-English fallback.
+  function friendlyError(body, fallback) {
+    var apiError = body && body.data && body.data.body && body.data.body.error;
+    var fields = apiError && apiError.details && apiError.details.fields;
+    if (fields && typeof fields === 'object') {
+      var messages = Object.keys(fields).reduce(function (all, key) {
+        return all.concat(fields[key]);
+      }, []).filter(function (text) {
+        return typeof text === 'string' && text !== '';
+      });
+      if (messages.length) {
+        return messages.join(' ');
+      }
+    }
+    return fallback;
+  }
+
+  // Shows an error beside a control, in place of a browser dialog: one
+  // role="alert" element per container, so a screen reader reads it out and
+  // a retry replaces the text rather than stacking messages.
+  function showInlineError(container, message, before) {
+    if (!container) {
+      return null;
+    }
+    var box = container.querySelector('.agend-mem-error');
+    if (!box) {
+      box = el('p', 'agend-mem-error');
+      box.setAttribute('role', 'alert');
+      if (before && before.parentNode === container) {
+        container.insertBefore(box, before);
+      } else {
+        container.appendChild(box);
+      }
+    }
+    box.textContent = message;
+    box.hidden = false;
+    return box;
+  }
+
+  function clearInlineError(container) {
+    var box = container && container.querySelector('.agend-mem-error');
+    if (box) {
+      box.textContent = '';
+      box.hidden = true;
+    }
+  }
+
+  var CHECKOUT_ERROR = 'We couldn\'t start the checkout. Please try again. If it keeps happening, contact us and we\'ll help you join.';
+  var APPLICATION_ERROR = 'We couldn\'t send your application. Please check your details and try again.';
+  var PAYMENT_ERROR = 'We couldn\'t start the payment. Please try again, or contact us for help.';
+
   function restBase() {
     return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
   }
@@ -204,6 +287,12 @@
         return;
       }
 
+      // The tiers replace the loading placeholder, so its text goes too:
+      // "Loading membership options…" must not stay in the page.
+      if (status) {
+        status.textContent = '';
+      }
+
       var activeOnly = tiers.filter(function (t) { return t.is_active; });
       activeOnly.sort(function (a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
 
@@ -241,7 +330,7 @@
         var priceBlock = el('div', 'agend-mem-card__price');
         // formatted_price already includes the billing period (e.g.
         // "$349.00/annually"), so the period is not appended separately.
-        var priceVal = el('span', 'agend-mem-card__price-value', tier.formatted_price);
+        var priceVal = el('span', 'agend-mem-card__price-value', tierPrice(tier));
         priceBlock.appendChild(priceVal);
         card.appendChild(priceBlock);
       }
@@ -314,7 +403,7 @@
         // formatted_price already includes the billing period (e.g.
         // "$349.00/annually"), so the period is not appended separately.
         price.appendChild(
-          el('span', 'agend-mem-summary__price-value', tier.formatted_price)
+          el('span', 'agend-mem-summary__price-value', tierPrice(tier))
         );
         header.appendChild(price);
       }
@@ -364,12 +453,13 @@
 
       // formatted_price already includes the billing period, matching the
       // guest form's submit button label.
-      var btnLabel = 'Proceed to Checkout — ' + tier.formatted_price;
+      var btnLabel = 'Proceed to Checkout — ' + tierPrice(tier);
       var submitBtn = el('button', 'agend-mem-form__submit', btnLabel);
       submitBtn.type = 'button';
       submitBtn.addEventListener('click', function () {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Processing…';
+        clearInlineError(formContainer);
         var urls = purchaseReturnUrls(cfg);
         apiPost('/crm/me/memberships', {
           tier_id: tier.id,
@@ -377,9 +467,7 @@
           cancel_url: urls.cancelUrl,
         }).then(function (body) {
           if (!body || body.success === false || body.code) {
-            var apiError = body && body.data && body.data.body && body.data.body.error;
-            var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
-            alert('Error: ' + msg);
+            showInlineError(formContainer, friendlyError(body, CHECKOUT_ERROR), submitBtn);
             submitBtn.disabled = false;
             submitBtn.textContent = btnLabel;
             return;
@@ -388,15 +476,15 @@
           var data = unwrapOne(body);
           var checkoutUrl = data && (data.checkoutUrl || data.checkout_url);
           if (!checkoutUrl) {
-            alert('Error: No checkout URL returned.');
+            showInlineError(formContainer, CHECKOUT_ERROR, submitBtn);
             submitBtn.disabled = false;
             submitBtn.textContent = btnLabel;
             return;
           }
 
           window.location.href = checkoutUrl;
-        }).catch(function (err) {
-          alert('Error processing purchase: ' + (err ? err.message : 'Unknown error'));
+        }).catch(function () {
+          showInlineError(formContainer, CHECKOUT_ERROR, submitBtn);
           submitBtn.disabled = false;
           submitBtn.textContent = btnLabel;
         });
@@ -474,7 +562,7 @@
       // "$349.00/annually"), so the period is not appended separately.
       var btnLabel = 'application' === mode
         ? 'Submit Application'
-        : 'Proceed to Checkout — ' + tier.formatted_price;
+        : 'Proceed to Checkout — ' + tierPrice(tier);
       var submitBtn = el('button', 'agend-mem-form__submit', btnLabel);
       submitBtn.type = 'submit';
       form.appendChild(submitBtn);
@@ -689,26 +777,28 @@
       });
 
       // Create contact.
+      var submitBtn = form.querySelector('.agend-mem-form__submit');
+      var failText = 'application' === mode ? APPLICATION_ERROR : CHECKOUT_ERROR;
+      clearInlineError(form);
       apiPost('/crm/contacts', contactData).then(function (body) {
         if (!body || body.success === false || body.code) {
-          var msg = (body && (body.message || (body.error && body.error.message))) || 'Failed to submit application.';
-          alert('Error: ' + msg);
+          showInlineError(form, friendlyError(body, failText), submitBtn);
           return;
         }
 
         var contact = unwrapOne(body);
         if (!contact || !contact.id) {
-          alert('Error: Contact creation returned no ID.');
+          showInlineError(form, failText, submitBtn);
           return;
         }
 
         if ('application' === mode) {
           showApplicationConfirmation();
         } else if ('direct' === mode) {
-          processPurchase(contact.id, tier, cfg);
+          processPurchase(contact.id, tier, cfg, form, submitBtn);
         }
-      }).catch(function (err) {
-        alert('Error submitting application: ' + (err ? err.message : 'Unknown error'));
+      }).catch(function () {
+        showInlineError(form, failText, submitBtn);
       });
     }
 
@@ -750,8 +840,9 @@
     /**
      * Processes direct purchase: creates a checkout session and redirects.
      */
-    function processPurchase(contactId, tier, cfg) {
+    function processPurchase(contactId, tier, cfg, form, submitBtn) {
       var urls = purchaseReturnUrls(cfg);
+      var errorHost = form || root.querySelector('.agend-mem-form-wrapper');
 
       apiPost('/crm/memberships/purchase', {
         contact_id: contactId,
@@ -760,22 +851,20 @@
         cancel_url: urls.cancelUrl,
       }).then(function (body) {
         if (!body || body.success === false || body.code) {
-          var apiError = body && body.data && body.data.body && body.data.body.error;
-          var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
-          alert('Error: ' + msg);
+          showInlineError(errorHost, friendlyError(body, CHECKOUT_ERROR), submitBtn);
           return;
         }
 
         var data = unwrapOne(body);
         var checkoutUrl = data && (data.checkoutUrl || data.checkout_url);
         if (!checkoutUrl) {
-          alert('Error: No checkout URL returned.');
+          showInlineError(errorHost, CHECKOUT_ERROR, submitBtn);
           return;
         }
 
         window.location.href = checkoutUrl;
-      }).catch(function (err) {
-        alert('Error processing purchase: ' + (err ? err.message : 'Unknown error'));
+      }).catch(function () {
+        showInlineError(errorHost, CHECKOUT_ERROR, submitBtn);
       });
     }
 
@@ -890,15 +979,14 @@
         payBtn.addEventListener('click', function () {
           payBtn.disabled = true;
           payBtn.textContent = 'Processing…';
+          clearInlineError(panel);
           var urls = purchaseReturnUrls(cfg);
           apiPost('/crm/me/orders/' + encodeURIComponent(unpaidOrder.id) + '/pay', {
             success_url: urls.successUrl,
             cancel_url: urls.cancelUrl,
           }).then(function (body) {
             if (!body || body.success === false || body.code) {
-              var apiError = body && body.data && body.data.body && body.data.body.error;
-              var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to start payment.';
-              alert('Error: ' + msg);
+              showInlineError(panel, friendlyError(body, PAYMENT_ERROR), payBtn);
               payBtn.disabled = false;
               payBtn.textContent = 'Pay Now';
               return;
@@ -907,15 +995,15 @@
             var data = unwrapOne(body);
             var checkoutUrl = data && (data.checkoutUrl || data.checkout_url);
             if (!checkoutUrl) {
-              alert('Error: No checkout URL returned.');
+              showInlineError(panel, PAYMENT_ERROR, payBtn);
               payBtn.disabled = false;
               payBtn.textContent = 'Pay Now';
               return;
             }
 
             window.location.href = checkoutUrl;
-          }).catch(function (err) {
-            alert('Error processing payment: ' + (err ? err.message : 'Unknown error'));
+          }).catch(function () {
+            showInlineError(panel, PAYMENT_ERROR, payBtn);
             payBtn.disabled = false;
             payBtn.textContent = 'Pay Now';
           });

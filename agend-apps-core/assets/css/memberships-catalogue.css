@@ -483,3 +483,18 @@
 .agend-mem-mystatus__pay {
   margin-top: 0.75rem;
 }
+
+/* A failed checkout, application or payment request, shown in the form in
+   place of a browser dialog. */
+.agend-mem-error {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #fdecec;
+  color: #a11a1a;
+  font-size: 0.9rem;
+}
+
+.agend-mem-error[hidden] {
+  display: none;
+}

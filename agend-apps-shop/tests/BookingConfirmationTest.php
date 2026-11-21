@@ -106,4 +106,88 @@ final class BookingConfirmationTest extends TestCase {
 		}
 	}
 
+	#[Test]
+	public function should_call_a_free_registration_a_booking_when_the_cart_held_event_tickets(): void {
+		$html = agend_apps_shop_render_confirmed_booking( array(), true, '', '', true );
+		self::assertStringContainsString( 'Booking confirmed', $html );
+		self::assertStringContainsString( 'Thank you for registering', $html );
+		self::assertStringContainsString( 'Your place is booked. No payment was required.', $html );
+		self::assertStringNotContainsString( 'Order confirmed', $html );
+		self::assertStringNotContainsString( 'Thank you for your order', $html );
+	}
+
+	#[Test]
+	public function should_tell_whether_the_cart_holds_event_tickets(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/cart.php';
+		\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'cart' => array( 'items' => array( array( 'product_type' => 'event_tickets' ) ) ) ) ) );
+		self::assertTrue( agend_apps_shop_booking_cart_has_events( 'events-cart', '' ) );
+		\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'items' => array( array( 'product_type' => 'membership' ) ) ) ) );
+		self::assertFalse( agend_apps_shop_booking_cart_has_events( 'membership-cart', '' ) );
+		\Agend_Test_WP::queue_response( 500, array( 'error' => array( 'code' => 'INTERNAL' ) ) );
+		self::assertFalse( agend_apps_shop_booking_cart_has_events( 'broken-cart', '' ) );
+		self::assertFalse( agend_apps_shop_booking_cart_has_events( '', '' ) );
+	}
+
+	#[Test]
+	public function should_confirm_a_paid_checkout_through_the_complete_route_when_the_platform_has_no_status_route(): void {
+		$record = array( 'session' => 'cs_paid', 'free' => false, 'events' => true, 'total_cents' => 46200, 'currency' => 'AUD' );
+		$ref    = '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d';
+		\Agend_Test_WP::queue_response( 404, array( 'success' => false, 'error' => array( 'code' => 'NOT_FOUND', 'message' => 'The requested endpoint does not exist' ) ) );
+		\Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'order_id' => 'o1', 'order_number' => 'CRM-2026-00031', 'paid_at' => '2026-11-22T00:00:00Z' ) ) );
+
+		$result = agend_apps_shop_booking_lookup( $ref, 'cart:buyer', $record, 'buyer', '' );
+
+		self::assertSame( 'confirmed', $result['status'] );
+		self::assertSame( array( 'order_number' => 'CRM-2026-00031', 'total_cents' => 46200, 'currency' => 'AUD' ), $result['receipt'] );
+		$urls = array_column( \Agend_Test_WP::$requests, 'url' );
+		self::assertStringContainsString( '/cart/checkout/status', $urls[0] );
+		self::assertStringContainsString( '/cart/checkout/complete', $urls[1] );
+		self::assertStringContainsString( 'cs_paid', (string) \Agend_Test_WP::$requests[1]['body'] );
+
+		// Remembered: a reload neither asks the missing route again nor
+		// completes the checkout twice.
+		$stored = get_transient( agend_apps_shop_booking_key( $ref, 'cart:buyer' ) );
+		self::assertSame( $result['receipt'], $stored['confirmed'] );
+		self::assertSame( 'confirmed', agend_apps_shop_booking_lookup( $ref, 'cart:buyer', $stored, 'buyer', '' )['status'] );
+		self::assertCount( 2, \Agend_Test_WP::$requests );
+
+		$html = agend_apps_shop_render_confirmed_booking( $result['receipt'], false, '', '', true );
+		self::assertStringContainsString( 'Booking confirmed', $html );
+		self::assertStringContainsString( 'CRM-2026-00031', $html );
+		self::assertStringContainsString( 'AUD 462.00', $html );
+	}
+
+	#[Test]
+	public function should_wait_while_the_payment_is_not_yet_confirmed_and_never_say_couldnt_verify_after_a_payment(): void {
+		set_transient( 'agend_shop_booking_status_missing', 1, 60 );
+		$record = array( 'session' => 'cs_paid', 'free' => false );
+
+		\Agend_Test_WP::queue_response( 402, array( 'success' => false, 'error' => array( 'code' => 'PAYMENT_NOT_CONFIRMED', 'message' => 'Payment is not confirmed' ) ) );
+		self::assertSame( array( 'status' => 'pending' ), agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', $record, 'buyer', '' ) );
+
+		// The webhook settled and removed the cart first: the platform no
+		// longer knows the checkout, but the buyer came back from paying.
+		\Agend_Test_WP::queue_response( 404, array( 'success' => false, 'error' => array( 'code' => 'NOT_FOUND', 'message' => 'Checkout session not found' ) ) );
+		self::assertSame( array( 'status' => 'received' ), agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', $record, 'buyer', '' ) );
+		self::assertCount( 2, \Agend_Test_WP::$requests, 'the missing status route is not asked again' );
+	}
+
+	#[Test]
+	public function should_show_payment_received_when_the_platform_cannot_confirm_a_returned_payment(): void {
+		update_option( 'agend_apps_shop_checkout_success_url', 'https://example.test/thanks/' );
+		$ref = '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d';
+		$_GET['booking_ref']                = $ref;
+		$_COOKIE['agend_cart_session']      = 'buyer';
+		set_transient( agend_apps_shop_booking_key( $ref, 'cart:buyer' ), array( 'session' => 'cs_paid', 'free' => false, 'events' => true ), 60 );
+		\Agend_Test_WP::queue_response( 404, array( 'success' => false, 'error' => array( 'code' => 'NOT_FOUND', 'message' => 'The requested endpoint does not exist' ) ) );
+		\Agend_Test_WP::queue_response( 500, array( 'success' => false, 'error' => array( 'code' => 'INTERNAL', 'message' => 'boom' ) ) );
+
+		$html = agend_apps_shop_render_booking_confirmation();
+		unset( $_GET['booking_ref'], $_COOKIE['agend_cart_session'] );
+
+		self::assertStringContainsString( 'Payment received', $html );
+		self::assertStringContainsString( 'Your confirmation email is on its way.', $html );
+		self::assertStringNotContainsString( 'couldn’t verify', $html );
+	}
+
 }

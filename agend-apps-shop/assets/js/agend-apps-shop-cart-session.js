@@ -47,11 +47,69 @@
 	}
 
 	/**
+	 * Plain-English text for a failed cart request. The platform's own message
+	 * is written for developers ("Cart 49f9… is not mutable (status: locked)"),
+	 * so it is shown only for a request the visitor can correct (a 400 or 422
+	 * naming what is wrong); everything else gets wording a visitor can act on.
+	 * Mirrored by cartErrorFallback() in Agend Apps Core's events-catalogue.js
+	 * for a page without this script.
+	 *
+	 * @param {number} status   HTTP status of the WordPress REST response.
+	 * @param {Object} body     Decoded REST response body.
+	 * @param {string} fallback Text for an error with nothing more specific.
+	 * @return {{message: string, locked: boolean}} What to show, and whether the
+	 *         cart is held by a checkout in progress (so a link to the cart page,
+	 *         where that checkout can be finished or cancelled, helps).
+	 */
+	let VISITOR_CODES = [ 'agend_apps_sign_in_required', 'agend_apps_invoice_disabled', 'agend_apps_invalid_purchase_order' ];
+
+	function describeError( status, body, fallback ) {
+		let generic  = fallback || 'Something went wrong with your cart. Please try again.';
+		let platform = body && body.data && body.data.body && body.data.body.error;
+		let code     = ( platform && platform.code ) || '';
+		let raw      = ( platform && platform.message ) || ( body && body.message ) || '';
+
+		if ( 'CHECKOUT_ALREADY_INITIATED' === code || 'CART_LOCKED' === code || /not mutable|status: locked/i.test( raw ) ) {
+			return {
+				message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
+				locked: true,
+			};
+		}
+		// WordPress's own refusals that are written for visitors.
+		if ( body && 'string' === typeof body.code && -1 !== VISITOR_CODES.indexOf( body.code ) && 'string' === typeof body.message && '' !== body.message ) {
+			return { message: body.message, locked: false };
+		}
+		if ( 401 === status ) {
+			return { message: 'Your session has ended. Sign in again, then try again.', locked: false };
+		}
+		if ( 429 === status ) {
+			return { message: 'Too many attempts. Wait a moment, then try again.', locked: false };
+		}
+
+		let fields = platform && platform.details && platform.details.fields;
+		let fieldMessages = fields && 'object' === typeof fields ? Object.keys( fields ).reduce( function ( all, key ) {
+			return all.concat( fields[ key ] );
+		}, [] ).filter( function ( text ) {
+			return 'string' === typeof text && '' !== text;
+		} ) : [];
+		if ( fieldMessages.length ) {
+			return { message: fieldMessages.join( ' ' ), locked: false };
+		}
+		if ( ( 400 === status || 422 === status ) && 'string' === typeof raw && '' !== raw ) {
+			return { message: raw, locked: false };
+		}
+
+		return { message: generic, locked: false };
+	}
+
+	/**
 	 * Cart session utility object.
 	 *
 	 * @namespace AgendCartSession
 	 */
 	window.AgendCartSession = {
+
+		describeError: describeError,
 
 		/**
 		 * Returns the current cart session token from the cookie.

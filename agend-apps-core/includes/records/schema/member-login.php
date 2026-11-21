@@ -67,7 +67,7 @@ function agend_apps_records_schema_member_login(): array {
 						'name'        => 'verification_sent_message',
 						'label'       => __( 'Email check message', 'agend-apps-core' ),
 						'type'        => 'textarea',
-						'default'     => __( 'Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn\'t arrived in a few minutes, use Resend below. You only need to do this once.', 'agend-apps-core' ),
+						'default'     => __( 'Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn\'t arrived in a few minutes, choose Send another link below. You only need to do this once.', 'agend-apps-core' ),
 						'description' => __( 'Shown when a member must confirm their email address before they can sign in, usually on their first sign-in.', 'agend-apps-core' ),
 					),
 					array(

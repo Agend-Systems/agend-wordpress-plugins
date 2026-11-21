@@ -61,6 +61,16 @@ class Agend_Apps_Sites_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function get_config( WP_REST_Request $request ): WP_REST_Response {
 		$result = agend_apps_sites_get_config();
+
+		// An account with no published site config is a normal state, not a
+		// fault: widgets then keep their own colours and fonts. Answer it with
+		// an empty config rather than a 404, which every browser logs as an
+		// error on every page that has a widget (`data: null` is what each
+		// widget's script already treats as "nothing to apply").
+		if ( is_wp_error( $result ) && agend_apps_sites_is_missing_config_error( $result ) ) {
+			return new WP_REST_Response( array( 'data' => null ), 200 );
+		}
+
 		return $this->prepare_api_response( $result );
 	}
 }

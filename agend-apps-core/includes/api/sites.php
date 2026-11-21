@@ -90,18 +90,10 @@ function agend_apps_sites_get_config() {
  * @param WP_Error $error     What the read returned.
  */
 function agend_apps_sites_remember_missing_config( string $cache_key, int $ttl, WP_Error $error ): void {
-	$data       = $error->get_error_data();
-	$error_body = is_array( $data ) && is_array( $data['body'] ?? null ) ? ( $data['body']['error'] ?? null ) : null;
-
-	$missing_config = 'agend_api_error' === $error->get_error_code()
-		&& 404 === ( $data['status_code'] ?? null )
-		&& is_array( $error_body )
-		&& 'NOT_FOUND' === ( $error_body['code'] ?? null )
-		&& false !== stripos( (string) ( $error_body['message'] ?? '' ), 'site config' );
-
+	$data  = $error->get_error_data();
 	$entry = 'agend_apps_' . $cache_key;
 
-	if ( ! $missing_config || $ttl <= 0 || false !== get_transient( $entry ) ) {
+	if ( ! agend_apps_sites_is_missing_config_error( $error ) || $ttl <= 0 || false !== get_transient( $entry ) ) {
 		return;
 	}
 
@@ -116,4 +108,26 @@ function agend_apps_sites_remember_missing_config( string $cache_key, int $ttl, 
 		),
 		$ttl
 	);
+}
+
+/**
+ * Whether an error is the gateway's answer that the account has no published
+ * site config (a 404 `NOT_FOUND` naming the site config), as opposed to any
+ * other failure. The remembered copy of that answer (see
+ * {@see agend_apps_sites_remember_missing_config()}) carries the same code and
+ * data, so it is recognised too.
+ *
+ * @param WP_Error $error What the read returned.
+ * @return bool
+ */
+function agend_apps_sites_is_missing_config_error( WP_Error $error ): bool {
+	$data       = $error->get_error_data();
+	$error_body = is_array( $data ) && is_array( $data['body'] ?? null ) ? ( $data['body']['error'] ?? null ) : null;
+
+	return 'agend_api_error' === $error->get_error_code()
+		&& is_array( $data )
+		&& 404 === ( $data['status_code'] ?? null )
+		&& is_array( $error_body )
+		&& 'NOT_FOUND' === ( $error_body['code'] ?? null )
+		&& false !== stripos( (string) ( $error_body['message'] ?? '' ), 'site config' );
 }

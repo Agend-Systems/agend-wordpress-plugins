@@ -20,8 +20,10 @@ function agend_apps_shop_booking_buyer( string $cart, string $bearer ): string {
 
 function agend_apps_shop_register_booking_confirmation(): void {
 	$reference = '';
-	add_filter( 'agend_apps_cart_checkout_args', static function ( array $args ) use ( &$reference ): array {
-		$reference = '';
+	$has_events = false;
+	add_filter( 'agend_apps_cart_checkout_args', static function ( array $args, $urls = array(), $cart = '', $bearer = '' ) use ( &$reference, &$has_events ): array {
+		$reference  = '';
+		$has_events = false;
 		$configured = (string) get_option( 'agend_apps_shop_checkout_success_url', '' );
 		$target = esc_url_raw( $args['body']['successUrl'] ?? '' );
 		if ( '' === $configured || agend_apps_shop_booking_url_parts( $configured ) !== agend_apps_shop_booking_url_parts( $target ) || ! agend_apps_shop_is_local_booking_url( $target ) ) {
@@ -30,10 +32,13 @@ function agend_apps_shop_register_booking_confirmation(): void {
 
 		$reference = wp_generate_uuid4();
 		$args['body']['successUrl'] = add_query_arg( 'booking_ref', $reference, $target );
+		// A free checkout's receipt names no events, so whether this is an
+		// event booking is read from the cart before it is checked out.
+		$has_events = agend_apps_shop_booking_cart_has_events( is_string( $cart ) ? $cart : '', is_string( $bearer ) ? $bearer : '' );
 		return $args;
-	} );
+	}, 10, 4 );
 
-	add_filter( 'agend_apps_cart_checkout_response', static function ( array $response, string $cart, string $bearer = '' ) use ( &$reference ): array {
+	add_filter( 'agend_apps_cart_checkout_response', static function ( array $response, string $cart, string $bearer = '' ) use ( &$reference, &$has_events ): array {
 		$groups = $response['data']['groups'] ?? array();
 		$buyer  = agend_apps_shop_booking_buyer( $cart, $bearer );
 		if ( '' === $reference || '' === $buyer || ! is_array( $groups ) || 1 !== count( $groups ) ) {
@@ -48,7 +53,18 @@ function agend_apps_shop_register_booking_confirmation(): void {
 
 		$free = 0 === strpos( $session, 'free:' ) && 0 === ( $group['subtotalCents'] ?? null ) && ! empty( $group['orderId'] );
 		if ( $free || ( $group['subtotalCents'] ?? 0 ) > 0 ) {
-			set_transient( agend_apps_shop_booking_key( $reference, $buyer ), array( 'session' => $session, 'free' => $free ), DAY_IN_SECONDS );
+			$record = array( 'session' => $session, 'free' => $free );
+			if ( $has_events ) {
+				$record['events'] = true;
+			}
+			// The amount shown on the receipt when the platform's answer
+			// carries none (the complete route returns the order number only).
+			$currency = $group['currency'] ?? ( $response['data']['currency'] ?? null );
+			if ( ! $free && is_int( $group['subtotalCents'] ?? null ) && is_string( $currency ) && preg_match( '/^[A-Za-z]{3}$/', $currency ) ) {
+				$record['total_cents'] = $group['subtotalCents'];
+				$record['currency']    = strtoupper( $currency );
+			}
+			set_transient( agend_apps_shop_booking_key( $reference, $buyer ), $record, DAY_IN_SECONDS );
 		}
 
 		return $response;
@@ -68,6 +84,38 @@ function agend_apps_shop_register_booking_confirmation(): void {
 	} );
 
 	add_shortcode( 'agend_booking_confirmation', 'agend_apps_shop_render_booking_confirmation' );
+}
+
+/**
+ * Whether the cart about to be checked out holds event tickets. Read through
+ * Core's cart helper (cached where the cart read is cached); any failure
+ * answers false, which keeps the generic order wording.
+ *
+ * @param string $cart   Guest cart session token.
+ * @param string $bearer Member bearer token, or ''.
+ * @return bool
+ */
+function agend_apps_shop_booking_cart_has_events( string $cart, string $bearer ): bool {
+	if ( ! function_exists( 'agend_apps_cart_get' ) || ( '' === $cart && '' === $bearer ) ) {
+		return false;
+	}
+	$response = agend_apps_cart_get( $cart, $bearer );
+	if ( is_wp_error( $response ) || ! is_array( $response ) ) {
+		return false;
+	}
+	$data  = is_array( $response['data'] ?? null ) ? $response['data'] : $response;
+	$cart_data = is_array( $data['cart'] ?? null ) ? $data['cart'] : $data;
+	$items = is_array( $cart_data['items'] ?? null ) ? $cart_data['items'] : array();
+	foreach ( $items as $item ) {
+		if ( ! is_array( $item ) ) {
+			continue;
+		}
+		$type = $item['product_type'] ?? ( $item['productType'] ?? '' );
+		if ( 'event_tickets' === $type ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /** Normalise the URL path without changing query values or their encoding. */
@@ -112,32 +160,21 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 	$bearer = agend_apps_get_bearer_token();
 	$buyer = agend_apps_shop_booking_buyer( $cart, $bearer );
 	$record = '' !== $buyer && wp_is_uuid( $ref, 4 ) ? get_transient( agend_apps_shop_booking_key( $ref, $buyer ) ) : false;
-	$result = array();
-	if ( is_array( $record ) && is_string( $record['session'] ?? null ) ) {
-		$response = agend_apps_api()->request(
-			'GET',
-			'/cart/checkout/status',
-			array(
-				'query'        => array( 'externalId' => $record['session'] ),
-				'cart_session' => $cart,
-				'bearer_token' => $bearer,
-				'timeout'      => 10,
-			)
-		);
-		if ( ! is_wp_error( $response ) && is_array( $response['data'] ?? null ) ) {
-			$result = $response['data'];
-		}
+	$is_free = is_array( $record ) && true === ( $record['free'] ?? false );
+	$result  = array();
+	if ( is_array( $record ) && is_string( $record['session'] ?? null ) && ! $is_free ) {
+		$result = agend_apps_shop_booking_lookup( $ref, $buyer, $record, $cart, $bearer );
 	}
 
-	$is_free = is_array( $record ) && true === ( $record['free'] ?? false );
 	$status  = $result['status'] ?? '';
 	$support = '' !== esc_url( $attributes['support_url'] )
 		? '<p><a href="' . esc_url( $attributes['support_url'] ) . '">' . esc_html__( 'Contact the event organiser', 'agend-apps-shop' ) . '</a></p>'
 		: '';
+	$event_cart = is_array( $record ) && true === ( $record['events'] ?? false );
 
 	if ( 'confirmed' === $status || ( $is_free && '' === $status ) ) {
 		$receipt = is_array( $result['receipt'] ?? null ) ? $result['receipt'] : array();
-		return agend_apps_shop_render_confirmed_booking( $receipt, $is_free, $attributes['events_url'], $support );
+		return agend_apps_shop_render_confirmed_booking( $receipt, $is_free, $attributes['events_url'], $support, $event_cart );
 	}
 
 	if ( 'pending' === $status ) {
@@ -148,16 +185,119 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 			. '<p><a href="' . $retry . '">' . esc_html__( 'Check again', 'agend-apps-shop' ) . '</a></p></section>';
 	}
 
+	// A checkout this buyer started, returned from the payment page, that the
+	// platform could not be asked about just now (no status route on this
+	// platform release, a timeout, a cart already settled by the payment
+	// webhook). The payment page only sends the buyer here after taking
+	// payment, so the buyer is told so rather than "couldn't verify".
+	if ( 'received' === $status ) {
+		return '<section class="agend-booking-receipt agend-booking-receipt--received">'
+			. '<p class="agend-booking-receipt__status">' . esc_html__( 'Payment received', 'agend-apps-shop' ) . '</p>'
+			. '<h1>' . esc_html( $event_cart ? __( 'Thank you for registering', 'agend-apps-shop' ) : __( 'Thank you for your order', 'agend-apps-shop' ) ) . '</h1>'
+			. '<p>' . esc_html__( 'Your payment was received. Your confirmation email is on its way.', 'agend-apps-shop' ) . '</p>'
+			. $support . '</section>';
+	}
+
 	return '<section class="agend-booking-receipt agend-booking-receipt--unverified">'
 		. '<h1>' . esc_html__( 'Check your booking', 'agend-apps-shop' ) . '</h1>'
 		. '<p>' . esc_html__( 'We couldn’t verify a booking on this page. Check your email for a confirmation.', 'agend-apps-shop' ) . '</p>'
 		. $support . '</section>';
 }
 
-/** @param array<string,mixed> $receipt Verified Agend checkout receipt. */
-function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free, string $events_url, string $support ): string {
+/**
+ * Asks the platform what became of a paid checkout this buyer started.
+ *
+ * `GET /cart/checkout/status` (which returns the receipt with its events) is
+ * asked first; released platforms do not have it, so a 404 for the route is
+ * remembered for a day and `POST /cart/checkout/complete` is asked instead.
+ * That route is the one a payment page's success return is meant to call: it
+ * confirms the payment with the provider and fulfils the cart once, and a
+ * repeat call for a settled checkout returns the same order. A confirmed
+ * order is kept with the buyer's record so a reload does not ask again.
+ *
+ * @param string               $ref    Booking reference.
+ * @param string               $buyer  Buyer key.
+ * @param array<string,mixed>  $record The stored checkout record.
+ * @param string               $cart   Guest cart session token.
+ * @param string               $bearer Member bearer token, or ''.
+ * @return array{status?: string, receipt?: array<string,mixed>} `confirmed`
+ *         (with a receipt), `pending` (payment not yet confirmed), or
+ *         `received` (the platform could not say).
+ */
+function agend_apps_shop_booking_lookup( string $ref, string $buyer, array $record, string $cart, string $bearer ): array {
+	$session = (string) $record['session'];
+
+	if ( is_array( $record['confirmed'] ?? null ) ) {
+		return array( 'status' => 'confirmed', 'receipt' => $record['confirmed'] );
+	}
+
+	$transport = array(
+		'cart_session' => $cart,
+		'bearer_token' => $bearer,
+		'timeout'      => 10,
+	);
+
+	if ( false === get_transient( 'agend_shop_booking_status_missing' ) ) {
+		$response = agend_apps_api()->request( 'GET', '/cart/checkout/status', array( 'query' => array( 'externalId' => $session ) ) + $transport );
+		if ( ! is_wp_error( $response ) && is_array( $response['data'] ?? null ) && in_array( $response['data']['status'] ?? '', array( 'confirmed', 'pending' ), true ) ) {
+			return $response['data'];
+		}
+		if ( is_wp_error( $response ) && agend_apps_shop_booking_is_missing_route( $response ) ) {
+			set_transient( 'agend_shop_booking_status_missing', 1, DAY_IN_SECONDS );
+		}
+	}
+
+	$response = agend_apps_api()->request( 'POST', '/cart/checkout/complete', array( 'body' => array( 'externalId' => $session ) ) + $transport );
+	if ( ! is_wp_error( $response ) ) {
+		$order = is_array( $response['data'] ?? null ) ? $response['data'] : array();
+		if ( empty( $order['order_id'] ) && empty( $order['order_number'] ) ) {
+			return array( 'status' => 'received' );
+		}
+		$receipt = array();
+		if ( is_string( $order['order_number'] ?? null ) && '' !== $order['order_number'] ) {
+			$receipt['order_number'] = $order['order_number'];
+		}
+		if ( isset( $receipt['order_number'], $record['total_cents'], $record['currency'] ) ) {
+			$receipt['total_cents'] = (int) $record['total_cents'];
+			$receipt['currency']    = (string) $record['currency'];
+		}
+		$record['confirmed'] = $receipt;
+		set_transient( agend_apps_shop_booking_key( $ref, $buyer ), $record, DAY_IN_SECONDS );
+		return array( 'status' => 'confirmed', 'receipt' => $receipt );
+	}
+
+	$data = $response->get_error_data();
+	if ( is_array( $data ) && 402 === ( $data['status_code'] ?? null ) ) {
+		return array( 'status' => 'pending' );
+	}
+	return array( 'status' => 'received' );
+}
+
+/**
+ * Whether an error is the gateway saying it has no such endpoint (as opposed
+ * to no such checkout).
+ *
+ * @param WP_Error $error What the request returned.
+ * @return bool
+ */
+function agend_apps_shop_booking_is_missing_route( WP_Error $error ): bool {
+	$data    = $error->get_error_data();
+	$message = is_array( $data ) && is_array( $data['body']['error'] ?? null ) ? (string) ( $data['body']['error']['message'] ?? '' ) : $error->get_error_message();
+	return is_array( $data ) && 404 === ( $data['status_code'] ?? null ) && false !== stripos( $message, 'endpoint' );
+}
+
+/**
+ * @param array<string,mixed> $receipt    Verified Agend checkout receipt.
+ * @param bool                $is_free    Whether no payment was taken.
+ * @param string              $events_url "See more events" link, or ''.
+ * @param string              $support    Support link HTML, or ''.
+ * @param bool                $event_cart Whether the cart checked out held
+ *                                        event tickets, for a receipt that names
+ *                                        no events (a free registration's).
+ */
+function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free, string $events_url, string $support, bool $event_cart = false ): string {
 	$events = array_values( array_filter( (array) ( $receipt['events'] ?? array() ), 'is_array' ) );
-	$is_booking = count( $events ) > 0;
+	$is_booking = count( $events ) > 0 || $event_cart;
 	$order_status = $is_booking ? __( 'Booking confirmed', 'agend-apps-shop' ) : __( 'Order confirmed', 'agend-apps-shop' );
 	$title = $is_booking ? __( 'Thank you for registering', 'agend-apps-shop' ) : __( 'Thank you for your order', 'agend-apps-shop' );
 	if ( 1 === count( $events ) && ! empty( $events[0]['name'] ) ) {
@@ -185,7 +325,7 @@ function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free
 	foreach ( $events as $event ) {
 		$html .= agend_apps_shop_render_booking_event( $event, count( $events ) > 1 );
 	}
-	if ( $events ) {
+	if ( $is_booking ) {
 		$html .= '<p>' . esc_html__( 'Check your confirmation email for joining instructions.', 'agend-apps-shop' ) . '</p>';
 	}
 	$html .= $support;

@@ -63,7 +63,7 @@
                     "args": {
                         "label": "Email check message",
                         "type": "textarea",
-                        "default": "Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn't arrived in a few minutes, use Resend below. You only need to do this once.",
+                        "default": "Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn't arrived in a few minutes, choose Send another link below. You only need to do this once.",
                         "description": "Shown when a member must confirm their email address before they can sign in, usually on their first sign-in."
                     }
                 },

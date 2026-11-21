@@ -1453,13 +1453,19 @@
     return { close: close };
   }
 
-  function buildCheckboxFilter(allLabel, onChange) {
+  // filterName is the accessible name ("Filter by category"): the toggle shows
+  // only the current choice, so screen readers hear the name and the choice.
+  function buildCheckboxFilter(allLabel, onChange, filterName) {
     var wrap = el('div', 'agend-dir-multiselect');
     var toggle = el('button', 'agend-dir-filter agend-dir-multiselect__toggle', allLabel);
     toggle.type = 'button';
     toggle.setAttribute('aria-expanded', 'false');
     var panel = el('div', 'agend-dir-multiselect__panel');
     panel.hidden = true;
+    if (filterName) {
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', filterName);
+    }
     var selected = [];
 
     var updateLabel = function () {
@@ -1470,7 +1476,11 @@
       } else {
         toggle.textContent = selected.length + ' selected';
       }
+      if (filterName) {
+        toggle.setAttribute('aria-label', filterName + ': ' + toggle.textContent);
+      }
     };
+    updateLabel();
 
     var addOption = function (value, label) {
       var row = el('label', 'agend-dir-multiselect__option');
@@ -1520,6 +1530,7 @@
       var search = el('input', 'agend-dir-search');
       search.type = 'search';
       search.placeholder = 'Search listings…';
+      search.setAttribute('aria-label', 'Search listings');
       var debounce;
       search.addEventListener('input', function () {
         window.clearTimeout(debounce);
@@ -1544,7 +1555,7 @@
           state.page = 1;
           refreshClear();
           reload();
-        });
+        }, 'Filter by category');
         apiGet('/directory/categories', {}).then(function (body) {
           unwrapList(body).items.forEach(function (cat) {
             if (excludedCategories.indexOf(String(cat.id)) !== -1) {
@@ -1556,6 +1567,7 @@
         bar.appendChild(catMulti.wrap);
       } else {
         var category = el('select', 'agend-dir-filter');
+        category.setAttribute('aria-label', 'Filter by category');
         category.appendChild(new Option('All Categories', ''));
         apiGet('/directory/categories', {}).then(function (body) {
           unwrapList(body).items.forEach(function (cat) {
@@ -1578,6 +1590,7 @@
 
     if (cfg.filters.rating) {
       var rating = el('select', 'agend-dir-filter');
+      rating.setAttribute('aria-label', 'Filter by rating');
       [
         ['', 'All Ratings'],
         ['4', '4 stars & up'],

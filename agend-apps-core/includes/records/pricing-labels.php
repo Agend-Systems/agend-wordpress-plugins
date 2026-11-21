@@ -38,6 +38,14 @@ const AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION = 'agend_apps_non_member_label'
 const AGEND_APPS_RECORDS_NON_MEMBER_RATE_LABEL_OPTION = 'agend_apps_non_member_rate_label';
 
 /**
+ * Option name storing the page a visitor who is not a member can join from
+ * ('' = no join link).
+ *
+ * @var string
+ */
+const AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION = 'agend_apps_member_join_url';
+
+/**
  * Longest label kept, so a stray paste cannot break the price row layout.
  *
  * @var int
@@ -194,4 +202,44 @@ function agend_apps_records_pricing_labels_for_js(): array {
 	}
 
 	return $labels;
+}
+
+/**
+ * Sanitises the submitted membership join page address: an http or https URL,
+ * or '' for "no join link".
+ *
+ * @param mixed $value Raw submitted value.
+ * @return string
+ */
+function agend_apps_records_sanitize_member_join_url( $value ): string {
+	$value = is_scalar( $value ) ? trim( (string) $value ) : '';
+	if ( '' === $value ) {
+		return '';
+	}
+	$url    = (string) esc_url_raw( $value, array( 'http', 'https' ) );
+	$scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+	if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === (string) wp_parse_url( $url, PHP_URL_HOST ) ) {
+		return '';
+	}
+	return $url;
+}
+
+/**
+ * The page a signed-in visitor who is not a member is sent to from the note
+ * "Member pricing applies to current Members." on an event's registration
+ * form. Blank (the default) shows the note with no link.
+ *
+ * @return string An http(s) URL, or ''.
+ */
+function agend_apps_records_member_join_url(): string {
+	$url = agend_apps_records_sanitize_member_join_url( get_option( AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION, '' ) );
+
+	/**
+	 * Filters the membership join page linked from the event registration form.
+	 *
+	 * @param string $url The URL from the site setting, or ''.
+	 */
+	$filtered = apply_filters( 'agend_apps_member_join_url', $url );
+
+	return is_string( $filtered ) ? agend_apps_records_sanitize_member_join_url( $filtered ) : $url;
 }
