@@ -216,3 +216,25 @@ test('a failed add for another reason shows a plain message with no cart link', 
   assert.equal(box.textContent, 'Unable to add to cart. Please try again.');
   assert.equal(box.querySelector('a'), null);
 });
+
+test('without the shop script, a buyer refusal keeps its wording and a completed cart asks for a refresh', async (t) => {
+  for (const [code, message, expected] of [
+    ['PRODUCT_UNAVAILABLE', 'Early Bird is sold out.', /^Early Bird is sold out\.$/],
+    ['CHECKOUT_ALREADY_INITIATED', 'Cart 1 is not mutable (status: complete)', /Refresh the page/],
+  ]) {
+    const view = await build(t, {
+      url: 'https://example.test/events/event/conference/',
+      cfg: { deepLink: 'conference', cartEnabled: true, cartPageUrl: 'https://example.test/cart/' },
+      cartReply: { status: 409, body: { code: 'agend_api_error', message, data: { status_code: 409, body: { error: { code, message } } } } },
+    });
+    await openRegistration(view);
+    view.document.querySelector('.agend-ev-reg__step:last-child').click();
+    view.document.querySelector('.agend-ev-reg__submit').click();
+    await tick();
+    await tick();
+    await tick();
+    const box = view.document.querySelector('.agend-ev-reg__error');
+    assert.match(box.textContent, expected);
+    assert.equal(box.querySelector('a'), null);
+  }
+});

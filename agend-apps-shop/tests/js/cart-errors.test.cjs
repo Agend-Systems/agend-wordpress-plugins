@@ -46,6 +46,28 @@ test('describeError keeps messages a visitor can act on and hides the rest', () 
   window.close();
 });
 
+test('describeError keeps the platform wording for a buyer refusal, such as too few places left', () => {
+  const window = session();
+  const d = (status, body) => window.AgendCartSession.describeError(status, body, 'Fallback.');
+  const refusal = (code, message) => ({ code: 'agend_api_error', message, data: { status_code: 409, body: { error: { code, message } } } });
+  assert.equal(d(409, refusal('PRODUCT_UNAVAILABLE', 'Only 2 places are left for Early Bird. Choose a smaller quantity.')).message, 'Only 2 places are left for Early Bird. Choose a smaller quantity.');
+  assert.equal(d(409, refusal('DUPLICATE_ATTENDEE', 'Sam is already booked on this event. Choose another attendee.')).message, 'Sam is already booked on this event. Choose another attendee.');
+  assert.equal(d(409, refusal('CART_CONFLICT', 'Cart abc changed under you')).message, 'Fallback.');
+  window.close();
+});
+
+test('describeError tells a completed or abandoned cart from one a checkout holds', () => {
+  const window = session();
+  const d = (message, details) => window.AgendCartSession.describeError(409, { data: { status_code: 409, body: { error: Object.assign({ code: 'CHECKOUT_ALREADY_INITIATED', message }, details ? { details } : {}) } } }, 'Fallback.');
+  const complete = d('Cart 1 is not mutable (status: complete)');
+  assert.equal(complete.locked, false);
+  assert.equal(complete.stale, true);
+  assert.match(complete.message, /Refresh the page/);
+  assert.equal(d('Cart 1 is not mutable', { currentStatus: 'abandoned' }).locked, false);
+  assert.equal(d('Cart 1 is not mutable (status: locked)').locked, true);
+  window.close();
+});
+
 test('the Add to Cart widget shows a held cart in plain English with a link to the cart', async (t) => {
   const dom = new JSDOM(`<!doctype html>
     <div class="agend-apps-shop-add-to-cart">
@@ -93,9 +115,11 @@ test('the cart view switches to its locked view when a change is refused for a h
   t.after(() => window.close());
   window.agendApps = { restUrl: 'https://shop.example/api/' };
   window.agendAppsShop = { payOnInvoice: '' };
-  const item = { id: '1', name: 'Event', unit_amount: 2000, currency: 'AUD', quantity: 1, product_type: 'membership', metadata: {} };
+  const item = { id: '1', name: 'Event', unit_amount: 2000, currency: 'AUD', quantity: 2, product_type: 'membership', metadata: {} };
+  let mutations = 0;
   window.fetch = async (url, options = {}) => {
     if (url.endsWith('/cart/clear')) return { ok: false, status: 409, json: async () => LOCKED };
+    if (url.includes('/cart/item')) { mutations += 1; return { ok: true, status: 200, json: async () => ({ data: item }) }; }
     if (url.endsWith('/cart/checkout-options')) return { ok: true, status: 200, json: async () => ({ data: { invoice: null } }) };
     return { ok: true, status: 200, json: async () => ({ data: { items: [item], total_amount: 2000, currency: 'AUD', status: 'current' } }) };
   };
@@ -118,4 +142,11 @@ test('the cart view switches to its locked view when a change is refused for a h
   assert.equal(cancel.hidden, false);
   assert.equal(cancel.disabled, false);
   assert.equal(window.document.querySelector('.agend-shop-btn-proceed-checkout').disabled, true);
+  const rowControls = Array.from(window.document.querySelectorAll('.agend-shop-cart-items button, .agend-shop-cart-items input'));
+  assert.ok(rowControls.length > 0);
+  assert.ok(rowControls.every((control) => control.disabled), 'steppers, quantity and remove are all disabled');
+  // A click that still reaches a handler changes nothing.
+  rowControls.forEach((control) => control.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
+  await tick();
+  assert.equal(mutations, 0);
 });

@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\Test;
 use WP_REST_Request;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/sites.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/cart.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/class-agend-apps-rest-controller.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/sites-routes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
@@ -118,5 +119,19 @@ final class AtemE2eFixesTest extends TestCase {
 
 		self::assertStringContainsString( 'You’re signed in', $markup );
 		self::assertStringNotContainsString( '>Sign in</h3>', $markup );
+	}
+
+	// -- Checkout completion ---------------------------------------------------
+
+	#[Test]
+	public function should_send_the_checkout_session_when_completing_one_and_nothing_extra_otherwise(): void {
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'order_id' => 'o1' ) ) );
+		agend_apps_cart_checkout_complete( 'cart-token', '', array( 'externalId' => 'cs_1' ) );
+		self::assertSame( 'POST', Agend_Test_WP::$requests[0]['method'] );
+		self::assertSame( array( 'externalId' => 'cs_1' ), json_decode( (string) Agend_Test_WP::$requests[0]['body'], true ) );
+
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array() ) );
+		agend_apps_cart_checkout_complete( 'cart-token' );
+		self::assertEmpty( Agend_Test_WP::$requests[1]['body'] );
 	}
 }

@@ -185,16 +185,17 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 			. '<p><a href="' . $retry . '">' . esc_html__( 'Check again', 'agend-apps-shop' ) . '</a></p></section>';
 	}
 
-	// A checkout this buyer started, returned from the payment page, that the
-	// platform could not be asked about just now (no status route on this
-	// platform release, a timeout, a cart already settled by the payment
-	// webhook). The payment page only sends the buyer here after taking
-	// payment, so the buyer is told so rather than "couldn't verify".
-	if ( 'received' === $status ) {
+	// A paid checkout this buyer started and returned from, that the platform
+	// could not answer for just now. Nothing is claimed either way: no
+	// "couldn't verify" after what may be a real payment, and no "payment
+	// received" without the platform saying so.
+	if ( 'unknown' === $status ) {
+		$retry = esc_url( add_query_arg( 'booking_ref', $ref, (string) get_option( 'agend_apps_shop_checkout_success_url', '' ) ) );
 		return '<section class="agend-booking-receipt agend-booking-receipt--received">'
-			. '<p class="agend-booking-receipt__status">' . esc_html__( 'Payment received', 'agend-apps-shop' ) . '</p>'
-			. '<h1>' . esc_html( $event_cart ? __( 'Thank you for registering', 'agend-apps-shop' ) : __( 'Thank you for your order', 'agend-apps-shop' ) ) . '</h1>'
-			. '<p>' . esc_html__( 'Your payment was received. Your confirmation email is on its way.', 'agend-apps-shop' ) . '</p>'
+			. '<p class="agend-booking-receipt__status">' . esc_html__( 'Booking received', 'agend-apps-shop' ) . '</p>'
+			. '<h1>' . esc_html__( 'Thank you', 'agend-apps-shop' ) . '</h1>'
+			. '<p>' . esc_html__( 'We’re finishing your booking. If your payment went through, your confirmation email will arrive shortly.', 'agend-apps-shop' ) . '</p>'
+			. '<p><a href="' . $retry . '">' . esc_html__( 'Check again', 'agend-apps-shop' ) . '</a></p>'
 			. $support . '</section>';
 	}
 
@@ -208,12 +209,14 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
  * Asks the platform what became of a paid checkout this buyer started.
  *
  * `GET /cart/checkout/status` (which returns the receipt with its events) is
- * asked first; released platforms do not have it, so a 404 for the route is
- * remembered for a day and `POST /cart/checkout/complete` is asked instead.
- * That route is the one a payment page's success return is meant to call: it
- * confirms the payment with the provider and fulfils the cart once, and a
- * repeat call for a settled checkout returns the same order. A confirmed
- * order is kept with the buyer's record so a reload does not ask again.
+ * asked first. Released platforms do not have it: only when the gateway says
+ * the route does not exist is that remembered for a day and
+ * `POST /cart/checkout/complete` asked instead, through Core's completion
+ * helper (its hooks run and the buyer's cached cart is cleared). That route
+ * is the one a payment page's success return is meant to call: it confirms
+ * the payment with the provider before fulfilling the cart once, and a repeat
+ * call for a settled checkout returns the same order. A confirmed order is
+ * kept with the buyer's record so a reload does not ask again.
  *
  * @param string               $ref    Booking reference.
  * @param string               $buyer  Buyer key.
@@ -221,8 +224,9 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
  * @param string               $cart   Guest cart session token.
  * @param string               $bearer Member bearer token, or ''.
  * @return array{status?: string, receipt?: array<string,mixed>} `confirmed`
- *         (with a receipt), `pending` (payment not yet confirmed), or
- *         `received` (the platform could not say).
+ *         (with a receipt), `pending` (the payment is not confirmed yet, or
+ *         another request is finishing it), or `unknown` (the platform could
+ *         not say; nothing is claimed either way).
  */
 function agend_apps_shop_booking_lookup( string $ref, string $buyer, array $record, string $cart, string $bearer ): array {
 	$session = (string) $record['session'];
@@ -231,27 +235,32 @@ function agend_apps_shop_booking_lookup( string $ref, string $buyer, array $reco
 		return array( 'status' => 'confirmed', 'receipt' => $record['confirmed'] );
 	}
 
-	$transport = array(
-		'cart_session' => $cart,
-		'bearer_token' => $bearer,
-		'timeout'      => 10,
-	);
-
 	if ( false === get_transient( 'agend_shop_booking_status_missing' ) ) {
-		$response = agend_apps_api()->request( 'GET', '/cart/checkout/status', array( 'query' => array( 'externalId' => $session ) ) + $transport );
-		if ( ! is_wp_error( $response ) && is_array( $response['data'] ?? null ) && in_array( $response['data']['status'] ?? '', array( 'confirmed', 'pending' ), true ) ) {
-			return $response['data'];
+		$response = agend_apps_api()->request(
+			'GET',
+			'/cart/checkout/status',
+			array(
+				'query'        => array( 'externalId' => $session ),
+				'cart_session' => $cart,
+				'bearer_token' => $bearer,
+				'timeout'      => 10,
+			)
+		);
+		if ( ! is_wp_error( $response ) ) {
+			$data = is_array( $response['data'] ?? null ) ? $response['data'] : array();
+			return in_array( $data['status'] ?? '', array( 'confirmed', 'pending' ), true ) ? $data : array( 'status' => 'unknown' );
 		}
-		if ( is_wp_error( $response ) && agend_apps_shop_booking_is_missing_route( $response ) ) {
-			set_transient( 'agend_shop_booking_status_missing', 1, DAY_IN_SECONDS );
+		if ( ! agend_apps_shop_booking_is_missing_route( $response ) ) {
+			return array( 'status' => 'unknown' );
 		}
+		set_transient( 'agend_shop_booking_status_missing', 1, DAY_IN_SECONDS );
 	}
 
-	$response = agend_apps_api()->request( 'POST', '/cart/checkout/complete', array( 'body' => array( 'externalId' => $session ) ) + $transport );
+	$response = agend_apps_shop_booking_complete( $session, $cart, $bearer );
 	if ( ! is_wp_error( $response ) ) {
 		$order = is_array( $response['data'] ?? null ) ? $response['data'] : array();
 		if ( empty( $order['order_id'] ) && empty( $order['order_number'] ) ) {
-			return array( 'status' => 'received' );
+			return array( 'status' => 'unknown' );
 		}
 		$receipt = array();
 		if ( is_string( $order['order_number'] ?? null ) && '' !== $order['order_number'] ) {
@@ -266,11 +275,45 @@ function agend_apps_shop_booking_lookup( string $ref, string $buyer, array $reco
 		return array( 'status' => 'confirmed', 'receipt' => $receipt );
 	}
 
-	$data = $response->get_error_data();
-	if ( is_array( $data ) && 402 === ( $data['status_code'] ?? null ) ) {
+	// 402: the provider has not confirmed the payment yet. 409: another
+	// request (the payment webhook) holds the checkout while it finishes it,
+	// or the payment is under review. Both clear on their own.
+	$data   = $response->get_error_data();
+	$status = is_array( $data ) ? ( $data['status_code'] ?? null ) : null;
+	if ( 402 === $status || 409 === $status ) {
 		return array( 'status' => 'pending' );
 	}
-	return array( 'status' => 'received' );
+	return array( 'status' => 'unknown' );
+}
+
+/**
+ * Completes one checkout session through Core's helper, which runs its hooks
+ * and clears the buyer's cached cart. A Core too old to pass the session id
+ * gets the same request made directly.
+ *
+ * @param string $session Checkout session (external) id.
+ * @param string $cart    Guest cart session token.
+ * @param string $bearer  Member bearer token, or ''.
+ * @return array|WP_Error
+ */
+function agend_apps_shop_booking_complete( string $session, string $cart, string $bearer ) {
+	$body = array( 'externalId' => $session );
+	if ( function_exists( 'agend_apps_cart_checkout_complete' ) ) {
+		$helper = new ReflectionFunction( 'agend_apps_cart_checkout_complete' );
+		if ( $helper->getNumberOfParameters() >= 3 ) {
+			return agend_apps_cart_checkout_complete( $cart, $bearer, $body );
+		}
+	}
+	return agend_apps_api()->request(
+		'POST',
+		'/cart/checkout/complete',
+		array(
+			'body'         => $body,
+			'cart_session' => $cart,
+			'bearer_token' => $bearer,
+			'timeout'      => 10,
+		)
+	);
 }
 
 /**

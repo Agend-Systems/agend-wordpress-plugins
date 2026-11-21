@@ -196,16 +196,26 @@
 
   // WordPress's own cart refusals that are written for visitors.
   var CART_VISITOR_CODES = ['agend_apps_sign_in_required', 'agend_apps_invoice_disabled', 'agend_apps_invalid_purchase_order'];
+  // Platform refusals worded for buyers ("Only 2 places are left …").
+  var CART_BUYER_CODES = ['PRODUCT_UNAVAILABLE', 'DUPLICATE_ATTENDEE', 'MAX_QUANTITY_EXCEEDED', 'INVALID_QUANTITY', 'INVALID_DISCOUNT_CODE', 'INVALID_PURCHASE_ORDER'];
 
   function cartErrorFallback(status, body, fallback) {
     var platform = body && body.data && body.data.body && body.data.body.error;
     var code = (platform && platform.code) || '';
     var raw = (platform && platform.message) || (body && body.message) || '';
-    if (code === 'CHECKOUT_ALREADY_INITIATED' || code === 'CART_LOCKED' || /not mutable|status: locked/i.test(raw)) {
-      return {
-        message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
-        locked: true,
-      };
+    if (code === 'CHECKOUT_ALREADY_INITIATED' || code === 'CART_LOCKED' || /not mutable/i.test(raw)) {
+      var details = platform && platform.details;
+      var cartStatus = (details && typeof details.currentStatus === 'string' && details.currentStatus) || ((/status: ([a-z_]+)/i.exec(raw) || [])[1]) || '';
+      if (cartStatus === '' || cartStatus.toLowerCase() === 'locked') {
+        return {
+          message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
+          locked: true,
+        };
+      }
+      return { message: 'Your cart has changed since this page loaded. Refresh the page, then try again.', locked: false, stale: true };
+    }
+    if (CART_BUYER_CODES.indexOf(code) !== -1 && typeof raw === 'string' && raw !== '') {
+      return { message: raw, locked: false };
     }
     if (body && typeof body.code === 'string' && CART_VISITOR_CODES.indexOf(body.code) !== -1 && typeof body.message === 'string' && body.message !== '') {
       return { message: body.message, locked: false };

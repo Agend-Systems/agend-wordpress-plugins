@@ -8,6 +8,7 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once dirname( __DIR__ ) . '/includes/booking-confirmation.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/cart.php';
 
 final class BookingConfirmationTest extends TestCase {
 	#[Test]
@@ -118,7 +119,6 @@ final class BookingConfirmationTest extends TestCase {
 
 	#[Test]
 	public function should_tell_whether_the_cart_holds_event_tickets(): void {
-		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/cart.php';
 		\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'cart' => array( 'items' => array( array( 'product_type' => 'event_tickets' ) ) ) ) ) );
 		self::assertTrue( agend_apps_shop_booking_cart_has_events( 'events-cart', '' ) );
 		\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'items' => array( array( 'product_type' => 'membership' ) ) ) ) );
@@ -143,6 +143,7 @@ final class BookingConfirmationTest extends TestCase {
 		self::assertStringContainsString( '/cart/checkout/status', $urls[0] );
 		self::assertStringContainsString( '/cart/checkout/complete', $urls[1] );
 		self::assertStringContainsString( 'cs_paid', (string) \Agend_Test_WP::$requests[1]['body'] );
+		self::assertSame( 'POST', \Agend_Test_WP::$requests[1]['method'] );
 
 		// Remembered: a reload neither asks the missing route again nor
 		// completes the checkout twice.
@@ -168,12 +169,25 @@ final class BookingConfirmationTest extends TestCase {
 		// The webhook settled and removed the cart first: the platform no
 		// longer knows the checkout, but the buyer came back from paying.
 		\Agend_Test_WP::queue_response( 404, array( 'success' => false, 'error' => array( 'code' => 'NOT_FOUND', 'message' => 'Checkout session not found' ) ) );
-		self::assertSame( array( 'status' => 'received' ), agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', $record, 'buyer', '' ) );
-		self::assertCount( 2, \Agend_Test_WP::$requests, 'the missing status route is not asked again' );
+		self::assertSame( array( 'status' => 'unknown' ), agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', $record, 'buyer', '' ) );
+
+		// The webhook is fulfilling the same checkout at this moment.
+		\Agend_Test_WP::queue_response( 409, array( 'success' => false, 'error' => array( 'code' => 'CART_CONFLICT', 'message' => 'claimed' ) ) );
+		self::assertSame( array( 'status' => 'pending' ), agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', $record, 'buyer', '' ) );
+		self::assertCount( 3, \Agend_Test_WP::$requests, 'the missing status route is not asked again' );
 	}
 
 	#[Test]
-	public function should_show_payment_received_when_the_platform_cannot_confirm_a_returned_payment(): void {
+	public function should_not_complete_anything_when_the_status_route_exists_but_fails(): void {
+		\Agend_Test_WP::queue_response( 503, array( 'success' => false, 'error' => array( 'code' => 'UNAVAILABLE', 'message' => 'down' ) ) );
+		$result = agend_apps_shop_booking_lookup( '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d', 'cart:buyer', array( 'session' => 'cs_paid', 'free' => false ), 'buyer', '' );
+		self::assertSame( array( 'status' => 'unknown' ), $result );
+		self::assertCount( 1, \Agend_Test_WP::$requests );
+		self::assertFalse( get_transient( 'agend_shop_booking_status_missing' ) );
+	}
+
+	#[Test]
+	public function should_neither_claim_nor_deny_a_payment_the_platform_cannot_answer_for(): void {
 		update_option( 'agend_apps_shop_checkout_success_url', 'https://example.test/thanks/' );
 		$ref = '6f1c1d6e-0a51-4b4a-9c0b-1f7d2a3b4c5d';
 		$_GET['booking_ref']                = $ref;
@@ -185,9 +199,11 @@ final class BookingConfirmationTest extends TestCase {
 		$html = agend_apps_shop_render_booking_confirmation();
 		unset( $_GET['booking_ref'], $_COOKIE['agend_cart_session'] );
 
-		self::assertStringContainsString( 'Payment received', $html );
-		self::assertStringContainsString( 'Your confirmation email is on its way.', $html );
+		self::assertStringContainsString( 'Booking received', $html );
+		self::assertStringContainsString( 'If your payment went through, your confirmation email will arrive shortly.', $html );
+		self::assertStringContainsString( 'Check again', $html );
 		self::assertStringNotContainsString( 'couldn’t verify', $html );
+		self::assertStringNotContainsString( 'Payment received', $html );
 	}
 
 }

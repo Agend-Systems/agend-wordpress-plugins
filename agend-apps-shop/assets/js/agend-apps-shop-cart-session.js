@@ -57,11 +57,14 @@
 	 * @param {number} status   HTTP status of the WordPress REST response.
 	 * @param {Object} body     Decoded REST response body.
 	 * @param {string} fallback Text for an error with nothing more specific.
-	 * @return {{message: string, locked: boolean}} What to show, and whether the
-	 *         cart is held by a checkout in progress (so a link to the cart page,
-	 *         where that checkout can be finished or cancelled, helps).
+	 * @return {{message: string, locked: boolean, stale: (boolean|undefined)}}
+	 *         What to show; whether the cart is held by a checkout in progress
+	 *         (so a link to the cart page, where that checkout can be finished
+	 *         or cancelled, helps); and whether the cart was completed or
+	 *         abandoned since the page loaded (so the page should reload it).
 	 */
 	let VISITOR_CODES = [ 'agend_apps_sign_in_required', 'agend_apps_invoice_disabled', 'agend_apps_invalid_purchase_order' ];
+	let BUYER_CODES   = [ 'PRODUCT_UNAVAILABLE', 'DUPLICATE_ATTENDEE', 'MAX_QUANTITY_EXCEEDED', 'INVALID_QUANTITY', 'INVALID_DISCOUNT_CODE', 'INVALID_PURCHASE_ORDER' ];
 
 	function describeError( status, body, fallback ) {
 		let generic  = fallback || 'Something went wrong with your cart. Please try again.';
@@ -69,11 +72,28 @@
 		let code     = ( platform && platform.code ) || '';
 		let raw      = ( platform && platform.message ) || ( body && body.message ) || '';
 
-		if ( 'CHECKOUT_ALREADY_INITIATED' === code || 'CART_LOCKED' === code || /not mutable|status: locked/i.test( raw ) ) {
+		if ( 'CHECKOUT_ALREADY_INITIATED' === code || 'CART_LOCKED' === code || /not mutable/i.test( raw ) ) {
+			// The platform raises this for any cart that is not open for
+			// changes. Only a locked cart has a checkout to finish or cancel;
+			// a completed or abandoned one is out of date on this page.
+			let details    = platform && platform.details;
+			let cartStatus = ( details && 'string' === typeof details.currentStatus && details.currentStatus ) || ( ( /status: ([a-z_]+)/i.exec( raw ) || [] )[ 1 ] ) || '';
+			if ( '' === cartStatus || 'locked' === cartStatus.toLowerCase() ) {
+				return {
+					message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
+					locked: true,
+				};
+			}
 			return {
-				message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
-				locked: true,
+				message: 'Your cart has changed since this page loaded. Refresh the page, then try again.',
+				locked: false,
+				stale: true,
 			};
+		}
+		// Refusals the platform words for buyers ("Only 2 places are left
+		// for Early Bird. Choose a smaller quantity.").
+		if ( -1 !== BUYER_CODES.indexOf( code ) && 'string' === typeof raw && '' !== raw ) {
+			return { message: raw, locked: false };
 		}
 		// WordPress's own refusals that are written for visitors.
 		if ( body && 'string' === typeof body.code && -1 !== VISITOR_CODES.indexOf( body.code ) && 'string' === typeof body.message && '' !== body.message ) {

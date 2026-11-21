@@ -289,9 +289,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * Used when a change is refused because a checkout holds the cart.
 		 */
 		function showLockedState() {
+			lockAllInputs();
 			cartLocked = true;
 			lockedNoticeEl.removeAttribute( 'hidden' );
 			setEditControlsDisabled( true );
+			// The quantity steppers and the attendee editor too: every control
+			// that would change the cart.
+			contentEl.querySelectorAll( '.agend-shop-cart-items button, .agend-shop-cart-items input, .agend-shop-cart-items select, .agend-shop-cart-items textarea' ).forEach( function ( control ) {
+				control.disabled = true;
+			} );
 			if ( cancelBtn ) {
 				cancelBtn.hidden = false;
 				cancelBtn.disabled = false;
@@ -309,6 +315,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 */
 		function showFailure( status, body, fallback ) {
 			var described = describeCartError( status, body, fallback );
+			if ( described.stale ) {
+				setEditControlsDisabled( true );
+				showMessage( described.message, 'error' );
+				return;
+			}
 			if ( described.locked ) {
 				showLockedState();
 				showMessage( 'This cart is being checked out, so it can\'t be changed right now. Finish paying, or choose "Cancel checkout and edit cart" to make changes.', 'error' );
@@ -1108,6 +1119,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {number} quantity New quantity.
 		 */
 		function changeEventQty( item, quantity ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs( item.id );
 			putItemQuantity( item, quantity )
 				.then( function ( data ) {
@@ -1143,6 +1158,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Object} item Cart item.
 		 */
 		function handleTicketDecrement( item ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			if ( item.quantity <= 1 ) {
 				removeItem( item.id );
 				return;
@@ -1602,6 +1621,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {HTMLElement} status  Status text element.
 		 */
 		function saveAttendees( item, seatEls, fields, saveBtn, status ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			var attendees = [];
 			for ( var i = 0; i < seatEls.length; i++ ) {
 				var result = readSeat( seatEls[ i ] );
@@ -1671,6 +1694,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {HTMLElement} input    The quantity input element (for revert on error).
 		 */
 		function updateItemQty( item, quantity, input ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs(item.id)
 			document.querySelector(`tr[data--item-id="${item.id}"]`).classList.add('agend-cart-row-loading')
 			var prevValue = input.getAttribute( 'data-prev-value' );
@@ -1717,6 +1744,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {string} itemId Cart item ID.
 		 */
 		function removeItem( itemId ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs(itemId)
 			fetch( restUrl + 'cart/item/delete/' + encodeURIComponent(itemId), {
 				method: 'DELETE',
@@ -1745,6 +1776,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * Sends a DELETE request to clear all items from the cart.
 		 */
 		function clearCart() {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockAllInputs()
 			fetch( restUrl + 'cart/clear', {
 				method: 'DELETE',
