@@ -132,6 +132,15 @@
 		describeError: describeError,
 
 		/**
+		 * Settles once any abandoned checkout this page returned from has been
+		 * cancelled (see cancelAbandonedCheckout below), so the cart view loads
+		 * the unlocked cart. Resolves at once on any other page.
+		 *
+		 * @type {Promise<void>}
+		 */
+		landing: Promise.resolve(),
+
+		/**
 		 * Returns the current cart session token from the cookie.
 		 *
 		 * @return {string|null} Session token or null.
@@ -172,4 +181,49 @@
 			return headers;
 		},
 	};
+
+	/**
+	 * The payment page's cancel link returns here with ?agend_checkout=cancelled
+	 * (added by the shop to the checkout's cancel URL). Tell the platform the
+	 * checkout was abandoned so the cart unlocks at once and can be checked out
+	 * again. Best effort and safe to repeat: a cart that is no longer locked,
+	 * or was paid meanwhile, is refused by the platform and nothing is shown.
+	 * The marker is then removed from the address so a reload does not ask
+	 * again.
+	 */
+	function cancelAbandonedCheckout() {
+		let url;
+		try {
+			url = new URL( window.location.href );
+		} catch ( error ) {
+			return;
+		}
+		if ( 'cancelled' !== url.searchParams.get( 'agend_checkout' ) ) {
+			return;
+		}
+		url.searchParams.delete( 'agend_checkout' );
+		try {
+			window.history.replaceState( window.history.state, '', url.href );
+		} catch ( error ) {
+			// The address keeps the marker; the cancel call is still safe to repeat.
+		}
+
+		let restUrl = ( window.agendApps && window.agendApps.restUrl ) || '';
+		if ( ! restUrl || 'function' !== typeof window.fetch ) {
+			return;
+		}
+		let headers = window.AgendCartSession.getHeaders();
+		window.AgendCartSession.landing = window.fetch( restUrl + 'cart/checkout/cancel', {
+			method: 'POST',
+			headers: headers,
+		} ).then( function ( response ) {
+			if ( response && response.ok ) {
+				document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+			}
+		} ).catch( function () {
+			// Best effort: the cart page still offers "Cancel checkout and edit cart".
+		} );
+	}
+
+	cancelAbandonedCheckout();
 }() );

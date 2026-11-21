@@ -57,6 +57,8 @@ function agend_apps_shop_bootstrap(): void {
 
 	require_once AGEND_APPS_SHOP_DIR . 'includes/booking-confirmation.php';
 	agend_apps_shop_register_booking_confirmation();
+	require_once AGEND_APPS_SHOP_DIR . 'includes/checkout-cancel-landing.php';
+	agend_apps_shop_register_checkout_cancel_landing();
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/schema.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/render.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/blocks.php';

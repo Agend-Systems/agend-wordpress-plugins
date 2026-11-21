@@ -2359,8 +2359,18 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			loadCart();
 		} );
 
-		// Initial load.
-		loadCart();
+		// Initial load, once any abandoned checkout this page returned from has
+		// been cancelled (AgendCartSession.landing), so the cart shows unlocked.
+		var landing = window.AgendCartSession && window.AgendCartSession.landing;
+		if ( landing && 'function' === typeof landing.then ) {
+			landing.then( function () {
+				loadCart();
+			}, function () {
+				loadCart();
+			} );
+		} else {
+			loadCart();
+		}
 	}
 
 	applyTheme();
