@@ -1,6 +1,6 @@
 # Agend Apps Core
 
-## 1.87.0 — Jobs department, closing dates and free listings
+## 1.88.0 — Jobs department, closing dates and free listings
 
 Jobs cards and detail views gain a department line when Agend supplies one.
 The catalogue's existing **Show closing date** (`show_closing_date`, default on)
