@@ -483,6 +483,28 @@ alone has no Elementor plugin to register the handle, so a record block would
 have rendered unstyled. The old handle no longer exists, so a site that
 dequeued or depended on it by name needs updating.
 
+## Event pricing wording
+
+Event cards, ticket lists and the event detail show a member price and a price
+for everyone else. Out of the box the second price is labelled "Non-Members"
+and the note under the Register button reads "The non-member rate is shown
+where available." A site that uses other wording sets it in **Settings > Agend
+Widgets > Event Pricing** (`includes/records/pricing-labels.php`):
+
+- **Non-member price label** (`agend_apps_non_member_label` option): the label
+  beside the price, for example `Public`.
+- **Non-member rate wording** (`agend_apps_non_member_rate_label` option): the
+  word used mid-sentence in the note, for example `public`, giving "The public
+  rate is shown where available." With custom wording, the all-free note reads
+  "Free for everyone." instead of "Free for members and non-members."
+
+Both are blank by default, which keeps the built-in, translatable wording, so a
+site that sets nothing renders exactly as before. Code can override either with
+the `agend_apps_non_member_label` and `agend_apps_non_member_rate_label`
+filters (an empty return is ignored). The server-rendered detail reads them
+directly; the browser-rendered catalogue receives them as
+`window.agendApps.pricingLabels`. Output is escaped where it is printed.
+
 ## Deprecated names (removed in the release after 1.8.0)
 
 The page-builder-agnostic record layer under `includes/records/` shipped

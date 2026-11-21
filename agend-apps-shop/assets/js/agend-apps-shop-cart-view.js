@@ -534,6 +534,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			qtyInput.name = 'agend-shop-cart-view-qty-' + item.id;
 			qtyInput.value = item.quantity;
 			qtyInput.setAttribute( 'data-prev-value', item.quantity );
+			// The number field has no visible label of its own (the column header
+			// is not tied to it), so it is named for the product it changes.
+			qtyInput.setAttribute( 'aria-label', item.name ? 'Quantity for ' + item.name : 'Quantity' );
 
 			var incBtn = document.createElement( 'button' );
 			incBtn.className = 'agend-shop-atc-qty-btn agend-shop-qty-increment';

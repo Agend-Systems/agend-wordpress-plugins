@@ -24,6 +24,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 // agend_apps_records_custom_field_value_labels(), which lives with the shared
 // formatters so the built-in detail can use it without loading this file.
 require_once __DIR__ . '/format.php';
+// The site's own wording for the non-member price (the field label below).
+require_once __DIR__ . '/pricing-labels.php';
 
 /**
  * Field kinds. `agend_apps_records_format_field()` switches on these.
@@ -822,7 +824,7 @@ function agend_apps_records_field_registry(): array {
 		'event:tags'                  => array( 'label' => __( 'Tags', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_tags' ),
 		'event:price_from'            => array( 'label' => __( 'Price from (viewer)', 'agend-apps-core' ), 'kind' => 'price', 'get' => 'agend_apps_records_record_event_price_from' ),
 		'event:price_member_from'     => array( 'label' => __( 'Member price from', 'agend-apps-core' ), 'kind' => 'price', 'get' => $num( 'price_summary.member_from' ) ),
-		'event:price_non_member_from' => array( 'label' => __( 'Non-member price from', 'agend-apps-core' ), 'kind' => 'price', 'get' => $num( 'price_summary.non_member_from' ) ),
+		'event:price_non_member_from' => array( 'label' => agend_apps_records_non_member_price_from_label(), 'kind' => 'price', 'get' => $num( 'price_summary.non_member_from' ) ),
 		'event:sold_out'              => array( 'label' => __( 'Sold out', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'sold_out' ) ),
 		'event:is_registered'         => array( 'label' => __( 'Viewer is registered', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'my_registration' ) ),
 		'event:viewer_price_group'    => array( 'label' => __( 'Viewer price group', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'viewer_price_group' ) ),
@@ -1124,6 +1126,12 @@ function agend_apps_records_field_label( string $key, array $record = array(), a
 
 	if ( ! isset( $registry[ $key ] ) ) {
 		return '';
+	}
+
+	// Read at render time, not from the request-cached registry, so the site's
+	// wording and its filter always apply.
+	if ( 'event:price_non_member_from' === $key ) {
+		return agend_apps_records_non_member_price_from_label();
 	}
 
 	if ( 'common:custom_field' === $key || 'common:custom_field_label' === $key ) {

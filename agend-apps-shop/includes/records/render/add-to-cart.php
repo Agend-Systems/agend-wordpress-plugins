@@ -51,7 +51,7 @@ function agend_apps_records_render_add_to_cart( array $settings ): string {
 	<div class="agend-apps-shop-add-to-cart elementor-widget-container">
 		<div class="agend-shop-atc-quantity">
 			<button class="agend-shop-atc-qty-btn agend-shop-atc-qty-decrement" aria-label="<?php esc_attr_e( 'Decrease quantity', 'agend-apps-shop' ); ?>">&#8722;</button>
-			<input name="agend-shop-product-<?php echo esc_attr( $product_id ); ?>" class="agend-shop-atc-qty-input" type="number" value="<?php echo esc_attr( $quantity ); ?>" min="1"<?php echo $max_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
+			<input name="agend-shop-product-<?php echo esc_attr( $product_id ); ?>" class="agend-shop-atc-qty-input" type="number" aria-label="<?php esc_attr_e( 'Quantity', 'agend-apps-shop' ); ?>" value="<?php echo esc_attr( $quantity ); ?>" min="1"<?php echo $max_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
 			<button class="agend-shop-atc-qty-btn agend-shop-atc-qty-increment" aria-label="<?php esc_attr_e( 'Increase quantity', 'agend-apps-shop' ); ?>">&#43;</button>
 		</div>
 		<button class="agend-shop-add-to-cart-btn elementor-button"
