@@ -100,4 +100,33 @@ final class CheckoutCancelLandingTest extends TestCase {
 			self::assertStringNotContainsString( $token, (string) json_encode( $value ) );
 		}
 	}
+
+	#[Test]
+	public function should_revoke_the_token_when_a_newer_checkout_has_an_off_site_cancel_url(): void {
+		$old = $this->startCheckout();
+		$this->startCheckout( 'guest-cart', 'https://pay.other.test/cancelled' );
+		self::assertSame( array( 'cancelled' => false ), $this->returnWith( $old )->get_data() );
+		self::assertSame( 0, $this->cancelCalls() );
+	}
+
+	#[Test]
+	public function should_turn_away_a_request_that_overlaps_one_already_cancelling(): void {
+		$token = $this->startCheckout();
+		// Another request holds the claim for this token right now.
+		add_option( 'agend_shop_cancel_claim_' . substr( agend_apps_shop_cancel_hash( $token ), 0, 40 ), '1' );
+		self::assertSame( array( 'cancelled' => false ), $this->returnWith( $token )->get_data() );
+		self::assertSame( 0, $this->cancelCalls() );
+	}
+
+	#[Test]
+	public function should_turn_away_a_request_that_claims_after_the_first_has_spent_the_token(): void {
+		$token = $this->startCheckout();
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'status' => 'cancelled' ) ) );
+		$this->returnWith( $token );
+		// The first request has finished and released its claim; the replay
+		// can claim, but finds the token spent.
+		self::assertSame( array( 'cancelled' => false ), $this->returnWith( $token )->get_data() );
+		self::assertSame( 1, $this->cancelCalls() );
+		self::assertArrayNotHasKey( 'agend_shop_cancel_claim_' . substr( agend_apps_shop_cancel_hash( $token ), 0, 40 ), Agend_Test_WP::$options );
+	}
 }

@@ -15,8 +15,9 @@
  * next checkout. The cart session script, which every cart surface loads,
  * posts the token to `POST /agend-apps/v1/cart/checkout/return-cancel`, which
  * cancels the checkout through Core only when the token is this buyer's
- * latest one, then forgets it. So a crafted link, or an old cancel-return
- * address opened after a newer checkout started, cancels nothing. The call is
+ * latest one, then forgets it. Every new checkout revokes the earlier token,
+ * and a token is claimed atomically, so a crafted link, an old cancel-return
+ * address opened after a newer checkout started, or a replay cancels nothing. The call is
  * best effort: a cart that is no longer locked, or was paid meanwhile, is
  * refused by the platform and left as it is, quietly.
  *
@@ -110,14 +111,19 @@ function agend_apps_shop_register_checkout_cancel_landing(): void {
 		}
 	);
 
-	// The token is kept only once the checkout has started, and replaces any
-	// earlier one for this buyer.
+	// Every checkout the buyer starts revokes their earlier token, so only the
+	// latest checkout's return can cancel. A checkout with a same-site cancel
+	// URL then keeps its own token; one with an off-site cancel URL keeps none.
 	add_filter(
 		'agend_apps_cart_checkout_response',
 		static function ( array $response, string $cart, string $bearer = '' ) use ( &$token ): array {
 			$buyer = agend_apps_shop_cancel_buyer( $cart, $bearer );
-			if ( '' !== $token && '' !== $buyer ) {
-				set_transient( agend_apps_shop_cancel_key( $buyer ), agend_apps_shop_cancel_hash( $token ), AGEND_APPS_SHOP_CANCEL_TTL );
+			if ( '' !== $buyer ) {
+				if ( '' !== $token ) {
+					set_transient( agend_apps_shop_cancel_key( $buyer ), agend_apps_shop_cancel_hash( $token ), AGEND_APPS_SHOP_CANCEL_TTL );
+				} else {
+					delete_transient( agend_apps_shop_cancel_key( $buyer ) );
+				}
 			}
 			$token = '';
 			return $response;
@@ -167,10 +173,28 @@ function agend_apps_shop_cancel_on_return( WP_REST_Request $request ): WP_REST_R
 		return new WP_REST_Response( array( 'cancelled' => false ), 200 );
 	}
 
-	// Single use: the token is spent whatever the platform answers.
+	// Single use, even for requests sent at the same moment: the token is
+	// claimed by inserting a row keyed to it. The options table's unique key
+	// lets exactly one insert succeed; every other request is turned away.
+	$hash  = agend_apps_shop_cancel_hash( $token );
+	$claim = 'agend_shop_cancel_claim_' . substr( $hash, 0, 40 );
+	if ( ! add_option( $claim, '1', '', false ) ) {
+		return new WP_REST_Response( array( 'cancelled' => false ), 200 );
+	}
+
+	// With the claim held, the token must still be there: a request that ran
+	// first has spent it, and a newer checkout's token is never touched.
+	$current = get_transient( agend_apps_shop_cancel_key( $buyer ) );
+	if ( ! is_string( $current ) || ! hash_equals( $current, $hash ) ) {
+		delete_option( $claim );
+		return new WP_REST_Response( array( 'cancelled' => false ), 200 );
+	}
 	delete_transient( agend_apps_shop_cancel_key( $buyer ) );
 
 	$result = function_exists( 'agend_apps_cart_checkout_cancel' ) ? agend_apps_cart_checkout_cancel( $cart, $bearer ) : null;
+
+	// The token is gone, so the claim row has done its job.
+	delete_option( $claim );
 
 	return new WP_REST_Response( array( 'cancelled' => is_array( $result ) ), 200 );
 }
