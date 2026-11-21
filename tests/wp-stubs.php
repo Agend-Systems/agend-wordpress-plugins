@@ -4043,3 +4043,15 @@ if ( ! function_exists( 'wp_is_uuid' ) ) {
 		return (bool) preg_match( $regex, $uuid );
 	}
 }
+
+if ( ! function_exists( 'wp_generate_password' ) ) {
+	/** `wp_generate_password()` stand-in: random letters and digits of the given length. */
+	function wp_generate_password( int $length = 12, bool $special_chars = true, bool $extra_special_chars = false ): string {
+		$chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+		$out   = '';
+		for ( $i = 0; $i < $length; $i++ ) {
+			$out .= $chars[ random_int( 0, strlen( $chars ) - 1 ) ];
+		}
+		return $out;
+	}
+}

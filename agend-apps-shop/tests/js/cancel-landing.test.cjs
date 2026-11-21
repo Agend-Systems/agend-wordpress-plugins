@@ -35,9 +35,10 @@ async function land(t, { url, cancelStatus = 200 }) {
   let locked = true;
   window.fetch = async (requestUrl, options = {}) => {
     calls.push({ path: new URL(requestUrl).pathname, method: options.method || 'GET' });
-    if (requestUrl.endsWith('/cart/checkout/cancel')) {
+    if (requestUrl.endsWith('/cart/checkout/return-cancel')) {
+      calls[calls.length - 1].body = JSON.parse(options.body);
       if (cancelStatus === 200) locked = false;
-      return { ok: cancelStatus === 200, status: cancelStatus, json: async () => (cancelStatus === 200 ? { data: { status: 'cancelled' } } : { code: 'agend_api_error', message: 'Checkout not initiated' }) };
+      return { ok: true, status: 200, json: async () => ({ cancelled: cancelStatus === 200 }) };
     }
     if (requestUrl.endsWith('/cart/checkout-options')) return { ok: true, status: 200, json: async () => ({ data: { invoice: null } }) };
     const item = { id: '1', name: 'Ticket', unit_amount: 8800, currency: 'AUD', quantity: 1, product_type: 'membership', metadata: {} };
@@ -52,11 +53,12 @@ async function land(t, { url, cancelStatus = 200 }) {
   return { window, calls };
 }
 
-test('a cancel return cancels the abandoned checkout once, before the cart loads, and drops the marker', async (t) => {
-  const { window, calls } = await land(t, { url: 'https://shop.example/cart/?continue=x&agend_checkout=cancelled' });
-  const cancels = calls.filter((c) => c.path === '/api/cart/checkout/cancel');
+test('a cancel return sends its token once, before the cart loads, and drops both arguments', async (t) => {
+  const { window, calls } = await land(t, { url: 'https://shop.example/cart/?continue=x&agend_checkout=cancelled&agend_cancel=tok123' });
+  const cancels = calls.filter((c) => c.path === '/api/cart/checkout/return-cancel');
   assert.equal(cancels.length, 1);
   assert.equal(cancels[0].method, 'POST');
+  assert.deepEqual(cancels[0].body, { token: 'tok123' });
   const firstCart = calls.findIndex((c) => c.path === '/api/cart');
   assert.ok(firstCart > calls.indexOf(cancels[0]), 'the cart is read after the cancel');
   assert.equal(window.location.search, '?continue=x');
@@ -64,16 +66,18 @@ test('a cancel return cancels the abandoned checkout once, before the cart loads
   assert.equal(window.document.querySelector('.agend-shop-cart-message').textContent, '');
 });
 
-test('a refused cancel (no checkout to cancel) is ignored quietly', async (t) => {
+test('a refused cancel (no checkout to cancel, or a stale token) is ignored quietly', async (t) => {
   for (const status of [404, 409]) {
-    const { window, calls } = await land(t, { url: 'https://shop.example/cart/?agend_checkout=cancelled', cancelStatus: status });
-    assert.equal(calls.filter((c) => c.path === '/api/cart/checkout/cancel').length, 1);
+    const { window, calls } = await land(t, { url: 'https://shop.example/cart/?agend_checkout=cancelled&agend_cancel=tok', cancelStatus: status });
+    assert.equal(calls.filter((c) => c.path === '/api/cart/checkout/return-cancel').length, 1);
     assert.ok(calls.some((c) => c.path === '/api/cart'));
     assert.equal(window.document.querySelector('.agend-shop-cart-message').textContent, '');
   }
 });
 
-test('any other visit to the cart asks nothing', async (t) => {
-  const { calls } = await land(t, { url: 'https://shop.example/cart/' });
-  assert.equal(calls.filter((c) => c.path === '/api/cart/checkout/cancel').length, 0);
+test('any other visit, or a marker without a token, asks nothing', async (t) => {
+  for (const url of ['https://shop.example/cart/', 'https://shop.example/events/?agend_checkout=cancelled']) {
+    const { calls } = await land(t, { url });
+    assert.equal(calls.filter((c) => c.path === '/api/cart/checkout/return-cancel').length, 0);
+  }
 });

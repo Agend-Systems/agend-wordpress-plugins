@@ -183,13 +183,14 @@
 	};
 
 	/**
-	 * The payment page's cancel link returns here with ?agend_checkout=cancelled
-	 * (added by the shop to the checkout's cancel URL). Tell the platform the
-	 * checkout was abandoned so the cart unlocks at once and can be checked out
-	 * again. Best effort and safe to repeat: a cart that is no longer locked,
-	 * or was paid meanwhile, is refused by the platform and nothing is shown.
-	 * The marker is then removed from the address so a reload does not ask
-	 * again.
+	 * The payment page's cancel link returns here with
+	 * ?agend_checkout=cancelled&agend_cancel=<token> (added by the shop to the
+	 * checkout's cancel URL). The token goes to the shop's return-cancel route,
+	 * which cancels the abandoned checkout only when the token is this buyer's
+	 * latest one, so the cart unlocks at once and can be checked out again. A
+	 * crafted or stale link cancels nothing. Best effort and quiet: any refusal
+	 * is ignored. Both arguments are removed from the address first, so a
+	 * reload or a shared link does not ask again.
 	 */
 	function cancelAbandonedCheckout() {
 		let url;
@@ -201,23 +202,29 @@
 		if ( 'cancelled' !== url.searchParams.get( 'agend_checkout' ) ) {
 			return;
 		}
+		let token = url.searchParams.get( 'agend_cancel' ) || '';
 		url.searchParams.delete( 'agend_checkout' );
+		url.searchParams.delete( 'agend_cancel' );
 		try {
 			window.history.replaceState( window.history.state, '', url.href );
 		} catch ( error ) {
-			// The address keeps the marker; the cancel call is still safe to repeat.
+			// The address keeps the arguments; the token is single use anyway.
 		}
 
 		let restUrl = ( window.agendApps && window.agendApps.restUrl ) || '';
-		if ( ! restUrl || 'function' !== typeof window.fetch ) {
+		if ( ! token || ! restUrl || 'function' !== typeof window.fetch ) {
 			return;
 		}
 		let headers = window.AgendCartSession.getHeaders();
-		window.AgendCartSession.landing = window.fetch( restUrl + 'cart/checkout/cancel', {
+		headers[ 'Content-Type' ] = 'application/json';
+		window.AgendCartSession.landing = window.fetch( restUrl + 'cart/checkout/return-cancel', {
 			method: 'POST',
 			headers: headers,
+			body: JSON.stringify( { token: token } ),
 		} ).then( function ( response ) {
-			if ( response && response.ok ) {
+			return response && response.ok ? response.json() : null;
+		} ).then( function ( body ) {
+			if ( body && body.cancelled ) {
 				document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
 			}
 		} ).catch( function () {

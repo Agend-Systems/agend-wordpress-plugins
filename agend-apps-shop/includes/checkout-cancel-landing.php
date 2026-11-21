@@ -7,11 +7,18 @@
  * link returns the buyer to the site's cancel URL, usually the cart page,
  * and nothing there used to tell the platform the checkout was abandoned:
  * the cart stayed locked until the lock expired, so "Proceed to Checkout"
- * straight after was refused. The cancel URL now carries a marker
- * (`agend_checkout=cancelled`), and the cart session script, which every cart
- * surface loads, asks `POST /cart/checkout/cancel` once when a page opens
- * with it. The call is best effort: a cart that is no longer locked, or was
- * paid meanwhile, is refused by the platform and left as it is.
+ * straight after was refused.
+ *
+ * Each checkout's cancel URL now carries a single-use return token
+ * (`agend_checkout=cancelled&agend_cancel=<token>`). Only a hash of the token
+ * is kept, bound to the buyer (member or guest cart) and replaced by their
+ * next checkout. The cart session script, which every cart surface loads,
+ * posts the token to `POST /agend-apps/v1/cart/checkout/return-cancel`, which
+ * cancels the checkout through Core only when the token is this buyer's
+ * latest one, then forgets it. So a crafted link, or an old cancel-return
+ * address opened after a newer checkout started, cancels nothing. The call is
+ * best effort: a cart that is no longer locked, or was paid meanwhile, is
+ * refused by the platform and left as it is, quietly.
  *
  * @package Agend_Apps_Shop
  */
@@ -21,34 +28,149 @@ defined( 'ABSPATH' ) || exit;
 /** Query argument marking the payment page's cancel return. */
 const AGEND_APPS_SHOP_CANCEL_MARKER = 'agend_checkout';
 
-/**
- * Adds the cancel-return marker to a checkout's cancel URL when that URL is on
- * this site. An off-site cancel URL is left exactly as it is.
- *
- * @param array $args Cart checkout request args (`body.cancelUrl`).
- * @return array
- */
-function agend_apps_shop_mark_cancel_url( array $args ): array {
-	$cancel = $args['body']['cancelUrl'] ?? '';
-	if ( ! is_string( $cancel ) || '' === $cancel ) {
-		return $args;
-	}
+/** Query argument carrying the return token. */
+const AGEND_APPS_SHOP_CANCEL_TOKEN = 'agend_cancel';
 
-	$target = wp_parse_url( $cancel );
+/** How long a return token is honoured: the platform's checkout lock. */
+const AGEND_APPS_SHOP_CANCEL_TTL = 45 * MINUTE_IN_SECONDS;
+
+/**
+ * Who is checking out, as a storage key part: the signed-in member, else the
+ * guest cart. '' when there is neither.
+ *
+ * @param string $cart   Guest cart session token.
+ * @param string $bearer Member bearer token, or ''.
+ * @return string
+ */
+function agend_apps_shop_cancel_buyer( string $cart, string $bearer ): string {
+	if ( '' !== $bearer && get_current_user_id() > 0 ) {
+		return 'member:' . get_current_user_id();
+	}
+	return '' !== $cart && strlen( $cart ) <= 512 ? 'cart:' . $cart : '';
+}
+
+/**
+ * The transient holding the buyer's latest return token hash.
+ *
+ * @param string $buyer Buyer key.
+ * @return string
+ */
+function agend_apps_shop_cancel_key( string $buyer ): string {
+	return 'agend_shop_cancel_' . hash_hmac( 'sha256', $buyer, wp_salt( 'auth' ) );
+}
+
+/**
+ * The stored form of a token: never the token itself.
+ *
+ * @param string $token Return token.
+ * @return string
+ */
+function agend_apps_shop_cancel_hash( string $token ): string {
+	return hash_hmac( 'sha256', $token, wp_salt( 'auth' ) );
+}
+
+/**
+ * Whether a URL is on this site.
+ *
+ * @param string $url Address.
+ * @return bool
+ */
+function agend_apps_shop_cancel_url_is_local( string $url ): bool {
+	$target = wp_parse_url( $url );
 	$home   = wp_parse_url( home_url() );
-	$local  = is_array( $target ) && is_array( $home )
+	return is_array( $target ) && is_array( $home )
 		&& isset( $target['host'], $home['host'] )
 		&& strtolower( $target['host'] ) === strtolower( $home['host'] )
 		&& ! isset( $target['user'] ) && ! isset( $target['pass'] );
-	if ( ! $local ) {
-		return $args;
-	}
-
-	$args['body']['cancelUrl'] = add_query_arg( AGEND_APPS_SHOP_CANCEL_MARKER, 'cancelled', $cancel );
-	return $args;
 }
 
-/** Registers the cancel-return marker on cart checkouts. */
+/** Registers the cancel-return token on cart checkouts, and its route. */
 function agend_apps_shop_register_checkout_cancel_landing(): void {
-	add_filter( 'agend_apps_cart_checkout_args', 'agend_apps_shop_mark_cancel_url' );
+	$token = '';
+
+	// A same-site cancel URL gets the marker and a fresh token. An off-site
+	// cancel URL is left exactly as it is.
+	add_filter(
+		'agend_apps_cart_checkout_args',
+		static function ( array $args ) use ( &$token ): array {
+			$token  = '';
+			$cancel = $args['body']['cancelUrl'] ?? '';
+			if ( ! is_string( $cancel ) || '' === $cancel || ! agend_apps_shop_cancel_url_is_local( $cancel ) ) {
+				return $args;
+			}
+			$token = wp_generate_password( 32, false, false );
+			$args['body']['cancelUrl'] = add_query_arg(
+				array(
+					AGEND_APPS_SHOP_CANCEL_MARKER => 'cancelled',
+					AGEND_APPS_SHOP_CANCEL_TOKEN  => $token,
+				),
+				$cancel
+			);
+			return $args;
+		}
+	);
+
+	// The token is kept only once the checkout has started, and replaces any
+	// earlier one for this buyer.
+	add_filter(
+		'agend_apps_cart_checkout_response',
+		static function ( array $response, string $cart, string $bearer = '' ) use ( &$token ): array {
+			$buyer = agend_apps_shop_cancel_buyer( $cart, $bearer );
+			if ( '' !== $token && '' !== $buyer ) {
+				set_transient( agend_apps_shop_cancel_key( $buyer ), agend_apps_shop_cancel_hash( $token ), AGEND_APPS_SHOP_CANCEL_TTL );
+			}
+			$token = '';
+			return $response;
+		},
+		10,
+		3
+	);
+
+	add_action(
+		'rest_api_init',
+		static function (): void {
+			register_rest_route(
+				'agend-apps/v1',
+				'/cart/checkout/return-cancel',
+				array(
+					'methods'             => 'POST',
+					'callback'            => 'agend_apps_shop_cancel_on_return',
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'token' => array(
+							'type'     => 'string',
+							'required' => true,
+						),
+					),
+				)
+			);
+		}
+	);
+}
+
+/**
+ * Cancels the buyer's abandoned checkout when the return token is their
+ * latest one. Always answers 200 with `cancelled` true or false: there is
+ * nothing a visitor needs to be told either way.
+ *
+ * @param WP_REST_Request $request Current request.
+ * @return WP_REST_Response
+ */
+function agend_apps_shop_cancel_on_return( WP_REST_Request $request ): WP_REST_Response {
+	$token  = (string) $request->get_param( 'token' );
+	$cart   = (string) $request->get_header( 'X-Cart-Session' );
+	$bearer = function_exists( 'agend_apps_get_bearer_token' ) ? agend_apps_get_bearer_token() : '';
+	$buyer  = agend_apps_shop_cancel_buyer( $cart, $bearer );
+	$stored = '' !== $buyer ? get_transient( agend_apps_shop_cancel_key( $buyer ) ) : false;
+
+	if ( '' === $token || strlen( $token ) > 64 || ! is_string( $stored ) || ! hash_equals( $stored, agend_apps_shop_cancel_hash( $token ) ) ) {
+		return new WP_REST_Response( array( 'cancelled' => false ), 200 );
+	}
+
+	// Single use: the token is spent whatever the platform answers.
+	delete_transient( agend_apps_shop_cancel_key( $buyer ) );
+
+	$result = function_exists( 'agend_apps_cart_checkout_cancel' ) ? agend_apps_cart_checkout_cancel( $cart, $bearer ) : null;
+
+	return new WP_REST_Response( array( 'cancelled' => is_array( $result ) ), 200 );
 }
