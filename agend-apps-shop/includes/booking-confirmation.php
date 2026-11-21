@@ -288,8 +288,8 @@ function agend_apps_shop_booking_lookup( string $ref, string $buyer, array $reco
 
 /**
  * Completes one checkout session through Core's helper, which runs its hooks
- * and clears the buyer's cached cart. A Core too old to pass the session id
- * gets the same request made directly.
+ * and clears the buyer's cached cart. With a Core too old to pass the session
+ * id, the same request is made here with the same hooks and cache clearing.
  *
  * @param string $session Checkout session (external) id.
  * @param string $cart    Guest cart session token.
@@ -304,16 +304,25 @@ function agend_apps_shop_booking_complete( string $session, string $cart, string
 			return agend_apps_cart_checkout_complete( $cart, $bearer, $body );
 		}
 	}
-	return agend_apps_api()->request(
-		'POST',
-		'/cart/checkout/complete',
+	// The same request, hooks and cache clearing as Core's helper.
+	$args = (array) apply_filters(
+		'agend_apps_cart_checkout_complete_args',
 		array(
 			'body'         => $body,
 			'cart_session' => $cart,
 			'bearer_token' => $bearer,
-			'timeout'      => 10,
-		)
+		),
+		$cart,
+		$bearer
 	);
+	$response = agend_apps_api()->request( 'POST', '/cart/checkout/complete', $args );
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+	if ( function_exists( 'agend_apps_cart_cache_key' ) ) {
+		delete_transient( 'agend_apps_' . agend_apps_cart_cache_key( $bearer, $cart ) );
+	}
+	return apply_filters( 'agend_apps_cart_checkout_complete_response', $response, $cart, $bearer );
 }
 
 /**
