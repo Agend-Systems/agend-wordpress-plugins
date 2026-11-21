@@ -108,19 +108,27 @@ function agend_apps_auth_throttle_read( string $key ): array {
 }
 
 /**
- * Adds one attempt to a counter, keeping the window's original end.
+ * Adds to (or, with a negative step, takes from) a counter, keeping the
+ * window's original end. A count that falls to zero is removed.
  *
- * @param string $key Transient key.
+ * @param string $key  Transient key.
+ * @param int    $step Amount to add. Default 1.
  */
-function agend_apps_auth_throttle_bump( string $key ): void {
+function agend_apps_auth_throttle_bump( string $key, int $step = 1 ): void {
 	$now   = time();
 	$state = agend_apps_auth_throttle_read( $key );
-	$ends  = $state['ends'] > $now ? $state['ends'] : $now + AGEND_APPS_AUTH_THROTTLE_WINDOW;
+	$count = max( 0, $state['count'] + $step );
 
+	if ( 0 === $count ) {
+		delete_transient( $key );
+		return;
+	}
+
+	$ends = $state['ends'] > $now ? $state['ends'] : $now + AGEND_APPS_AUTH_THROTTLE_WINDOW;
 	set_transient(
 		$key,
 		array(
-			'count' => $state['count'] + 1,
+			'count' => $count,
 			'ends'  => $ends,
 		),
 		max( 1, $ends - $now )
@@ -148,48 +156,75 @@ function agend_apps_auth_throttle_wait( array $keys ): int {
 }
 
 /**
- * Whether a sign-in may be tried, per client IP and per email.
+ * Reserves a sign-in attempt, per client IP and per email: true when one may
+ * be tried, and the attempt is then counted.
  *
  * The gateway's own `auth-login` bucket is per API key, so every member shares
  * it through this single proxy origin (SPEC-CORE-20260722 OQ5). This adds a
- * per-IP and per-email cap at the proxy edge, before any gateway call is
- * made. Only FAILED sign-ins count ({@see agend_apps_auth_login_failed()}),
- * within a fixed 15-minute window, and a successful sign-in clears the email's
- * count ({@see agend_apps_auth_login_succeeded()}). A member who signs in
- * correctly is never locked out, while guessing a password is still capped
- * (5 wrong passwords per email, 20 per IP, per window by default).
+ * per-IP and per-email cap at the proxy edge, before any gateway call is made
+ * (5 per email and 20 per IP in a fixed 15-minute window, by default).
  *
- * This only checks: it does not count the attempt.
+ * The attempt is counted BEFORE the gateway is asked, so requests sent at the
+ * same moment cannot all slip under the limit while they wait for answers.
+ * Once the gateway answers, a sign-in flow keeps the count only for a refused
+ * email and password: {@see agend_apps_auth_login_succeeded()} clears it for
+ * accepted credentials and {@see agend_apps_auth_login_release()} returns it
+ * for an outage. So only failed sign-ins use up the allowance, and a member
+ * who signs in correctly is never locked out. A caller that does neither
+ * (the long-standing use of this function) counts every attempt, as before.
  *
  * @param string $email The submitted email (lower-cased).
  * @param string $ip    The client IP.
- * @return bool True when the attempt is allowed, false when it is throttled.
+ * @return bool True when the attempt is allowed (and counted), false when it is throttled.
  */
 function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
-	return 0 === agend_apps_auth_throttle_wait( agend_apps_auth_throttle_keys( 'login_fail', $email, $ip ) );
+	$keys = agend_apps_auth_throttle_keys( 'login_fail', $email, $ip );
+	if ( 0 !== agend_apps_auth_throttle_wait( $keys ) ) {
+		return false;
+	}
+	foreach ( array_keys( $keys ) as $key ) {
+		agend_apps_auth_throttle_bump( $key );
+	}
+
+	return true;
 }
 
 /**
- * Records a failed sign-in (the gateway refused the email and password).
+ * Returns a reserved attempt whose outcome says nothing about the password
+ * (the gateway was down, timed out or refused the site's API key).
  *
  * @param string $email The submitted email (lower-cased).
  * @param string $ip    The client IP.
  */
-function agend_apps_auth_login_failed( string $email, string $ip ): void {
+function agend_apps_auth_login_release( string $email, string $ip ): void {
 	foreach ( array_keys( agend_apps_auth_throttle_keys( 'login_fail', $email, $ip ) ) as $key ) {
-		agend_apps_auth_throttle_bump( $key );
+		agend_apps_auth_throttle_bump( $key, -1 );
 	}
 }
 
 /**
- * Records a sign-in whose email and password were accepted: the email's
- * failed-attempt count is cleared. The IP count is left alone, so a guesser
- * cannot reset it by signing in to an account of their own.
+ * Records a sign-in whose email and password were accepted: the email's count
+ * is cleared and the IP's reserved attempt returned. Earlier failures from the
+ * IP stay counted, so a guesser cannot reset them by signing in to an account
+ * of their own.
  *
  * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
  */
-function agend_apps_auth_login_succeeded( string $email ): void {
+function agend_apps_auth_login_succeeded( string $email, string $ip ): void {
 	delete_transient( 'agend_apps_login_fail_email_' . md5( $email ) );
+	agend_apps_auth_throttle_bump( 'agend_apps_login_fail_ip_' . md5( $ip ), -1 );
+}
+
+/**
+ * Whether a gateway refusal of a sign-in means the email and password were
+ * wrong (a 401 that is not the site's API key being refused).
+ *
+ * @param WP_Error $error Gateway error.
+ * @return bool
+ */
+function agend_apps_auth_login_refused_credentials( WP_Error $error ): bool {
+	return agend_apps_auth_error_is_invalid_credentials( $error ) && 'INVALID_API_KEY' !== agend_apps_auth_error_code( $error );
 }
 
 /**
@@ -601,17 +636,14 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$response = agend_apps_auth_login( $email, $password );
 
-		// Only a refused email and password counts towards the limit; accepted
-		// credentials (signed in, verification or a second factor still to do)
-		// clear the email's count. An outage counts for neither.
-		if ( is_wp_error( $response ) ) {
-			if ( agend_apps_auth_error_is_invalid_credentials( $response ) && 'INVALID_API_KEY' !== agend_apps_auth_error_code( $response ) ) {
-				agend_apps_auth_login_failed( $email, $ip );
-			} elseif ( agend_apps_auth_response_is_verification_required( $response ) ) {
-				agend_apps_auth_login_succeeded( $email );
-			}
-		} else {
-			agend_apps_auth_login_succeeded( $email );
+		// The attempt was counted when it was let through. It stays counted
+		// only for a refused email and password; accepted credentials (signed
+		// in, verification or a second factor still to do) clear the email's
+		// count, and an outage gives the attempt back.
+		if ( ! is_wp_error( $response ) || agend_apps_auth_response_is_verification_required( $response ) ) {
+			agend_apps_auth_login_succeeded( $email, $ip );
+		} elseif ( ! agend_apps_auth_login_refused_credentials( $response ) ) {
+			agend_apps_auth_login_release( $email, $ip );
 		}
 
 		if ( is_wp_error( $response ) ) {

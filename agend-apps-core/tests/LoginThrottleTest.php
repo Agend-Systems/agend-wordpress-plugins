@@ -175,4 +175,47 @@ final class LoginThrottleTest extends TestCase {
 		$this->assertFalse( agend_apps_auth_attempt_throttle( self::EMAIL, '203.0.113.7' ), 'still capped per attempt' );
 		$this->assertTrue( agend_apps_auth_login_throttle( self::EMAIL, '203.0.113.7' ), 'signing in is unaffected' );
 	}
+
+	#[Test]
+	public function should_count_an_attempt_while_it_waits_for_the_gateway_so_parallel_guesses_cannot_slip_through(): void {
+		// Five attempts let through and not yet answered hold all five places.
+		for ( $i = 1; $i <= 5; $i++ ) {
+			$this->assertTrue( agend_apps_auth_login_throttle( self::EMAIL, '203.0.113.7' ), "reserve {$i}" );
+		}
+		$this->assertFalse( agend_apps_auth_login_throttle( self::EMAIL, '203.0.113.7' ) );
+
+		// An outage gives an attempt back; accepted credentials clear the email.
+		agend_apps_auth_login_release( self::EMAIL, '203.0.113.7' );
+		$this->assertSame( 4, get_transient( 'agend_apps_login_fail_email_' . md5( self::EMAIL ) )['count'] );
+		agend_apps_auth_login_succeeded( self::EMAIL, '203.0.113.7' );
+		$this->assertFalse( get_transient( 'agend_apps_login_fail_email_' . md5( self::EMAIL ) ) );
+		$this->assertSame( 3, get_transient( 'agend_apps_login_fail_ip_' . md5( '203.0.113.7' ) )['count'], 'only the successful attempt is returned to the IP' );
+	}
+
+	#[Test]
+	public function should_still_count_every_attempt_for_a_caller_that_only_asks_the_throttle(): void {
+		for ( $i = 1; $i <= 5; $i++ ) {
+			$this->assertTrue( agend_apps_auth_login_throttle( 'other@example.test', '198.51.100.1' ) );
+		}
+		$this->assertFalse( agend_apps_auth_login_throttle( 'other@example.test', '198.51.100.1' ) );
+	}
+
+	#[Test]
+	public function should_return_the_attempt_when_the_wp_login_bridge_meets_a_refused_api_key(): void {
+		// The sign-in itself is refused with the site's key: nothing about the
+		// password, so nothing stays counted.
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_API_KEY', 'message' => 'Invalid key.' ) ) );
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_API_KEY', 'message' => 'Invalid key.' ) ) );
+		agend_apps_wp_login_authenticate( null, 'bridge@example.test', 'password' );
+		$this->assertFalse( get_transient( 'agend_apps_login_fail_email_' . md5( 'bridge@example.test' ) ) );
+		$this->assertFalse( get_transient( 'agend_apps_login_fail_ip_' . md5( '203.0.113.7' ) ) );
+	}
+
+	#[Test]
+	public function should_count_a_wrong_password_through_the_wp_login_bridge(): void {
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_CREDENTIALS', 'message' => 'Invalid.' ) ) );
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_CREDENTIALS', 'message' => 'Invalid.' ) ) );
+		agend_apps_wp_login_authenticate( null, 'bridge@example.test', 'wrong' );
+		$this->assertSame( 1, get_transient( 'agend_apps_login_fail_email_' . md5( 'bridge@example.test' ) )['count'] );
+	}
 }

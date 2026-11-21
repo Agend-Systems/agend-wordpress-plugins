@@ -154,7 +154,7 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// change A supersedes the earlier "let WordPress authenticate through"
 		// design).
 		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
-			agend_apps_auth_login_succeeded( $email );
+			agend_apps_auth_login_succeeded( $email, $ip );
 			agend_apps_wp_login_mark_verification_pending( $email );
 			agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ), AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
 			return $user;
@@ -164,6 +164,8 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// login logic takes over. Only the gateway's invalid-credentials answer
 		// continues into registration.
 		if ( ! agend_apps_auth_error_is_invalid_credentials( $response ) ) {
+			// Not about the password: give the counted attempt back.
+			agend_apps_auth_login_release( $email, $ip );
 			$status = agend_apps_auth_error_status( $response );
 			if ( $refuse_local && 0 !== $status && $status < 500 ) {
 				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
@@ -171,11 +173,15 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 			return $user;
 		}
 
-		$response = agend_apps_wp_login_register_existing_user( $email, $password );
+		$refused_credentials = agend_apps_auth_login_refused_credentials( $response );
+		$response            = agend_apps_wp_login_register_existing_user( $email, $password );
 
 		if ( null === $response ) {
-			// The gateway refused the email and password: a failed sign-in.
-			agend_apps_auth_login_failed( $email, $ip );
+			// A refused email and password stays counted; a refused API key
+			// says nothing about the password, so the attempt is given back.
+			if ( ! $refused_credentials ) {
+				agend_apps_auth_login_release( $email, $ip );
+			}
 			if ( $refuse_local ) {
 				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
 			}
@@ -184,7 +190,7 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	}
 
 	// The email and password were accepted: clear the email's failed count.
-	agend_apps_auth_login_succeeded( $email );
+	agend_apps_auth_login_succeeded( $email, $ip );
 
 	if ( agend_apps_auth_response_is_verification_required( $response ) ) {
 		agend_apps_wp_login_mark_verification_pending( $email );
