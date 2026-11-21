@@ -129,4 +129,13 @@ final class CheckoutCancelLandingTest extends TestCase {
 		self::assertSame( 1, $this->cancelCalls() );
 		self::assertArrayNotHasKey( 'agend_shop_cancel_claim_' . substr( agend_apps_shop_cancel_hash( $token ), 0, 40 ), Agend_Test_WP::$options );
 	}
+
+	#[Test]
+	public function should_revoke_the_earlier_token_as_soon_as_a_new_checkout_starts(): void {
+		$old = $this->startCheckout();
+		// The next checkout has been asked for, but the platform has not answered.
+		apply_filters( 'agend_apps_cart_checkout_args', array( 'body' => array( 'cancelUrl' => 'https://example.test/cart/' ) ), array(), 'guest-cart', '' );
+		self::assertSame( array( 'cancelled' => false ), $this->returnWith( $old )->get_data() );
+		self::assertSame( 0, $this->cancelCalls() );
+	}
 }

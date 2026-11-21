@@ -16,8 +16,12 @@
  * posts the token to `POST /agend-apps/v1/cart/checkout/return-cancel`, which
  * cancels the checkout through Core only when the token is this buyer's
  * latest one, then forgets it. Every new checkout revokes the earlier token,
- * and a token is claimed atomically, so a crafted link, an old cancel-return
- * address opened after a newer checkout started, or a replay cancels nothing. The call is
+ * as soon as it starts, and a token is claimed atomically, so a crafted link,
+ * an old cancel-return address opened after a newer checkout started, or a
+ * replay cancels nothing. The one narrower case left, a newer checkout
+ * started in the same instant a return is cancelling, is refused by the
+ * platform: a new checkout cannot start while the earlier one holds the
+ * cart's lock, and its cancel will not unlock a cart a newer session holds. The call is
  * best effort: a cart that is no longer locked, or was paid meanwhile, is
  * refused by the platform and left as it is, quietly.
  *
@@ -93,8 +97,15 @@ function agend_apps_shop_register_checkout_cancel_landing(): void {
 	// cancel URL is left exactly as it is.
 	add_filter(
 		'agend_apps_cart_checkout_args',
-		static function ( array $args ) use ( &$token ): array {
-			$token  = '';
+		static function ( array $args, $urls = array(), $cart = '', $bearer = '' ) use ( &$token ): array {
+			$token = '';
+			// Starting a checkout revokes the buyer's earlier return token at
+			// once, before the platform is asked, so a return still in flight
+			// for the earlier checkout finds nothing to spend.
+			$buyer = agend_apps_shop_cancel_buyer( is_string( $cart ) ? $cart : '', is_string( $bearer ) ? $bearer : '' );
+			if ( '' !== $buyer ) {
+				delete_transient( agend_apps_shop_cancel_key( $buyer ) );
+			}
 			$cancel = $args['body']['cancelUrl'] ?? '';
 			if ( ! is_string( $cancel ) || '' === $cancel || ! agend_apps_shop_cancel_url_is_local( $cancel ) ) {
 				return $args;
@@ -108,7 +119,9 @@ function agend_apps_shop_register_checkout_cancel_landing(): void {
 				$cancel
 			);
 			return $args;
-		}
+		},
+		10,
+		4
 	);
 
 	// Every checkout the buyer starts revokes their earlier token, so only the
