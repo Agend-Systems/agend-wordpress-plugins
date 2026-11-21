@@ -988,8 +988,16 @@
           errors[name] = f.tooLong;
         }
       });
-      if (text('expires_at') && (controls.expires_at.input.validity.badInput || text('expires_at') < form.minDate)) {
-        errors.expires_at = f.futureDate;
+      if (controls.expires_at) {
+        // An incomplete native date has an empty value, so it is checked on its
+        // own. A date left as it was on an edit is not re-checked: a listing
+        // closing today can still have its other details corrected.
+        var closing = text('expires_at');
+        var closingInput = controls.expires_at.input;
+        var closingKept = editing && closing === String(value('expires_at_date') || '');
+        if ((closingInput.validity && closingInput.validity.badInput) || (closing && !closingKept && closing < form.minDate)) {
+          errors.expires_at = f.futureDate;
+        }
       }
       if (text('application_email') && !EMAIL_PATTERN.test(text('application_email'))) {
         errors.application_email = f.email;

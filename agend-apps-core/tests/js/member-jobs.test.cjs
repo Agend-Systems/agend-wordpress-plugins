@@ -147,3 +147,30 @@ test('zero credits without a boolean free flag retains the existing gate', t => 
     assert.equal(Array.from(f.root.querySelectorAll('button')).some(b => b.textContent === 'Post a job'), false);
   }
 });
+
+test('an edit that leaves a closing date of today alone can still change other fields', async t => {
+  const f = fixture(t, { department: true, closingDate: true });
+  f.view.drawForm({ id: 'job', title: 'Accountant', employment_type: 'full-time', location_type: 'hybrid', department: 'Finance', expires_at: '2099-11-30T12:59:59Z', expires_at_date: '2099-11-30' });
+  f.root.querySelector('[name=department]').value = 'Payroll';
+  await f.submit();
+  assert.deepEqual(f.calls.find(c => c.options.method === 'PATCH').body, { department: 'Payroll' });
+});
+
+test('an edit that moves the closing date to a past day is refused', async t => {
+  const f = fixture(t, { department: true, closingDate: true });
+  f.view.drawForm({ id: 'job', title: 'Accountant', employment_type: 'full-time', location_type: 'hybrid', expires_at: '2099-12-12T13:29:59Z', expires_at_date: '2099-12-12' });
+  f.root.querySelector('[name=expires_at]').value = '2099-11-29';
+  await f.submit();
+  assert.equal(f.calls.filter(c => c.options.method === 'PATCH').length, 0);
+});
+
+test('a half-typed closing date is an error and never clears the saved date', async t => {
+  const f = fixture(t, { department: true, closingDate: true });
+  f.view.drawForm({ id: 'job', title: 'Accountant', employment_type: 'full-time', location_type: 'hybrid', expires_at: '2099-12-12T13:29:59Z', expires_at_date: '2099-12-12' });
+  const input = f.root.querySelector('[name=expires_at]');
+  input.value = '';
+  Object.defineProperty(input, 'validity', { value: { badInput: true } });
+  await f.submit();
+  assert.equal(f.calls.filter(c => c.options.method === 'PATCH').length, 0);
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+});
