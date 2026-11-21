@@ -154,6 +154,7 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// change A supersedes the earlier "let WordPress authenticate through"
 		// design).
 		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
+			agend_apps_auth_login_succeeded( $email );
 			agend_apps_wp_login_mark_verification_pending( $email );
 			agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ), AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
 			return $user;
@@ -173,12 +174,17 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		$response = agend_apps_wp_login_register_existing_user( $email, $password );
 
 		if ( null === $response ) {
+			// The gateway refused the email and password: a failed sign-in.
+			agend_apps_auth_login_failed( $email, $ip );
 			if ( $refuse_local ) {
 				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
 			}
 			return $user;
 		}
 	}
+
+	// The email and password were accepted: clear the email's failed count.
+	agend_apps_auth_login_succeeded( $email );
 
 	if ( agend_apps_auth_response_is_verification_required( $response ) ) {
 		agend_apps_wp_login_mark_verification_pending( $email );

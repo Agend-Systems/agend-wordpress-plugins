@@ -28,26 +28,29 @@ function agend_apps_register_auth_routes(): void {
 }
 
 /**
- * Throttles repeated login attempts per client IP and per email.
+ * Length of the sign-in throttle window, in seconds.
  *
- * The gateway's own `auth-login` bucket is per API key, so every member shares
- * it through this single proxy origin (SPEC-CORE-20260722 OQ5). This adds a
- * per-IP and per-email cap at the proxy edge, the correct locus, before any
- * gateway call is made.
+ * The window is fixed: it starts with the first counted attempt and does not
+ * restart on later ones, so a lock-out always lifts on time.
  *
- * @param string $email The submitted email (lower-cased).
- * @param string $ip    The client IP.
- * @return bool True when the attempt is allowed, false when it is throttled.
+ * @var int
  */
-function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
-	$window = 15 * MINUTE_IN_SECONDS;
+const AGEND_APPS_AUTH_THROTTLE_WINDOW = 15 * MINUTE_IN_SECONDS;
 
+/**
+ * The proxy-edge limits: failed sign-ins per client IP and per email within
+ * one window, and the same caps for account registration and verification
+ * resends (which are counted per attempt, in their own buckets).
+ *
+ * @return array{per_ip: int, per_email: int}
+ */
+function agend_apps_auth_login_limits(): array {
 	/**
-	 * Filters the login-attempt limits at the WordPress proxy edge.
+	 * Filters the sign-in limits at the WordPress proxy edge.
 	 *
 	 * @param array $limits {
-	 *     @type int $per_ip    Max attempts per IP per window. Default 20.
-	 *     @type int $per_email Max attempts per email per window. Default 5.
+	 *     @type int $per_ip    Max failed attempts per IP per window. Default 20.
+	 *     @type int $per_email Max failed attempts per email per window. Default 5.
 	 * }
 	 */
 	$limits = (array) apply_filters(
@@ -58,25 +61,189 @@ function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
 		)
 	);
 
-	$checks = array(
-		'agend_apps_login_ip_' . md5( $ip )       => (int) $limits['per_ip'],
-		'agend_apps_login_email_' . md5( $email ) => (int) $limits['per_email'],
+	return array(
+		'per_ip'    => (int) ( $limits['per_ip'] ?? 20 ),
+		'per_email' => (int) ( $limits['per_email'] ?? 5 ),
 	);
+}
 
-	$allowed = true;
+/**
+ * The counter keys for one kind of attempt.
+ *
+ * @param string $bucket 'login_fail' (failed sign-ins) or 'auth_attempt'
+ *                       (registration and verification resends).
+ * @param string $email  Lower-cased email.
+ * @param string $ip     Client IP.
+ * @return array<string, int> Transient key => limit.
+ */
+function agend_apps_auth_throttle_keys( string $bucket, string $email, string $ip ): array {
+	$limits = agend_apps_auth_login_limits();
 
-	foreach ( $checks as $key => $max ) {
-		$count = (int) get_transient( $key );
+	return array(
+		'agend_apps_' . $bucket . '_ip_' . md5( $ip )       => $limits['per_ip'],
+		'agend_apps_' . $bucket . '_email_' . md5( $email ) => $limits['per_email'],
+	);
+}
 
-		if ( $count >= $max ) {
-			$allowed = false;
-			continue;
-		}
-
-		set_transient( $key, $count + 1, $window );
+/**
+ * A counter's current state: how many attempts in the window and when the
+ * window ends. An expired or missing counter reads as empty.
+ *
+ * @param string $key Transient key.
+ * @return array{count: int, ends: int}
+ */
+function agend_apps_auth_throttle_read( string $key ): array {
+	$stored = get_transient( $key );
+	if ( is_array( $stored ) && isset( $stored['count'], $stored['ends'] ) && (int) $stored['ends'] > time() ) {
+		return array(
+			'count' => (int) $stored['count'],
+			'ends'  => (int) $stored['ends'],
+		);
 	}
 
-	return $allowed;
+	return array(
+		'count' => 0,
+		'ends'  => 0,
+	);
+}
+
+/**
+ * Adds one attempt to a counter, keeping the window's original end.
+ *
+ * @param string $key Transient key.
+ */
+function agend_apps_auth_throttle_bump( string $key ): void {
+	$now   = time();
+	$state = agend_apps_auth_throttle_read( $key );
+	$ends  = $state['ends'] > $now ? $state['ends'] : $now + AGEND_APPS_AUTH_THROTTLE_WINDOW;
+
+	set_transient(
+		$key,
+		array(
+			'count' => $state['count'] + 1,
+			'ends'  => $ends,
+		),
+		max( 1, $ends - $now )
+	);
+}
+
+/**
+ * Seconds until every counter in a bucket that is at its limit clears, or 0
+ * when none is at its limit.
+ *
+ * @param array<string, int> $keys Transient key => limit.
+ * @return int
+ */
+function agend_apps_auth_throttle_wait( array $keys ): int {
+	$wait = 0;
+	foreach ( $keys as $key => $max ) {
+		$state = agend_apps_auth_throttle_read( $key );
+		if ( $state['count'] >= $max ) {
+			// A limit of 0 blocks outright, with no window to wait out.
+			$wait = max( $wait, $state['ends'] > 0 ? $state['ends'] - time() : AGEND_APPS_AUTH_THROTTLE_WINDOW );
+		}
+	}
+
+	return $wait;
+}
+
+/**
+ * Whether a sign-in may be tried, per client IP and per email.
+ *
+ * The gateway's own `auth-login` bucket is per API key, so every member shares
+ * it through this single proxy origin (SPEC-CORE-20260722 OQ5). This adds a
+ * per-IP and per-email cap at the proxy edge, before any gateway call is
+ * made. Only FAILED sign-ins count ({@see agend_apps_auth_login_failed()}),
+ * within a fixed 15-minute window, and a successful sign-in clears the email's
+ * count ({@see agend_apps_auth_login_succeeded()}). A member who signs in
+ * correctly is never locked out, while guessing a password is still capped
+ * (5 wrong passwords per email, 20 per IP, per window by default).
+ *
+ * This only checks: it does not count the attempt.
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ * @return bool True when the attempt is allowed, false when it is throttled.
+ */
+function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
+	return 0 === agend_apps_auth_throttle_wait( agend_apps_auth_throttle_keys( 'login_fail', $email, $ip ) );
+}
+
+/**
+ * Records a failed sign-in (the gateway refused the email and password).
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ */
+function agend_apps_auth_login_failed( string $email, string $ip ): void {
+	foreach ( array_keys( agend_apps_auth_throttle_keys( 'login_fail', $email, $ip ) ) as $key ) {
+		agend_apps_auth_throttle_bump( $key );
+	}
+}
+
+/**
+ * Records a sign-in whose email and password were accepted: the email's
+ * failed-attempt count is cleared. The IP count is left alone, so a guesser
+ * cannot reset it by signing in to an account of their own.
+ *
+ * @param string $email The submitted email (lower-cased).
+ */
+function agend_apps_auth_login_succeeded( string $email ): void {
+	delete_transient( 'agend_apps_login_fail_email_' . md5( $email ) );
+}
+
+/**
+ * Seconds until a throttled sign-in may be tried again, 0 when it is not
+ * throttled.
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ * @return int
+ */
+function agend_apps_auth_login_retry_after( string $email, string $ip ): int {
+	return agend_apps_auth_throttle_wait( agend_apps_auth_throttle_keys( 'login_fail', $email, $ip ) );
+}
+
+/**
+ * Throttles account registration and verification resends: every attempt
+ * counts (none of them checks a password), within the same fixed window and
+ * limits, in buckets of their own so they never use up a member's sign-ins.
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ * @return bool True when the attempt is allowed (and counted), false when throttled.
+ */
+function agend_apps_auth_attempt_throttle( string $email, string $ip ): bool {
+	$keys = agend_apps_auth_throttle_keys( 'auth_attempt', $email, $ip );
+	if ( 0 !== agend_apps_auth_throttle_wait( $keys ) ) {
+		return false;
+	}
+	foreach ( array_keys( $keys ) as $key ) {
+		agend_apps_auth_throttle_bump( $key );
+	}
+
+	return true;
+}
+
+/**
+ * The message for a throttled sign-in, saying when to try again.
+ *
+ * @param int $seconds Seconds until the sign-in may be tried again.
+ * @return string
+ */
+function agend_apps_auth_throttle_message( int $seconds ): string {
+	$minutes = max( 1, (int) ceil( $seconds / MINUTE_IN_SECONDS ) );
+
+	return sprintf(
+		/* translators: %d: minutes until the member may try again. */
+		_n(
+			'Too many unsuccessful sign-in attempts. Please wait %d minute, then try again, or reset your password.',
+			'Too many unsuccessful sign-in attempts. Please wait %d minutes, then try again, or reset your password.',
+			$minutes,
+			'agend-apps-core'
+		),
+		$minutes
+	);
 }
 
 /** Limit MFA code checks by client IP before they consume the shared gateway bucket. */
@@ -419,16 +586,33 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 
 		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
-			return new WP_REST_Response(
+			$wait     = agend_apps_auth_login_retry_after( $email, $ip );
+			$throttle = new WP_REST_Response(
 				array(
 					'code'    => 'too_many_attempts',
-					'message' => __( 'Too many sign-in attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+					'message' => agend_apps_auth_throttle_message( $wait ),
 				),
 				429
 			);
+			$throttle->header( 'Retry-After', (string) max( 1, $wait ) );
+
+			return $throttle;
 		}
 
 		$response = agend_apps_auth_login( $email, $password );
+
+		// Only a refused email and password counts towards the limit; accepted
+		// credentials (signed in, verification or a second factor still to do)
+		// clear the email's count. An outage counts for neither.
+		if ( is_wp_error( $response ) ) {
+			if ( agend_apps_auth_error_is_invalid_credentials( $response ) && 'INVALID_API_KEY' !== agend_apps_auth_error_code( $response ) ) {
+				agend_apps_auth_login_failed( $email, $ip );
+			} elseif ( agend_apps_auth_response_is_verification_required( $response ) ) {
+				agend_apps_auth_login_succeeded( $email );
+			}
+		} else {
+			agend_apps_auth_login_succeeded( $email );
+		}
 
 		if ( is_wp_error( $response ) ) {
 			if ( agend_apps_auth_response_is_verification_required( $response ) ) {
@@ -629,7 +813,7 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 
-		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+		if ( ! agend_apps_auth_attempt_throttle( $email, $ip ) ) {
 			return new WP_REST_Response(
 				array(
 					'code'    => 'too_many_attempts',
@@ -680,7 +864,7 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 
-		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+		if ( ! agend_apps_auth_attempt_throttle( $email, $ip ) ) {
 			return new WP_REST_Response(
 				array(
 					'code'    => 'too_many_attempts',
