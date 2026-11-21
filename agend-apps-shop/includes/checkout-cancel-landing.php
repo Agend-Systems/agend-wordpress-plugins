@@ -18,10 +18,13 @@
  * latest one, then forgets it. Every new checkout revokes the earlier token,
  * as soon as it starts, and a token is claimed atomically, so a crafted link,
  * an old cancel-return address opened after a newer checkout started, or a
- * replay cancels nothing. The one narrower case left, a newer checkout
- * started in the same instant a return is cancelling, is refused by the
- * platform: a new checkout cannot start while the earlier one holds the
- * cart's lock, and its cancel will not unlock a cart a newer session holds. The call is
+ * replay cancels nothing. One bounded case is left: a return that has passed
+ * its checks pauses before cancelling while the buyer, in another tab,
+ * cancels that checkout and starts a new one; the paused return may then
+ * cancel the new, unpaid checkout, which the buyer can start again. Paid or
+ * possibly-paid sessions are never cancelled (the platform verifies them
+ * first). Closing it fully needs the platform's cancel route to accept the
+ * expected checkout id. The call is
  * best effort: a cart that is no longer locked, or was paid meanwhile, is
  * refused by the platform and left as it is, quietly.
  *
