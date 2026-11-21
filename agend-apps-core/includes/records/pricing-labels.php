@@ -154,15 +154,44 @@ function agend_apps_records_free_for_all_note(): string {
 }
 
 /**
+ * The label of the "non-member price from" record field, which a card or
+ * detail template can show beside the price.
+ *
+ * @return string Raw text: escape it where it is printed.
+ */
+function agend_apps_records_non_member_price_from_label(): string {
+	$label = agend_apps_records_non_member_label();
+	if ( agend_apps_records_default_non_member_label() === $label ) {
+		return __( 'Non-member price from', 'agend-apps-core' );
+	}
+	/* translators: %s: The site's label for the non-member price, e.g. "Public". */
+	return sprintf( __( '%s price from', 'agend-apps-core' ), $label );
+}
+
+/**
  * The pricing strings the browser-rendered events catalogue uses.
+ *
+ * Only a label the site has changed is sent. The script has always carried
+ * its own English wording ("Non-Members" beside the English "Members"), so
+ * leaving the defaults out keeps the catalogue exactly as it was on a site
+ * that sets nothing, translated sites included.
  *
  * @return array<string, string>
  */
 function agend_apps_records_pricing_labels_for_js(): array {
-	return array(
-		'nonMember'     => agend_apps_records_non_member_label(),
-		'nonMemberRate' => agend_apps_records_non_member_rate_label(),
-		'nonMemberNote' => agend_apps_records_non_member_rate_note(),
-		'freeForAll'    => agend_apps_records_free_for_all_note(),
-	);
+	$labels = array();
+
+	$label = agend_apps_records_non_member_label();
+	if ( agend_apps_records_default_non_member_label() !== $label ) {
+		$labels['nonMember'] = $label;
+	}
+
+	$rate = agend_apps_records_non_member_rate_label();
+	if ( agend_apps_records_default_non_member_rate_label() !== $rate ) {
+		$labels['nonMemberRate'] = $rate;
+		$labels['nonMemberNote'] = agend_apps_records_non_member_rate_note();
+		$labels['freeForAll']    = agend_apps_records_free_for_all_note();
+	}
+
+	return $labels;
 }

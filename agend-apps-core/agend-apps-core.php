@@ -557,7 +557,9 @@ function agend_apps_output_config_js() {
 		);
 	}
 
-	$data = wp_json_encode( $config );
+	// Hex-encode markup characters so no value (a member's name, a filtered
+	// pricing label) can change how the browser parses this script element.
+	$data = wp_json_encode( $config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	printf( '<script id="agend-apps-config">/* <![CDATA[ */window.agendApps = %s;/* ]]> */</script>' . "\n", $data );
 }

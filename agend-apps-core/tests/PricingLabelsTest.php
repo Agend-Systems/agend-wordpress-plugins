@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fragments.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/pricing-labels.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fields.php';
 
 /**
  * The wording for the price that is not the member price is a per-site
@@ -42,6 +43,8 @@ final class PricingLabelsTest extends TestCase {
 		self::assertSame( 'non-member', agend_apps_records_non_member_rate_label() );
 		self::assertSame( 'The non-member rate is shown where available. Final pricing is confirmed at checkout.', agend_apps_records_non_member_rate_note() );
 		self::assertSame( 'Free for members and non-members.', agend_apps_records_free_for_all_note() );
+
+		self::assertSame( array(), agend_apps_records_pricing_labels_for_js(), 'the script keeps its own wording' );
 
 		$rows = agend_apps_records_ssr_ev_ticket_price_rows( self::TICKET, false );
 		self::assertStringContainsString( '>Members<', $rows );
@@ -84,6 +87,21 @@ final class PricingLabelsTest extends TestCase {
 			),
 			agend_apps_records_pricing_labels_for_js()
 		);
+	}
+
+	#[Test]
+	public function should_label_the_non_member_price_record_field_with_the_site_wording(): void {
+		self::assertSame( 'Non-member price from', agend_apps_records_field_label( 'event:price_non_member_from', array() ) );
+
+		update_option( AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION, 'Public' );
+		self::assertSame( 'Public price from', agend_apps_records_field_label( 'event:price_non_member_from', array() ) );
+	}
+
+	#[Test]
+	public function should_send_only_the_changed_label_to_the_script(): void {
+		update_option( AGEND_APPS_RECORDS_NON_MEMBER_LABEL_OPTION, 'Public' );
+
+		self::assertSame( array( 'nonMember' => 'Public' ), agend_apps_records_pricing_labels_for_js() );
 	}
 
 	#[Test]

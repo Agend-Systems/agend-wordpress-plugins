@@ -1136,8 +1136,8 @@ function wp_date( string $format, ?int $timestamp = null, ?DateTimeZone $timezon
 	return $datetime->format( $format );
 }
 
-function wp_json_encode( $data ) {
-	return json_encode( $data );
+function wp_json_encode( $data, int $options = 0, int $depth = 512 ) {
+	return json_encode( $data, $options, $depth );
 }
 
 /**

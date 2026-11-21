@@ -41,10 +41,10 @@ function config(filters = {}) {
   };
 }
 
-async function build(t, { pricingLabels, filters } = {}) {
+async function build(t, { pricingLabels, filters, url = 'https://example.test/events/' } = {}) {
   const cfg = JSON.stringify(config(filters)).replace(/'/g, '&#39;');
   const dom = new JSDOM(`<!doctype html><div class="agend-events-catalogue" data-agend-events-config='${cfg}'></div>`, {
-    url: 'https://example.test/events/',
+    url,
     runScripts: 'outside-only',
   });
   const { window } = dom;
@@ -60,6 +60,10 @@ async function build(t, { pricingLabels, filters } = {}) {
       body = { data: [event], meta: { pagination: { page: 1, total_pages: 1 } } };
     } else if (path === '/events/categories') {
       body = { data: [{ id: 'c1', name: 'Workshops' }] };
+    } else if (path === '/events/conference') {
+      body = { data: event };
+    } else if (path === '/events/conference/tickets') {
+      body = { data: [{ ticket: { name: 'General' }, pricingTiers: [{ tier: { member_price: 50, non_member_price: 80 } }] }] };
     } else if (path === '/events/venues') {
       body = { data: [{ city: 'Adelaide' }] };
     }
@@ -122,4 +126,24 @@ test('multi-choice filters name the filter and the current choice', async (t) =>
   box.checked = true;
   box.dispatchEvent(new box.ownerDocument.defaultView.Event('change'));
   assert.equal(toggles[1].getAttribute('aria-label'), 'Filter by event type: In-Person');
+});
+
+test('the event detail ticket list and rate note use the site wording', async (t) => {
+  const document = await build(t, {
+    url: 'https://example.test/events/?agend_event=conference',
+    pricingLabels: { nonMember: 'Public', nonMemberNote: 'The public rate is shown where available. Final pricing is confirmed at checkout.' },
+  });
+  await tick();
+  const labels = Array.from(document.querySelectorAll('.agend-ev-detail__ticket-prices .agend-ev-price__label')).map((n) => n.textContent);
+  assert.deepEqual(labels, ['Members', 'Public']);
+  assert.equal(document.querySelector('.agend-ev-detail__note').textContent, 'The public rate is shown where available. Final pricing is confirmed at checkout.');
+  assert.doesNotMatch(document.querySelector('.agend-ev-detail').textContent, /non-member/i);
+});
+
+test('the event detail keeps the built-in wording when the site sets none', async (t) => {
+  const document = await build(t, { url: 'https://example.test/events/?agend_event=conference' });
+  await tick();
+  const labels = Array.from(document.querySelectorAll('.agend-ev-detail__ticket-prices .agend-ev-price__label')).map((n) => n.textContent);
+  assert.deepEqual(labels, ['Members', 'Non-Members']);
+  assert.match(document.querySelector('.agend-ev-detail__note').textContent, /^The non-member rate is shown where available\./);
 });
