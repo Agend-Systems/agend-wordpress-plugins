@@ -18,6 +18,7 @@
     short_description: 500,
     description: 8000,
     company_name: 200,
+    department: 200,
     company_website: 1000,
     location_city: 100,
     location_state: 100,
@@ -287,10 +288,17 @@
     return this.credits ? parseInt(this.credits.available, 10) || 0 : null;
   };
 
+  MemberJobs.prototype.freeListings = function () {
+    return !!this.credits && this.credits.free_listings === true;
+  };
+
   /** The Buy buttons: the configured credit products, or the site's buy page. */
   MemberJobs.prototype.buyLinks = function (className, firstClassName) {
     var cfg = this.cfg;
     var links = [];
+    if (this.freeListings()) {
+      return links;
+    }
     (cfg.buy || []).forEach(function (option, index) {
       var a = el('a', index === 0 && firstClassName ? firstClassName : className, option.label);
       a.href = option.url;
@@ -315,8 +323,9 @@
     if (cfg.text.heading) {
       root.appendChild(el('h2', 'agend-member-jobs__heading', cfg.text.heading));
     }
-    if (cfg.text.intro) {
-      root.appendChild(el('p', 'agend-member-jobs__intro', cfg.text.intro));
+    var intro = self.freeListings() ? cfg.freeIntro : cfg.text.intro;
+    if (intro) {
+      root.appendChild(el('p', 'agend-member-jobs__intro', intro));
     }
     root.appendChild(self.statusNode());
 
@@ -327,7 +336,7 @@
 
     var count = self.creditCount();
 
-    if (count === 0) {
+    if (count === 0 && !self.freeListings()) {
       // No credits: the buy box takes the place of the credits line.
       var empty = el('div', 'agend-member-jobs__empty-credits');
       empty.appendChild(el('p', 'agend-member-jobs__empty-title', m.noCreditsTitle));
@@ -347,7 +356,9 @@
     } else {
       var bar = el('div', 'agend-member-jobs__credits');
       var line = el('p', 'agend-member-jobs__credits-text');
-      if (count === null) {
+      if (self.freeListings()) {
+        line.textContent = m.freeListing;
+      } else if (count === null) {
         line.textContent = self.creditsFailed ? m.creditsUnknown : '';
       } else {
         line.appendChild(el('strong', '', format(count === 1 ? m.creditsOne : m.creditsMany, count)));
@@ -420,19 +431,26 @@
 
     var job = el('td', 'agend-member-jobs__job');
     job.appendChild(el('span', 'agend-member-jobs__title', item.title || ''));
-    if (status === 'published' && item.expires_at) {
-      job.appendChild(el('span', 'agend-member-jobs__sub', format(m.expiresOn, formatDate(item.expires_at))));
+    if (typeof item.department === 'string' && item.department.trim()) {
+      job.appendChild(el('span', 'agend-member-jobs__sub', item.department.trim()));
+    }
+    if (item.expires_at && item.expires_at_formatted) {
+      job.appendChild(el('span', 'agend-member-jobs__sub', format(m.expiresOn, item.expires_at_formatted)));
     }
     if (status === 'rejected' && item.rejection_reason) {
       job.appendChild(el('span', 'agend-member-jobs__sub', m.reason + ' ' + item.rejection_reason));
     }
-    if (status === 'no_credit' || status === 'checking_credit') {
+    if (!self.freeListings() && (status === 'no_credit' || status === 'checking_credit')) {
       job.appendChild(el('span', 'agend-member-jobs__sub', status === 'no_credit' ? m.noCreditNote : m.checkingNote));
     }
     tr.appendChild(job);
 
     var statusCell = el('td');
-    statusCell.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + status.replace(/[^a-z-]/g, ''), (m.status && m.status[status]) || status));
+    var statusLabel = (m.status && m.status[status]) || status;
+    if (self.freeListings() && (status === 'no_credit' || status === 'checking_credit')) {
+      statusLabel = status === 'no_credit' ? m.notSubmitted : m.processing;
+    }
+    statusCell.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + status.replace(/[^a-z-]/g, ''), statusLabel));
     tr.appendChild(statusCell);
 
     tr.appendChild(el('td', 'agend-member-jobs__date', formatDate(item.submitted_at)));
@@ -472,8 +490,8 @@
         self.drawForm(item);
       });
       button(a.withdraw, function () {
-        confirmThen(a.withdrawConfirm, function () {
-          self.act(item, '/withdraw', {}, a.withdrawn);
+        confirmThen(self.freeListings() ? a.withdrawFreeConfirm : a.withdrawConfirm, function () {
+          self.act(item, '/withdraw', {}, self.freeListings() ? a.withdrawnFree : a.withdrawn);
         });
       });
     } else if (status === 'published') {
@@ -489,11 +507,11 @@
         });
       });
       button(a.close, function () {
-        confirmThen(a.closeConfirm, function () {
+        confirmThen(self.freeListings() ? a.closeFreeConfirm : a.closeConfirm, function () {
           self.act(item, '/close', { filled: false }, a.closed);
         });
       });
-    } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired' || status === 'no_credit') && (self.creditCount() || 0) > 0) {
+    } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired' || status === 'no_credit') && (self.freeListings() || (self.creditCount() || 0) > 0)) {
       // A fresh submission prefilled from this one: it uses a new credit.
       button(a.again, function () {
         self.say('');
@@ -528,9 +546,9 @@
 
     function settle(status) {
       if (status === 'no_credit') {
-        self.notice = { text: f.noCredit, error: true };
+        self.notice = { text: self.freeListings() ? self.m.notSubmitted : f.noCredit, error: true };
       } else if (status === 'checking_credit' || !status) {
-        self.notice = { text: f.stillChecking, error: false };
+        self.notice = { text: self.freeListings() ? self.m.processing : f.stillChecking, error: false };
       } else {
         self.notice = { text: self.cfg.text.success, error: false };
       }
@@ -612,6 +630,12 @@
     formNode.noValidate = true;
 
     function shown(key) {
+      if (key === 'department' && form.department !== true) {
+        return false;
+      }
+      if (key === 'expires_at' && form.closingDate !== true) {
+        return false;
+      }
       return hidden.indexOf(key) === -1;
     }
 
@@ -667,7 +691,13 @@
         control.maxLength = LIMITS[name];
       }
       var current = value(name);
-      control.value = name === 'description' ? htmlToText(current) : String(current);
+      if (name === 'description') {
+        current = htmlToText(current);
+      } else if (name === 'expires_at') {
+        current = value('expires_at_date');
+        control.min = form.minDate;
+      }
+      control.value = String(current);
       return wrap(name, f.labels[name], control, need, hint || (f.hints && f.hints[name]));
     }
 
@@ -714,6 +744,12 @@
     r1.appendChild(input('title', 'text', true));
     if (shown('reference_number')) {
       r1.appendChild(input('reference_number', 'text', isRequired('reference_number')));
+    }
+    if (shown('department')) {
+      r1.appendChild(input('department', 'text', isRequired('department')));
+    }
+    if (shown('expires_at')) {
+      r1.appendChild(input('expires_at', 'date', isRequired('expires_at')));
     }
     var r2 = row(role);
     r2.appendChild(select('employment_type', optionsOf(f.options.employment_type), true, value('employment_type')));
@@ -897,7 +933,7 @@
     var footer = el('div', 'agend-member-jobs__footer');
     if (!editing) {
       var count = self.creditCount();
-      footer.appendChild(el('p', 'agend-member-jobs__note', count === 1 ? f.submitNoteLast : count ? format(f.submitNoteCount, count) : f.submitNote));
+      footer.appendChild(el('p', 'agend-member-jobs__note', self.freeListings() ? self.m.freeListing : count === 1 ? f.submitNoteLast : count ? format(f.submitNoteCount, count) : f.submitNote));
     }
     var submit = el('button', 'agend-member-jobs__button', editing ? f.save : f.submit);
     submit.type = 'submit';
@@ -952,6 +988,9 @@
           errors[name] = f.tooLong;
         }
       });
+      if (text('expires_at') && (controls.expires_at.input.validity.badInput || text('expires_at') < form.minDate)) {
+        errors.expires_at = f.futureDate;
+      }
       if (text('application_email') && !EMAIL_PATTERN.test(text('application_email'))) {
         errors.application_email = f.email;
       }
@@ -1081,7 +1120,7 @@
         // Posted: Agend is checking for a credit. Keep the form busy and
         // wait for the outcome.
         if (!editing && result.ok && json.data && json.data.id) {
-          self.say(f.checking);
+          self.say(self.freeListings() ? self.m.processing : f.checking);
           self.follow(json.data);
           return;
         }

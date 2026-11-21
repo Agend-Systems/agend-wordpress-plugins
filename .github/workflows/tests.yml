@@ -97,6 +97,8 @@ jobs:
       - run: node --test agend-apps-shop/tests/js/cart-ux.test.cjs
       - run: node --test agend-apps-core/tests/js/member-login.test.cjs
       - run: node --test agend-apps-core/tests/js/memberships-catalogue.test.cjs
+      - run: node --test agend-apps-core/tests/js/jobs-render.test.cjs
+      - run: node --test agend-apps-core/tests/js/member-jobs.test.cjs
       - name: Committed build is up to date
         run: |
           git add -N agend-apps-core/build agend-apps-shop/build agend-content-access/build

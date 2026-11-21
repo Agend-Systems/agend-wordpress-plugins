@@ -2243,3 +2243,10 @@
     font-size: 1.5rem;
   }
 }
+
+/* A department only occupies space when the gateway supplies one. */
+.agend-jobs-department {
+  margin: 0.25rem 0;
+  font-size: 0.95em;
+  overflow-wrap: anywhere;
+}

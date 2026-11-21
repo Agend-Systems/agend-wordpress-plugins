@@ -168,7 +168,8 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return self::from_cache( $entry );
 			}
 
-			$available = $response['data']['available'] ?? null;
+			$free      = true === ( $response['data']['free_listings'] ?? false );
+			$available = $free ? 0 : ( $response['data']['available'] ?? null );
 
 			if ( ! is_int( $available ) || $available < 0 ) {
 				set_transient( $key, array( 'error' => 'unavailable' ), self::FAILURE_TTL );
@@ -176,9 +177,35 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return self::unavailable();
 			}
 
-			set_transient( $key, array( 'available' => $available ), self::CACHE_TTL );
+			set_transient( $key, array( 'available' => $available, 'free_listings' => $free ), self::CACHE_TTL );
 
 			return $available;
+		}
+
+		/**
+		 * Whether Agend reports free listings, cached alongside the real count.
+		 *
+		 * @param int $user_id WordPress user id.
+		 * @return bool
+		 */
+		public static function free_listings( int $user_id ): bool {
+			$count = self::count( $user_id );
+			if ( is_wp_error( $count ) ) {
+				return false;
+			}
+			$cached = get_transient( self::cache_key( self::contact( $user_id ) ) );
+			return is_array( $cached ) && true === ( $cached['free_listings'] ?? false );
+		}
+
+		/**
+		 * Whether the member can post using a credit or free listings.
+		 *
+		 * @param int $user_id WordPress user id.
+		 * @return bool
+		 */
+		public static function can_post( int $user_id ): bool {
+			$count = self::count( $user_id );
+			return ! is_wp_error( $count ) && ( $count > 0 || self::free_listings( $user_id ) );
 		}
 
 		/**
@@ -267,9 +294,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return false;
 			}
 
-			$count = self::count( get_current_user_id() );
-
-			return ! is_wp_error( $count ) && $count > 0;
+			return self::can_post( get_current_user_id() );
 		}
 
 		/**

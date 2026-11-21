@@ -104,6 +104,7 @@ function agend_apps_records_jobs_teaser_fields(): array {
 		'title',
 		'slug',
 		'company_name',
+		'department',
 		'company_logo_url',
 		'location_type',
 		'location_city',

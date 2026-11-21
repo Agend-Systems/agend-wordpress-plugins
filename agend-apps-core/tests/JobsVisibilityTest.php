@@ -232,4 +232,24 @@ final class JobsVisibilityTest extends TestCase {
 		self::assertLessThan( array_search( '/jobs/(?P<slug_or_id>[a-zA-Z0-9_-]+)', $routes, true ), array_search( '/jobs/categories', $routes, true ) );
 		self::assertLessThan( array_search( '/jobs/(?P<slug_or_id>[a-zA-Z0-9_-]+)', $routes, true ), array_search( '/jobs/tags', $routes, true ) );
 	}
+	#[Test]
+	public function public_and_teaser_cards_and_details_get_wordpress_local_closing_dates(): void {
+		update_option( 'timezone_string', 'Australia/Adelaide' );
+		$job = self::JOB + array( 'department' => 'Finance', 'expires_at' => '2099-12-12T23:00:00Z' );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( $job ) ) );
+		foreach ( array( 'public', 'teaser' ) as $visibility ) {
+			$this->visibility( $visibility );
+			$data = ( new Agend_Apps_Jobs_REST_Controller() )->get_jobs( new WP_REST_Request( 'GET', '/agend-apps/v1/jobs' ) )->get_data()['data'][0];
+			$this->assertSame( 'Finance', $data['department'] );
+			$this->assertSame( '13 December 2099', $data['expires_at_formatted'] );
+		}
+		$this->visibility( 'public' );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => $job ) );
+		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/jobs/senior-auditor' );
+		$request->set_param( 'slug_or_id', 'senior-auditor' );
+		$data = ( new Agend_Apps_Jobs_REST_Controller() )->get_job( $request )->get_data()['data'];
+		$this->assertSame( '13 December 2099', $data['expires_at_formatted'] );
+		$this->assertSame( 'Finance', $data['department'] );
+	}
+
 }

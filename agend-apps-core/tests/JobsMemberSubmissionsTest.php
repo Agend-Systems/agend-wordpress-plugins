@@ -561,4 +561,52 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		$this->assertInstanceOf( WP_Error::class, ( new Agend_Apps_Jobs_Me_REST_Controller() )->signed_in() );
 		$this->assertSame( 'sign_in', Agend_Apps_Jobs_Submissions::submit( 0, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
 	}
+
+	#[Test]
+	public function optional_department_and_closing_date_are_validated_and_can_be_cleared(): void {
+		$clean = Agend_Apps_Jobs_Submissions::sanitize( $this->job_fields() + array( 'department' => '  <b>Finance</b> ', 'expires_at' => '2099-12-12' ), true );
+		$this->assertSame( array(), $clean['errors'] );
+		$this->assertSame( 'Finance', $clean['fields']['department'] );
+		$this->assertSame( '2099-12-12T23:59:59Z', $clean['fields']['expires_at'] );
+		$clear = Agend_Apps_Jobs_Submissions::sanitize( array( 'department' => null, 'expires_at' => null ), false );
+		$this->assertSame( array( 'department' => null, 'expires_at' => null ), $clear['fields'] );
+		$this->assertSame( array(), Agend_Apps_Jobs_Submissions::sanitize( array(), false )['fields'] );
+		$this->assertArrayNotHasKey( 'department', Agend_Apps_Jobs_Submissions::sanitize( $this->job_fields(), true )['fields'] );
+		$this->assertArrayHasKey( 'department', Agend_Apps_Jobs_Submissions::sanitize( array( 'department' => str_repeat( 'x', 201 ) ), false )['errors'] );
+		foreach ( array( '2020-01-01', wp_date( 'Y-m-d' ), '2099-02-30', 'tomorrow', '2099-02-30T12:00:00Z', '2099-01-01T25:00:00Z' ) as $bad ) {
+			$this->assertArrayHasKey( 'expires_at', Agend_Apps_Jobs_Submissions::sanitize( array( 'expires_at' => $bad ), false )['errors'], $bad );
+		}
+	}
+
+	#[Test]
+	public function closing_dates_follow_site_timezone_including_daylight_saving(): void {
+		update_option( 'timezone_string', 'Australia/Adelaide' );
+		foreach ( array( '2099-01-12' => '2099-01-12T13:29:59Z', '2099-07-12' => '2099-07-12T14:29:59Z' ) as $day => $utc ) {
+			$clean = Agend_Apps_Jobs_Submissions::sanitize( array( 'expires_at' => $day ), false );
+			$this->assertSame( $utc, $clean['fields']['expires_at'] );
+			$item = Agend_Apps_Jobs_Submissions::public_item( array( 'expires_at' => $utc, 'department' => 'Finance', 'credit_ref' => 'secret', 'account_id' => 'private', 'contact' => array( 'id' => 'private' ) ) );
+			$this->assertSame( $day, $item['expires_at_date'] );
+			$this->assertSame( wp_date( 'j F Y', strtotime( $utc ) ), $item['expires_at_formatted'] );
+			$this->assertSame( 'Finance', $item['department'] );
+			foreach ( Agend_Apps_Jobs_Submissions::PRIVATE_KEYS as $key ) { $this->assertArrayNotHasKey( $key, $item ); }
+		}
+		$iso = Agend_Apps_Jobs_Submissions::sanitize( array( 'expires_at' => '2099-01-12T23:59:59+10:30' ), false );
+		$this->assertSame( '2099-01-12T13:29:59Z', $iso['fields']['expires_at'] );
+	}
+
+	#[Test]
+	public function the_rest_proxy_forwards_only_supplied_new_fields_and_free_credits(): void {
+		$this->accepted( 'pending' );
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/jobs/me' );
+		$request->set_body( json_encode( $this->job_fields() + array( 'department' => 'Finance', 'expires_at' => '2099-12-12' ) ) );
+		$result = ( new Agend_Apps_Jobs_Me_REST_Controller() )->submit( $request );
+		$this->assertSame( 202, $result->get_status() );
+		$body = json_decode( Agend_Test_WP::$requests[0]['body'], true );
+		$this->assertSame( 'Finance', $body['job']['department'] );
+		$this->assertSame( '2099-12-12T23:59:59Z', $body['job']['expires_at'] );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'available' => 0, 'free_listings' => true ) ) );
+		$credits = ( new Agend_Apps_Jobs_Me_REST_Controller() )->credits()->get_data();
+		$this->assertSame( array( 'available' => 0, 'free_listings' => true ), $credits['data'] );
+	}
+
 }

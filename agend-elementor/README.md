@@ -1,5 +1,29 @@
 # Agend Elementor Widgets
 
+## 0.50.0 — Jobs department, closing dates and free listings
+
+Jobs cards and detail views gain a department line when Agend supplies one.
+The catalogue's existing **Show closing date** (`show_closing_date`, default on)
+setting and detail visibility are unchanged; closing dates now use the WordPress
+locale and timezone.
+
+The existing Member Jobs surface gains **Show department** (`show_department`,
+default off) and **Show closing date** (`show_closing_date`, default off) in its
+Elementor widget settings. Both fields can be marked required through
+**Required fields** and hidden through **Hidden fields**. A hidden or
+switched-off field is never submitted, including when editing. Closing dates
+start tomorrow and are sent to Agend as 23:59:59 in the site's timezone,
+converted to UTC. Agend may cap the date at the board's listing period on
+approval.
+
+When the gateway reports `free_listings: true`, members can post with zero
+credits. The surface says “Listing a job is free.” and omits credit counts,
+purchase links and credit-related instructions. The ESAC posting condition
+accepts free listings; the flag shares the existing credit cache and invalidation.
+An older gateway keeps the existing credit behaviour. Optional fields stay off
+until the site enables them.
+
+
 Elementor widgets that surface Agend Events, Learning, Directory and Careers (jobs) data inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
 
 **The block editor is the primary target for new surface work.** Every surface in this pack also ships as a Gutenberg block from Agend Apps Core, and both editors build from the same declarations: one page-builder-agnostic schema per surface for the settings, and one core renderer per surface for the output. This plugin is an adapter over those, not the place a surface is defined. A setting or a rendering decision added here and not in the schema or the renderer exists in Elementor only, which is the class of defect that seam exists to prevent. See the Content-settings schema and Block editor surface sections of `agend-apps-core/README.md`.

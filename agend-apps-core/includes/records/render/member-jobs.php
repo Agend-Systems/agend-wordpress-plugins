@@ -111,7 +111,13 @@ function agend_apps_records_member_jobs_field_rules( array $s ): array {
 	$known    = array_keys( agend_apps_records_member_jobs_optional_fields() );
 	$hidden   = array_values( array_intersect( $known, array_map( 'strval', (array) ( $s['hidden_fields'] ?? array() ) ) ) );
 	$required = array_key_exists( 'required_fields', $s ) ? (array) $s['required_fields'] : AGEND_APPS_RECORDS_MEMBER_JOBS_REQUIRED_DEFAULT;
-	$required = array_values( array_diff( array_intersect( $known, array_map( 'strval', $required ) ), $hidden ) );
+	$disabled = array();
+	foreach ( array( 'department' => 'show_department', 'expires_at' => 'show_closing_date' ) as $field => $setting ) {
+		if ( ! in_array( $s[ $setting ] ?? '', array( 'yes', true, '1', 1 ), true ) ) {
+			$disabled[] = $field;
+		}
+	}
+	$required = array_values( array_diff( array_intersect( $known, array_map( 'strval', $required ) ), $hidden, $disabled ) );
 
 	return array(
 		'required' => $required,
@@ -165,6 +171,8 @@ function agend_apps_records_member_jobs_build_config( array $s ): array {
 		'prettyLinks' => (bool) get_option( 'permalink_structure' ),
 		'buyUrl'      => 1 === preg_match( '#^https?://#i', $buy_url ) || 0 === strpos( $buy_url, '/' ) ? $buy_url : '',
 		'buy'         => function_exists( 'agend_apps_member_jobs_buy_options' ) ? agend_apps_member_jobs_buy_options() : array(),
+		'freeIntro'   => $text( 'intro', $defaults['intro'] ) === $defaults['intro']
+			? __( 'Post a job to the board for our team to review.', 'agend-apps-core' ) : $text( 'intro', $defaults['intro'] ),
 		'text'        => array(
 			'heading'   => $text( 'heading', $defaults['heading'] ),
 			'intro'     => $text( 'intro', $defaults['intro'] ),
@@ -174,6 +182,9 @@ function agend_apps_records_member_jobs_build_config( array $s ): array {
 			'success'   => $text( 'success_message', $defaults['success_message'] ),
 		),
 		'form'        => array(
+			'department' => in_array( $s['show_department'] ?? '', array( 'yes', true, '1', 1 ), true ),
+			'closingDate' => in_array( $s['show_closing_date'] ?? '', array( 'yes', true, '1', 1 ), true ),
+			'minDate'    => ( new DateTimeImmutable( 'tomorrow', wp_timezone() ) )->format( 'Y-m-d' ),
 			'required'   => $rules['required'],
 			'hidden'     => $rules['hidden'],
 			'states'     => $states,
@@ -196,6 +207,9 @@ function agend_apps_records_member_jobs_build_config( array $s ): array {
  */
 function agend_apps_records_member_jobs_messages(): array {
 	return array(
+		'freeListing'    => __( 'Listing a job is free.', 'agend-apps-core' ),
+		'notSubmitted'   => __( 'Not submitted', 'agend-apps-core' ),
+		'processing'     => __( 'Processing', 'agend-apps-core' ),
 		'loading'        => __( 'Loading your jobs…', 'agend-apps-core' ),
 		'loadFailed'     => __( 'Your jobs could not be loaded. Please reload the page to try again.', 'agend-apps-core' ),
 		/* translators: %d: number of job credits. */
@@ -216,7 +230,7 @@ function agend_apps_records_member_jobs_messages(): array {
 		/* translators: %s: a date. */
 		'submittedOn'    => __( 'Submitted %s', 'agend-apps-core' ),
 		/* translators: %s: a date. */
-		'expiresOn'      => __( 'Listed until %s', 'agend-apps-core' ),
+		'expiresOn'      => __( 'Closes %s', 'agend-apps-core' ),
 		'reason'         => __( 'Reason:', 'agend-apps-core' ),
 		'noCreditNote'   => __( 'No job credit was available, so this job was not submitted.', 'agend-apps-core' ),
 		'checkingNote'   => __( 'We are checking your job credit.', 'agend-apps-core' ),
@@ -236,6 +250,9 @@ function agend_apps_records_member_jobs_messages(): array {
 			'again'           => __( 'Post again', 'agend-apps-core' ),
 			'edit'            => __( 'Edit', 'agend-apps-core' ),
 			'withdraw'        => __( 'Withdraw', 'agend-apps-core' ),
+			'withdrawFreeConfirm' => __( 'Withdraw this job?', 'agend-apps-core' ),
+			'closeFreeConfirm' => __( 'Take this job off the board?', 'agend-apps-core' ),
+			'withdrawnFree' => __( 'The job was withdrawn.', 'agend-apps-core' ),
 			'withdrawConfirm' => __( 'Withdraw this job? Your credit will be returned.', 'agend-apps-core' ),
 			'close'           => __( 'Close', 'agend-apps-core' ),
 			'closeConfirm'    => __( 'Take this job off the board? Your credit is not returned.', 'agend-apps-core' ),
@@ -271,6 +288,7 @@ function agend_apps_records_member_jobs_messages(): array {
 			'url'             => __( 'Please enter a full web address, starting with https://.', 'agend-apps-core' ),
 			'number'          => __( 'Please enter a whole number.', 'agend-apps-core' ),
 			'salaryRange'     => __( 'The maximum must not be less than the minimum.', 'agend-apps-core' ),
+			'futureDate'      => __( 'Please choose a closing date from tomorrow onwards.', 'agend-apps-core' ),
 			'tooLong'         => __( 'This is too long.', 'agend-apps-core' ),
 			'fix'             => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
 			'session'         => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
@@ -285,6 +303,8 @@ function agend_apps_records_member_jobs_messages(): array {
 				'apply'    => __( 'How to apply', 'agend-apps-core' ),
 			),
 			'labels'          => array(
+				'department'               => __( 'Department', 'agend-apps-core' ),
+				'expires_at'               => __( 'Closing date', 'agend-apps-core' ),
 				'title'                    => __( 'Job title', 'agend-apps-core' ),
 				'reference_number'         => __( 'Reference number', 'agend-apps-core' ),
 				'employment_type'          => __( 'Employment type', 'agend-apps-core' ),
@@ -310,6 +330,7 @@ function agend_apps_records_member_jobs_messages(): array {
 				'contact_phone'            => __( 'Contact phone', 'agend-apps-core' ),
 			),
 			'hints'           => array(
+				'expires_at'        => __( 'Agend may cap the closing date at the board’s listing period on approval.', 'agend-apps-core' ),
 				'short_description' => __( 'One or two lines for the job card.', 'agend-apps-core' ),
 				'description'       => __( 'Leave a blank line between paragraphs.', 'agend-apps-core' ),
 				'application_email' => __( 'Applications are sent to this address.', 'agend-apps-core' ),

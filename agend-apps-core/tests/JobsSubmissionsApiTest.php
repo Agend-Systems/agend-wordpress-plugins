@@ -163,4 +163,17 @@ final class JobsSubmissionsApiTest extends TestCase {
 
 		$this->assertStringContainsString( '/jobs/submissions/..%2Fx?', $this->request()['url'] );
 	}
+
+	#[Test]
+	public function optional_gateway_fields_survive_create_and_patch_including_null_clears(): void {
+		$fields = array( 'title' => 'Accountant', 'department' => 'Finance', 'expires_at' => '2099-12-12T13:29:59Z' );
+		Agend_Test_WP::queue_response( 202, array( 'success' => true, 'data' => array( 'id' => self::ID, 'status' => 'pending' ) ) );
+		agend_apps_jobs_create_submission( self::CONTACT, $fields, 'new-fields' );
+		$this->assertSame( $fields, $this->body()['job'] );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::ID ) ) );
+		$clear = array( 'department' => null, 'expires_at' => null );
+		agend_apps_jobs_update_submission( self::ID, self::CONTACT, $clear );
+		$this->assertSame( $clear, $this->body( 1 )['job'] );
+	}
+
 }

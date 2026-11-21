@@ -22,6 +22,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/jobs-dates.php';
+
 if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 
 	/**
@@ -72,7 +74,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 		 * The fields a member may send, with their gateway limits.
 		 *
 		 * `type` is one of text, textarea, html, url, email, enum, int, bool or
-		 * ids. `nullable` fields are cleared with null on an edit; the others
+		 * ids or datetime. `nullable` fields are cleared with null on an edit; the others
 		 * can only be changed.
 		 *
 		 * @return array<string, array{type: string, max?: int, values?: string[], nullable?: bool}>
@@ -96,6 +98,15 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				'company_name'             => array(
 					'type'     => 'text',
 					'max'      => 200,
+					'nullable' => true,
+				),
+				'department'               => array(
+					'type'     => 'text',
+					'max'      => 200,
+					'nullable' => true,
+				),
+				'expires_at'               => array(
+					'type'     => 'datetime',
 					'nullable' => true,
 				),
 				'company_website'          => array(
@@ -296,6 +307,34 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 			}
 
 			switch ( $type ) {
+				case 'datetime':
+					// The native date input posts a calendar day to the WP proxy.
+					// Convert on the server, never using the visitor's timezone.
+					if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $text ) ) {
+						$date = DateTimeImmutable::createFromFormat( '!Y-m-d', $text, wp_timezone() );
+						if ( ! $date || $date->format( 'Y-m-d' ) !== $text || $text <= wp_date( 'Y-m-d' ) ) {
+							return array( 'error' => 'future_date' );
+						}
+						$date = $date->setTime( 23, 59, 59 );
+					} else {
+						if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/', $text ) ) {
+							return array( 'error' => 'future_date' );
+						}
+						try {
+							$date = new DateTimeImmutable( $text );
+						} catch ( Exception $e ) {
+							return array( 'error' => 'future_date' );
+						}
+						$warnings = DateTimeImmutable::getLastErrors();
+						if ( $warnings && ( $warnings['warning_count'] || $warnings['error_count'] ) ) {
+							return array( 'error' => 'future_date' );
+						}
+					}
+					if ( $date->getTimestamp() <= time() ) {
+						return array( 'error' => 'future_date' );
+					}
+					return array( 'value' => $date->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Y-m-d\TH:i:s\Z' ) );
+
 				case 'enum':
 					return in_array( $text, $rule['values'], true ) ? array( 'value' => $text ) : array( 'error' => 'invalid' );
 
@@ -376,6 +415,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				'number'       => __( 'Please enter a whole number.', 'agend-apps-core' ),
 				'url'          => __( 'Please enter a full web address, starting with https://.', 'agend-apps-core' ),
 				'email'        => __( 'Please enter a valid email address.', 'agend-apps-core' ),
+				'future_date'  => __( 'Please choose a closing date from tomorrow onwards.', 'agend-apps-core' ),
 				'salary_range' => __( 'The maximum must not be less than the minimum.', 'agend-apps-core' ),
 				'check'        => __( 'Please check this field.', 'agend-apps-core' ),
 			);
@@ -668,7 +708,9 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 			$count = Agend_Apps_Jobs_Credits::count( $user_id );
 
 			if ( ! is_wp_error( $count ) ) {
-				return array( 'available' => $count );
+				return Agend_Apps_Jobs_Credits::free_listings( $user_id )
+					? array( 'available' => 0, 'free_listings' => true )
+					: array( 'available' => $count );
 			}
 
 			if ( 'agend_jobs_credits_not_available' === $count->get_error_code() ) {
@@ -721,7 +763,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 			$public           = array_diff_key( $item, array_flip( self::PRIVATE_KEYS ) );
 			$public['status'] = self::display_status( $item );
 
-			return $public;
+			return agend_apps_jobs_display_dates( $public );
 		}
 
 		/**

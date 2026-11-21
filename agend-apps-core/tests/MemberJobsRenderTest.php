@@ -92,4 +92,19 @@ final class MemberJobsRenderTest extends TestCase {
 		self::assertTrue( $groups[0]['required'] );
 		self::assertFalse( $groups[1]['required'], 'tick boxes are never required' );
 	}
+
+	#[Test]
+	public function the_new_form_controls_default_off_and_only_visible_enabled_fields_can_be_required(): void {
+		$defaults = agend_apps_records_member_jobs_build_config( array( 'required_fields' => array( 'department', 'expires_at' ) ) );
+		self::assertFalse( $defaults['form']['department'] );
+		self::assertFalse( $defaults['form']['closingDate'] );
+		self::assertSame( array(), $defaults['form']['required'] );
+		$config = agend_apps_records_member_jobs_build_config( array( 'show_department' => 'yes', 'show_closing_date' => 'yes', 'required_fields' => array( 'department', 'expires_at' ), 'hidden_fields' => array( 'department' ) ) );
+		self::assertTrue( $config['form']['department'] );
+		self::assertTrue( $config['form']['closingDate'] );
+		self::assertSame( array( 'expires_at' ), $config['form']['required'] );
+		self::assertSame( ( new \DateTimeImmutable( 'tomorrow', wp_timezone() ) )->format( 'Y-m-d' ), $config['form']['minDate'] );
+
+	}
+
 }

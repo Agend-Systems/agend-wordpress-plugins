@@ -236,4 +236,33 @@ final class JobsCreditsTest extends TestCase {
 		$this->assertFalse( Agend_Apps_Jobs_Credits::esac_check( false, 'something_else' ) );
 		$this->assertCount( 0, Agend_Test_WP::$requests );
 	}
+
+	#[Test]
+	public function free_listings_are_cached_with_zero_count_and_allow_posting_and_esac(): void {
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'available' => 0, 'free_listings' => true ) ) );
+		$this->assertSame( 0, Agend_Apps_Jobs_Credits::count( self::USER ) );
+		$this->assertTrue( Agend_Apps_Jobs_Credits::free_listings( self::USER ) );
+		$this->assertTrue( Agend_Apps_Jobs_Credits::can_post( self::USER ) );
+		$this->assertTrue( Agend_Apps_Jobs_Credits::esac_check( true, 'has_job_credit' ) );
+		$this->assertFalse( Agend_Apps_Jobs_Credits::esac_check( false, 'has_job_credit' ) );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+		Agend_Apps_Jobs_Credits::forget( Agend_Apps_Jobs_Credits::contact( self::USER ) );
+		$this->count_response( 0 );
+		$this->assertFalse( Agend_Apps_Jobs_Credits::free_listings( self::USER ) );
+		$this->assertFalse( Agend_Apps_Jobs_Credits::can_post( self::USER ) );
+		$this->assertCount( 2, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function absent_false_or_non_boolean_free_flags_keep_the_existing_credit_gate(): void {
+		foreach ( array( null, false, 'true', 1 ) as $flag ) {
+			Agend_Apps_Jobs_Credits::forget( Agend_Apps_Jobs_Credits::contact( self::USER ) );
+			$data = array( 'available' => 0 );
+			if ( null !== $flag ) { $data['free_listings'] = $flag; }
+			Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => $data ) );
+			$this->assertFalse( Agend_Apps_Jobs_Credits::can_post( self::USER ) );
+			$this->assertFalse( Agend_Apps_Jobs_Credits::free_listings( self::USER ) );
+		}
+	}
+
 }
