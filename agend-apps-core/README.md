@@ -1,5 +1,29 @@
 # Agend Apps Core
 
+## 1.88.0 — Jobs department, closing dates and free listings
+
+Jobs cards and detail views gain a department line when Agend supplies one.
+The catalogue's existing **Show closing date** (`show_closing_date`, default on)
+setting and detail visibility are unchanged; closing dates now use the WordPress
+locale and timezone.
+
+The existing Member Jobs surface gains **Show department** (`show_department`,
+default off) and **Show closing date** (`show_closing_date`, default off) in its
+Elementor widget settings. Both fields can be marked required through
+**Required fields** and hidden through **Hidden fields**. A hidden or
+switched-off field is never submitted, including when editing. Closing dates
+start tomorrow and are sent to Agend as 23:59:59 in the site's timezone,
+converted to UTC. Agend may cap the date at the board's listing period on
+approval.
+
+When the gateway reports `free_listings: true`, members can post with zero
+credits. The surface says “Listing a job is free.” and omits credit counts,
+purchase links and credit-related instructions. The ESAC posting condition
+accepts free listings; the flag shares the existing credit cache and invalidation.
+An older gateway keeps the existing credit behaviour. Optional fields stay off
+until the site enables them.
+
+
 The shared WordPress layer every other Agend plugin builds on: the gateway HTTP
 client, member sessions and bearer resolution, response caching, and the
 per-endpoint REST wrappers.

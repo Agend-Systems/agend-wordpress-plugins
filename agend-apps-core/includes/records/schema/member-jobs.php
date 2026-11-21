@@ -20,6 +20,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 function agend_apps_records_member_jobs_optional_fields(): array {
 	return array(
+		'department'               => __( 'Department', 'agend-apps-core' ),
+		'expires_at'               => __( 'Closing date', 'agend-apps-core' ),
 		'reference_number'         => __( 'Reference number', 'agend-apps-core' ),
 		'experience_level'         => __( 'Experience level', 'agend-apps-core' ),
 		'category'                 => __( 'Category', 'agend-apps-core' ),
@@ -125,6 +127,18 @@ function agend_apps_records_schema_member_jobs(): array {
 				'id'     => 'section_form',
 				'label'  => __( 'Job Form', 'agend-apps-core' ),
 				'fields' => array(
+					array(
+						'name'    => 'show_department',
+						'label'   => __( 'Show department', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
+					array(
+						'name'    => 'show_closing_date',
+						'label'   => __( 'Show closing date', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
 					array(
 						'name'        => 'required_fields',
 						'label'       => __( 'Required fields', 'agend-apps-core' ),

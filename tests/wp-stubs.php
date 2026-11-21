@@ -1117,10 +1117,10 @@ function _n( $single, $plural, $number, $domain = null ): string {
 }
 
 /**
- * The site timezone, fixed to UTC for deterministic test fixtures.
+ * The configured site timezone, defaulting to UTC for deterministic fixtures.
  */
 function wp_timezone(): DateTimeZone {
-	return new DateTimeZone( 'UTC' );
+	return new DateTimeZone( get_option( 'timezone_string', 'UTC' ) ?: 'UTC' );
 }
 
 /**

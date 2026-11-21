@@ -21,6 +21,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - `POST  /agend-apps/v1/jobs/me/{id}/withdraw` : withdraw a pending one (Agend frees the credit).
  * - `POST  /agend-apps/v1/jobs/me/{id}/close`    : take a published one down (`filled`).
  *
+ * Optional `expires_at` accepts the native date input’s site-local day; the
+ * submission sanitizer sends its end of day as a UTC datetime to Agend.
+ *
  * `me` is the signed-in WordPress user. The site names them to Agend by their
  * contact pair, from the WordPress session; the browser never names a member
  * or a credit. A post carries a `request_id`, which the browser keeps while

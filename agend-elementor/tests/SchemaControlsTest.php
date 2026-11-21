@@ -137,4 +137,21 @@ final class SchemaControlsTest extends TestCase {
 
 		self::assertSame( array( 'show_heading' ), $control_ids, 'the unknown-type field registers no control' );
 	}
+	#[Test]
+	public function jobs_widgets_get_optional_controls_from_the_shared_core_schema(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/member-jobs.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+		foreach ( array( 'member' => agend_apps_records_schema_member_jobs(), 'catalogue' => agend_apps_records_schema_jobs_catalogue() ) as $surface => $schema ) {
+			foreach ( $schema['sections'] as $section ) {
+				foreach ( $section['fields'] as $field ) {
+					if ( in_array( $field['name'], array( 'show_department', 'show_closing_date' ), true ) ) {
+						$args = Agend_Elementor_Schema_Controls::control_args( $field );
+						self::assertSame( \Elementor\Controls_Manager::SWITCHER, $args['type'] );
+						self::assertSame( 'catalogue' === $surface ? 'yes' : '', $args['default'] );
+					}
+				}
+			}
+		}
+	}
+
 }

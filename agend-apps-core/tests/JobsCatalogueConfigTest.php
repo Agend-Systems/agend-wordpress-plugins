@@ -514,4 +514,16 @@ final class JobsCatalogueConfigTest extends TestCase {
 		self::assertSame( 'colour', $fields['job_header_colour']['type'] );
 		self::assertSame( array( 'detail_layout' => 'header' ), $fields['job_header_colour']['condition'] );
 	}
+
+	#[Test]
+	public function closing_dates_retain_the_existing_config_and_saved_block_defaults(): void {
+		self::assertTrue( agend_apps_records_jobs_catalogue_build_config( array() )['card']['closingDate'] );
+		self::assertFalse( agend_apps_records_jobs_catalogue_build_config( array( 'show_closing_date' => '' ) )['card']['closingDate'] );
+		self::assertTrue( agend_apps_records_jobs_catalogue_build_config( array( 'show_closing_date' => 'yes' ) )['card']['closingDate'] );
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+		$attrs = agend_apps_records_block_attributes( agend_apps_records_schema_jobs_catalogue() );
+		self::assertSame( array( 'type' => 'boolean', 'default' => true ), $attrs['show_closing_date'] );
+	}
+
 }

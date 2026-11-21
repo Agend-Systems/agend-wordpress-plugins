@@ -273,5 +273,18 @@ namespace Agend\Tests\Core {
 			$this->assertSame( array( 'Buy 1 credit', 'Buy Jobs Board Credits 5 Pack' ), array_column( $options, 'label' ) );
 			$this->assertStringContainsString( AGEND_APPS_MEMBER_JOBS_BUY_ARG . '=11', $options[0]['url'] );
 		}
+		#[Test]
+		public function the_account_jobs_surface_keeps_new_fields_off_by_default(): void {
+			require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
+			require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-jobs.php';
+			wp_set_current_user( 7 );
+			$html = agend_apps_my_account_jobs_render();
+			preg_match( '/data-agend-member-jobs-config="([^"]+)"/', $html, $matches );
+			$config = json_decode( html_entity_decode( $matches[1], ENT_QUOTES ), true );
+			self::assertFalse( $config['form']['department'] );
+			self::assertFalse( $config['form']['closingDate'] );
+			self::assertSame( 'Listing a job is free.', $config['messages']['freeListing'] );
+		}
+
 	}
 }

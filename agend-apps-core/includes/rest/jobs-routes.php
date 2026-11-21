@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/../records/jobs-visibility.php';
+require_once __DIR__ . '/../jobs-dates.php';
 
 /**
  * Registers the jobs REST routes.
@@ -274,6 +275,11 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 			);
 		}
 
+		if ( ! is_wp_error( $result ) && isset( $result['data'] ) && is_array( $result['data'] ) ) {
+			$result['data'] = array_map( static function ( $job ) {
+				return is_array( $job ) ? agend_apps_jobs_display_dates( $job ) : $job;
+			}, $result['data'] );
+		}
 		return $this->prepare_api_response( $result );
 	}
 
@@ -462,6 +468,9 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$slug_or_id = $request->get_param( 'slug_or_id' );
 		$result     = agend_apps_jobs_get_job( $slug_or_id );
+		if ( ! is_wp_error( $result ) && isset( $result['data'] ) && is_array( $result['data'] ) ) {
+			$result['data'] = agend_apps_jobs_display_dates( $result['data'] );
+		}
 		return $this->prepare_api_response( $result );
 	}
 }

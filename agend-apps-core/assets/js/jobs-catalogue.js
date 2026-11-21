@@ -570,8 +570,11 @@
       titles.appendChild(iconLine('p', 'agend-jobs-bcard__company', 'building', job.company_name));
     }
     head.appendChild(titles);
-    if (c.closingDate && job.expires_at && formatDate(job.expires_at)) {
-      head.appendChild(el('span', 'agend-jobs-bcard__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at)));
+    if (typeof job.department === 'string' && job.department.trim()) {
+      titles.appendChild(el('p', 'agend-jobs-department', job.department.trim()));
+    }
+    if (c.closingDate && job.expires_at && (job.expires_at_formatted || formatDate(job.expires_at))) {
+      head.appendChild(el('span', 'agend-jobs-bcard__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + (job.expires_at_formatted || formatDate(job.expires_at))));
     }
     main.appendChild(head);
 
@@ -671,8 +674,8 @@
     // that drops under the title in a narrow container.
     if (sidebar) {
       var side = el('div', 'agend-jobs-card__side');
-      if (c.closingDate && job.expires_at && formatDate(job.expires_at)) {
-        side.appendChild(el('span', 'agend-jobs-card__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at)));
+      if (c.closingDate && job.expires_at && (job.expires_at_formatted || formatDate(job.expires_at))) {
+        side.appendChild(el('span', 'agend-jobs-card__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + (job.expires_at_formatted || formatDate(job.expires_at))));
       }
       var age = c.postedDate ? postedAge(job.published_at || job.created_at) : '';
       if (age) {
@@ -688,6 +691,9 @@
     }
 
     var meta = el('div', 'agend-jobs-card__meta');
+    if (typeof job.department === 'string' && job.department.trim()) {
+      body.appendChild(el('p', 'agend-jobs-department', job.department.trim()));
+    }
     if (c.location && locationLabel(job)) {
       meta.appendChild(el('span', 'agend-jobs-card__location', locationLabel(job)));
     }
@@ -744,8 +750,8 @@
     if (!sidebar && c.postedDate && postedLabel(job.published_at || job.created_at)) {
       dates.push(postedLabel(job.published_at || job.created_at));
     }
-    if (!sidebar && c.closingDate && job.expires_at && formatDate(job.expires_at)) {
-      dates.push((isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at));
+    if (!sidebar && c.closingDate && job.expires_at && (job.expires_at_formatted || formatDate(job.expires_at))) {
+      dates.push((isClosed(job) ? 'Closed ' : 'Closes ') + (job.expires_at_formatted || formatDate(job.expires_at)));
     }
     if (dates.length) {
       body.appendChild(el('p', 'agend-jobs-card__dates', dates.join(' · ')));
@@ -930,6 +936,9 @@
     if (job.company_name) {
       hero.appendChild(el('p', 'agend-jobs-hero__company', job.company_name));
     }
+    if (typeof job.department === 'string' && job.department.trim()) {
+      hero.appendChild(el('p', 'agend-jobs-department', job.department.trim()));
+    }
     var posted = formatDate(job.published_at || job.created_at);
     var reference = job.reference_number ? 'Reference ' + String(job.reference_number).trim() : '';
     var line = [reference, posted ? 'Posted ' + posted : ''].filter(function (part) { return part; }).join(' · ');
@@ -943,7 +952,7 @@
       factCell('Location', locationLabel(job)),
       factCell('Salary', salaryLabel(job)),
       factCell('Job type', jobTypeLabel(job)),
-      factCell(isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at)),
+      factCell(isClosed(job) ? 'Closed' : 'Closes', (job.expires_at_formatted || formatDate(job.expires_at))),
     ].forEach(function (cell) {
       if (cell) {
         facts.appendChild(cell);
@@ -1266,6 +1275,9 @@
     }
     headText.appendChild(titleRow);
     var meta = el('ul', 'agend-jobs-dc__meta');
+    if (typeof job.department === 'string' && job.department.trim()) {
+      titles.appendChild(el('p', 'agend-jobs-department', job.department.trim()));
+    }
     var posted = formatDate(job.published_at || job.created_at);
     [
       iconLine('li', null, 'location', boardLocation(job)),
@@ -1312,7 +1324,7 @@
 
     // Apply card: the closing date, then the button.
     var apply = el('section', 'agend-jobs-dc-card agend-jobs-dc__apply');
-    var closing = formatDate(job.expires_at);
+    var closing = (job.expires_at_formatted || formatDate(job.expires_at));
     if (closing && !isClosed(job)) {
       var when = el('div', 'agend-jobs-dc__closes');
       when.appendChild(el('span', 'agend-jobs-dc__closes-label', 'Applications close'));
@@ -1453,6 +1465,9 @@
     if (job.company_name) {
       headText.appendChild(el('p', 'agend-jobs-detail__company', job.company_name));
     }
+    if (typeof job.department === 'string' && job.department.trim()) {
+      headText.appendChild(el('p', 'agend-jobs-department', job.department.trim()));
+    }
     if (job.reference_number) {
       headText.appendChild(el('p', 'agend-jobs-detail__reference', 'Reference: ' + job.reference_number));
     }
@@ -1513,7 +1528,7 @@
     detailRow(facts, 'Experience', experienceLabel(job.experience_level));
     detailRow(facts, 'Salary', salaryLabel(job));
     detailRow(facts, 'Posted', formatDate(job.published_at || job.created_at));
-    detailRow(facts, isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at));
+    detailRow(facts, isClosed(job) ? 'Closed' : 'Closes', (job.expires_at_formatted || formatDate(job.expires_at)));
     summary.appendChild(facts);
     var contact = contactBlock(job);
     if (contact) {
