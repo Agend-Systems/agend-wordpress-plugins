@@ -140,16 +140,16 @@ test('a guest names the buyer before applying a code', async (t) => {
   assert.deepEqual(calls.find((c) => c.path === '/api/cart/discount').body, { discount_code: 'ATEMDEMO10', guest_buyer: { name: 'Sam Guest', email: 'sam@example.test' } });
 });
 
-test('card checkout sends the reviewed code and quote version', async (t) => {
+test('card checkout sends the applied code, and a changed order is explained', async (t) => {
   const { window, doc, calls } = await setup(t, {
     stored: 'ATEMDEMO10',
-    checkoutReply: { status: 409, body: { code: 'agend_api_error', message: 'x', data: { status_code: 409, body: { error: { code: 'CART_CONFLICT', message: 'Your order changed since you reviewed it. Review it again before paying.', details: { reviewStale: true } } } } } },
+    checkoutReply: { status: 409, body: { code: 'agend_api_error', message: 'x', data: { status_code: 409, body: { error: { code: 'CART_CONFLICT', message: 'Your order changed since you reviewed it. Review it again before paying.' } } } } },
   });
   doc.querySelector('.agend-shop-btn-proceed-checkout').click();
   for (let i = 0; i < 10; i++) await tick();
   const checkout = calls.find((c) => c.path === '/api/cart/checkout');
   assert.equal(checkout.body.discount_code, 'ATEMDEMO10');
-  assert.equal(checkout.body.accepted_quote_version, 'v1');
+  assert.equal('accepted_quote_version' in checkout.body, false);
   assert.equal(doc.querySelector('.agend-shop-cart-message').textContent, 'Your order changed since you reviewed it. Review it again before paying.');
   const reads = calls.filter((c) => c.path === '/api/cart');
   assert.ok(reads.length >= 2, 'the totals are read again after a changed quote');

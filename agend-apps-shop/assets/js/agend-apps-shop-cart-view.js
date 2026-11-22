@@ -1190,6 +1190,22 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Whether a refused checkout says the cart changed since the buyer saw
+		 * it (the platform's CART_CONFLICT "Your order changed since you
+		 * reviewed it"), so the totals should be read again.
+		 *
+		 * @param {Object} body Decoded response body.
+		 * @return {boolean}
+		 */
+		function orderChanged( body ) {
+			var error = body && body.data && body.data.body && body.data.body.error;
+			if ( ! error || 'CART_CONFLICT' !== error.code ) {
+				return false;
+			}
+			return !! ( ( error.details && error.details.reviewStale ) || /^Your order changed since you reviewed it/.test( error.message || '' ) );
+		}
+
+		/**
 		 * After an in-place quantity change with a code applied, reads the cart
 		 * again and redraws only the discount section and the totals (the
 		 * rows and any open attendee editor are left as they are).
@@ -2380,9 +2396,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			invoiceKey = invoiceKey || newInvoiceKey();
 			var payload = { paymentMethod: 'invoice', idempotencyKey: invoiceKey };
-			if ( discountCode && discountVersion ) {
+			// The code the buyer applied: the platform checks it again for this
+			// cart and buyer and refuses (rather than charging full price) if
+			// it no longer applies. The quote version is not sent: the
+			// platform's checkout re-validates items before comparing it, which
+			// changes the cart's revision, so a first attempt would always be
+			// refused as stale.
+			if ( discountCode ) {
 				payload.discountCode = discountCode;
-				payload.acceptedQuoteVersion = discountVersion;
 			}
 			if ( po && po.value ) payload.purchaseOrderNumber = po.value;
 			var companies = invoiceCompanies( invoiceOption );
@@ -2419,7 +2440,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					showMessage( errorMessage( result.data, result.status ), 'error' );
 					// A changed quote: the refresh re-enables checkout once the
 					// new totals are shown.
-					if ( discountApplied && ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) ) {
+					if ( discountApplied && ( orderChanged( result.data ) ) ) {
 						refreshDiscountTotals();
 					} else {
 						checkoutBtn.disabled = false;
@@ -2524,9 +2545,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					successUrl: shopConfig.checkoutSuccessUrl || successUrl.href,
 					cancelUrl: shopConfig.checkoutCancelUrl || cartUrl,
 				};
-				if ( discountCode && discountVersion ) {
+				// As for Pay on Invoice: the code, not the quote version.
+				if ( discountCode ) {
 					payload.discount_code = discountCode;
-					payload.accepted_quote_version = discountVersion;
 				}
 				if ( buyerName && buyerEmail ) {
 					buyerName.value = buyerName.value.trim();
@@ -2559,7 +2580,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							window.location.href = checkoutUrl;
 						} else {
 							showMessage( errorMessage( result.data, result.status ), 'error' );
-							if ( discountApplied && ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) ) {
+							if ( discountApplied && ( orderChanged( result.data ) ) ) {
 								refreshDiscountTotals();
 							} else {
 								checkoutBtn.disabled = false;

@@ -92,7 +92,7 @@
 		}
 		// The order changed since the buyer reviewed it (a discount quote, the
 		// buyer's details): the platform's own sentence says what to do.
-		if ( 'CART_CONFLICT' === code && platform.details && platform.details.reviewStale && 'string' === typeof raw && '' !== raw ) {
+		if ( 'CART_CONFLICT' === code && 'string' === typeof raw && ( ( platform.details && platform.details.reviewStale ) || /^Your order changed since you reviewed it/.test( raw ) ) ) {
 			return { message: raw, locked: false };
 		}
 		// Refusals the platform words for buyers ("Only 2 places are left
