@@ -280,7 +280,7 @@ function agend_apps_auth_register( array $payload ) {
 	if ( is_wp_error( $response ) && isset( $args['body']['redirect_to'] ) && agend_apps_auth_error_is_redirect_refused( $response ) ) {
 		if ( function_exists( 'error_log' ) ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- operator warning.
-			error_log( sprintf( 'Agend Apps: registration refused the return address %s (not on the API key redirect allowlist); registered without it. Add it to the key\'s redirect allowlist so new members return to this site.', (string) $args['body']['redirect_to'] ) );
+			error_log( sprintf( 'Agend Apps: registration refused the return address %s (not on the API key redirect allowlist); retrying without it. Add it to the key\'s redirect allowlist so new members return to this site.', (string) $args['body']['redirect_to'] ) );
 		}
 		unset( $args['body']['redirect_to'] );
 		$response = agend_apps_api()->request( 'POST', '/auth/register', $args );
