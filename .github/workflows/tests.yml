@@ -105,6 +105,8 @@ jobs:
       # signed-in card, and the courses and directory filter names.
       - run: node --test agend-apps-core/tests/js/events-registration.test.cjs
       - run: node --test agend-apps-core/tests/js/memberships-errors.test.cjs
+      # A paid membership join completes on the member's return from the payment page.
+      - run: node --test agend-apps-core/tests/js/memberships-return.test.cjs
       - run: node --test agend-apps-core/tests/js/member-login-signed-in.test.cjs
       - run: node --test agend-apps-core/tests/js/catalogue-filter-names.test.cjs
       - run: node --test agend-apps-shop/tests/js/cart-errors.test.cjs

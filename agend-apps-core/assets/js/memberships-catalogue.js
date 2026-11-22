@@ -235,12 +235,25 @@
   }
 
   /**
+   * The return reference the site added to a join's success URL, or ''.
+   */
+  function returnRef() {
+    try {
+      var ref = new URL(window.location.href).searchParams.get('agend_membership_ref') || '';
+      return /^[A-Za-z0-9]{16,64}$/.test(ref) ? ref : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
    * Removes the marker param from the URL after rendering the state.
    */
   function clearState() {
     try {
       var url = new URL(window.location.href);
       url.searchParams.delete(DEEP_LINK_PARAM);
+      url.searchParams.delete('agend_membership_ref');
       window.history.replaceState({}, '', url.toString());
     } catch (e) {
       /* history API unavailable */
@@ -877,6 +890,15 @@
         formWrapper.innerHTML = '';
       }
 
+      // A join this site started carries a return reference: confirm the
+      // payment now rather than wait for the provider's notice to the
+      // platform, which may be slow or never come.
+      var ref = returnRef();
+      if (ref) {
+        confirmReturn(ref);
+        return;
+      }
+
       // Redirect return only: payment settlement (and entitlement) is confirmed
       // by the gateway webhook, not by this return, so the copy does not assert
       // activation (SPEC-CRM-20260721 US-3.3 business rule).
@@ -890,6 +912,82 @@
         container.appendChild(confirm);
       }
       clearState();
+    }
+
+    /**
+     * Confirms the member's paid join with the site (which asks the platform)
+     * and shows the outcome in one live region: "Welcome, your membership is
+     * active" with a link to the Member Portal, or "We're confirming your
+     * payment" with Check again. Never "failed": the member may well have
+     * paid. The return arguments stay in the address until the join is
+     * confirmed, so a reload checks again.
+     */
+    function confirmReturn(ref) {
+      var panel = el('div', 'agend-mem-confirmation agend-mem-confirmation--success');
+      panel.setAttribute('role', 'status');
+      var title = el('h2', 'agend-mem-confirmation__title', 'Confirming your payment');
+      var msg = el('p', 'agend-mem-confirmation__message', 'One moment while we confirm your payment.');
+      var actions = el('p', 'agend-mem-confirmation__actions');
+      panel.appendChild(title);
+      panel.appendChild(msg);
+      panel.appendChild(actions);
+      if (container) {
+        container.appendChild(panel);
+      }
+
+      function pending() {
+        title.textContent = 'We\'re confirming your payment';
+        msg.textContent = 'Your payment is being confirmed. This usually takes a moment. Check again shortly; your confirmation email will follow.';
+        actions.innerHTML = '';
+        var again = el('button', 'agend-mem-form__submit agend-mem-confirmation__again', 'Check again');
+        again.type = 'button';
+        again.addEventListener('click', function () {
+          again.disabled = true;
+          check();
+        });
+        actions.appendChild(again);
+      }
+
+      function confirmed(portalUrl) {
+        title.textContent = 'Welcome, your membership is active';
+        msg.textContent = 'Thank you for joining. Your confirmation email is on its way.';
+        actions.innerHTML = '';
+        var href = '';
+        try {
+          var url = new URL(portalUrl || '', window.location.href);
+          href = /^https?:$/.test(url.protocol) && portalUrl ? url.href : '';
+        } catch (e) {
+          href = '';
+        }
+        if (href) {
+          var link = el('a', 'agend-mem-form__submit agend-mem-confirmation__portal', 'Go to the Member Portal');
+          link.href = href;
+          actions.appendChild(link);
+        }
+        clearState();
+      }
+
+      function check() {
+        apiPost('/crm/me/memberships/return-confirm', { token: ref }).then(function (body) {
+          var status = body && body.status;
+          if (status === 'confirmed') {
+            confirmed(body.portalUrl);
+          } else if (status === 'none' || (!status && body && body.code)) {
+            // Not this member's latest join (another browser), or refused
+            // (signed out): the general thank-you, as before.
+            title.textContent = 'Thank you';
+            msg.textContent = 'We have received your payment. Your membership is being set up and you will receive a confirmation email shortly.';
+            actions.innerHTML = '';
+            clearState();
+          } else {
+            pending();
+          }
+        }).catch(function () {
+          pending();
+        });
+      }
+
+      check();
     }
 
     /**

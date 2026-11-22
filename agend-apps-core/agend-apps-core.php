@@ -423,6 +423,11 @@ function agend_apps_core_bootstrap() {
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
 
+	// A paid membership join completes on the member's return from the
+	// payment page, without waiting for the provider's webhook.
+	require_once AGEND_APPS_CORE_DIR . 'includes/membership-return.php';
+	agend_apps_register_membership_return();
+
 	if ( $agend_apps_credential_login_enabled ) {
 		// Agend-first authentication for wp-login.php and wp_signon() callers.
 		// Loaded after api/auth.php and rest/auth-routes.php, whose helpers
