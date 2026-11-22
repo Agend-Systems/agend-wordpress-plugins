@@ -206,4 +206,39 @@ final class BookingConfirmationTest extends TestCase {
 		self::assertStringNotContainsString( 'Payment received', $html );
 	}
 
+	#[Test]
+	public function should_read_the_cart_currency_with_its_event_tickets(): void {
+		\Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'currency' => 'aud', 'items' => array( array( 'product_type' => 'event_tickets' ) ) ) ) );
+		self::assertSame( array( 'events' => true, 'currency' => 'AUD' ), agend_apps_shop_booking_cart_summary( 'aud-cart', '' ) );
+		\Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'currency' => 'dollars', 'items' => array() ) ) );
+		self::assertSame( array( 'events' => false, 'currency' => null ), agend_apps_shop_booking_cart_summary( 'odd-cart', '' ) );
+		\Agend_Test_WP::queue_response( 500, array( 'error' => array( 'code' => 'INTERNAL' ) ) );
+		self::assertSame( array( 'events' => false, 'currency' => null ), agend_apps_shop_booking_cart_summary( 'broken-cart', '' ) );
+	}
+
+	#[Test]
+	public function should_keep_the_cart_currency_for_the_receipt_when_the_checkout_groups_carry_none(): void {
+		// A released platform's checkout groups have a subtotal but no currency.
+		update_option( 'agend_apps_shop_checkout_success_url', 'https://example.test/?page_id=8&lang=en' );
+		agend_apps_shop_register_booking_confirmation();
+		$GLOBALS['agend_test_current_user_id'] = 42;
+		\Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'currency' => 'aud', 'items' => array( array( 'product_type' => 'event_tickets' ) ) ) ) );
+		$args = apply_filters( 'agend_apps_cart_checkout_args', array( 'body' => array( 'successUrl' => 'https://example.test/?page_id=8&lang=en' ) ), array(), '', 'member-token' );
+		parse_str( wp_parse_url( $args['body']['successUrl'], PHP_URL_QUERY ), $query );
+		$response = array( 'data' => array( 'groups' => array( array( 'externalId' => 'cs_paid', 'subtotalCents' => 34650 ) ) ) );
+		apply_filters( 'agend_apps_cart_checkout_response', $response, '', 'member-token' );
+
+		self::assertSame(
+			array( 'session' => 'cs_paid', 'free' => false, 'events' => true, 'total_cents' => 34650, 'currency' => 'AUD' ),
+			get_transient( agend_apps_shop_booking_key( $query['booking_ref'], 'member:42' ) )
+		);
+	}
+
+	#[Test]
+	public function should_show_the_order_reference_even_when_the_amount_is_unknown(): void {
+		$html = agend_apps_shop_render_confirmed_booking( array( 'order_number' => 'CRM-2026-00032' ), false, '', '', true );
+		self::assertStringContainsString( 'Order reference', $html );
+		self::assertStringContainsString( 'CRM-2026-00032', $html );
+		self::assertStringNotContainsString( 'Amount paid', $html );
+	}
 }

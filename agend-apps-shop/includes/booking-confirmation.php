@@ -19,11 +19,13 @@ function agend_apps_shop_booking_buyer( string $cart, string $bearer ): string {
 }
 
 function agend_apps_shop_register_booking_confirmation(): void {
-	$reference = '';
-	$has_events = false;
-	add_filter( 'agend_apps_cart_checkout_args', static function ( array $args, $urls = array(), $cart = '', $bearer = '' ) use ( &$reference, &$has_events ): array {
-		$reference  = '';
-		$has_events = false;
+	$reference     = '';
+	$has_events    = false;
+	$cart_currency = null;
+	add_filter( 'agend_apps_cart_checkout_args', static function ( array $args, $urls = array(), $cart = '', $bearer = '' ) use ( &$reference, &$has_events, &$cart_currency ): array {
+		$reference     = '';
+		$has_events    = false;
+		$cart_currency = null;
 		$configured = (string) get_option( 'agend_apps_shop_checkout_success_url', '' );
 		$target = esc_url_raw( $args['body']['successUrl'] ?? '' );
 		if ( '' === $configured || agend_apps_shop_booking_url_parts( $configured ) !== agend_apps_shop_booking_url_parts( $target ) || ! agend_apps_shop_is_local_booking_url( $target ) ) {
@@ -33,12 +35,15 @@ function agend_apps_shop_register_booking_confirmation(): void {
 		$reference = wp_generate_uuid4();
 		$args['body']['successUrl'] = add_query_arg( 'booking_ref', $reference, $target );
 		// A free checkout's receipt names no events, so whether this is an
-		// event booking is read from the cart before it is checked out.
-		$has_events = agend_apps_shop_booking_cart_has_events( is_string( $cart ) ? $cart : '', is_string( $bearer ) ? $bearer : '' );
+		// event booking is read from the cart before it is checked out. So is
+		// the currency: a released platform's checkout groups carry none.
+		$summary       = agend_apps_shop_booking_cart_summary( is_string( $cart ) ? $cart : '', is_string( $bearer ) ? $bearer : '' );
+		$has_events    = $summary['events'];
+		$cart_currency = $summary['currency'];
 		return $args;
 	}, 10, 4 );
 
-	add_filter( 'agend_apps_cart_checkout_response', static function ( array $response, string $cart, string $bearer = '' ) use ( &$reference, &$has_events ): array {
+	add_filter( 'agend_apps_cart_checkout_response', static function ( array $response, string $cart, string $bearer = '' ) use ( &$reference, &$has_events, &$cart_currency ): array {
 		$groups = $response['data']['groups'] ?? array();
 		$buyer  = agend_apps_shop_booking_buyer( $cart, $bearer );
 		if ( '' === $reference || '' === $buyer || ! is_array( $groups ) || 1 !== count( $groups ) ) {
@@ -59,7 +64,7 @@ function agend_apps_shop_register_booking_confirmation(): void {
 			}
 			// The amount shown on the receipt when the platform's answer
 			// carries none (the complete route returns the order number only).
-			$currency = $group['currency'] ?? ( $response['data']['currency'] ?? null );
+			$currency = $group['currency'] ?? ( $response['data']['currency'] ?? $cart_currency );
 			if ( ! $free && is_int( $group['subtotalCents'] ?? null ) && is_string( $currency ) && preg_match( '/^[A-Za-z]{3}$/', $currency ) ) {
 				$record['total_cents'] = $group['subtotalCents'];
 				$record['currency']    = strtoupper( $currency );
@@ -96,15 +101,34 @@ function agend_apps_shop_register_booking_confirmation(): void {
  * @return bool
  */
 function agend_apps_shop_booking_cart_has_events( string $cart, string $bearer ): bool {
+	return agend_apps_shop_booking_cart_summary( $cart, $bearer )['events'];
+}
+
+/**
+ * What the receipt needs to know about the cart about to be checked out, from
+ * one read through Core's cart helper: whether it holds event tickets, and its
+ * three-letter currency (upper case), or null when the cart does not say. Any
+ * failure answers no events and no currency.
+ *
+ * @param string $cart   Guest cart session token.
+ * @param string $bearer Member bearer token, or ''.
+ * @return array{events: bool, currency: ?string}
+ */
+function agend_apps_shop_booking_cart_summary( string $cart, string $bearer ): array {
+	$summary = array( 'events' => false, 'currency' => null );
 	if ( ! function_exists( 'agend_apps_cart_get' ) || ( '' === $cart && '' === $bearer ) ) {
-		return false;
+		return $summary;
 	}
 	$response = agend_apps_cart_get( $cart, $bearer );
 	if ( is_wp_error( $response ) || ! is_array( $response ) ) {
-		return false;
+		return $summary;
 	}
 	$data  = is_array( $response['data'] ?? null ) ? $response['data'] : $response;
 	$cart_data = is_array( $data['cart'] ?? null ) ? $data['cart'] : $data;
+	$currency  = $cart_data['currency'] ?? null;
+	if ( is_string( $currency ) && preg_match( '/^[A-Za-z]{3}$/', $currency ) ) {
+		$summary['currency'] = strtoupper( $currency );
+	}
 	$items = is_array( $cart_data['items'] ?? null ) ? $cart_data['items'] : array();
 	foreach ( $items as $item ) {
 		if ( ! is_array( $item ) ) {
@@ -112,10 +136,11 @@ function agend_apps_shop_booking_cart_has_events( string $cart, string $bearer )
 		}
 		$type = $item['product_type'] ?? ( $item['productType'] ?? '' );
 		if ( 'event_tickets' === $type ) {
-			return true;
+			$summary['events'] = true;
+			break;
 		}
 	}
-	return false;
+	return $summary;
 }
 
 /** Normalise the URL path without changing query values or their encoding. */
@@ -367,11 +392,16 @@ function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free
 		. '<p class="agend-booking-receipt__status">' . esc_html( $order_status ) . '</p>'
 		. '<h1>' . esc_html( $title ) . '</h1><p>' . esc_html( $detail ) . '</p>';
 
-	if ( isset( $receipt['order_number'], $receipt['total_cents'], $receipt['currency'] ) ) {
-		$amount = sprintf( '%s %s', $receipt['currency'], number_format_i18n( (int) $receipt['total_cents'] / 100, 2 ) );
+	// The order reference shows whenever the platform gave one; the amount
+	// only with its currency.
+	if ( isset( $receipt['order_number'] ) ) {
 		$html .= '<dl class="agend-booking-receipt__summary"><dt>' . esc_html__( 'Order reference', 'agend-apps-shop' )
-			. '</dt><dd>' . esc_html( $receipt['order_number'] ) . '</dd><dt>' . esc_html__( 'Amount paid', 'agend-apps-shop' )
-			. '</dt><dd>' . esc_html( $amount ) . '</dd></dl>';
+			. '</dt><dd>' . esc_html( $receipt['order_number'] ) . '</dd>';
+		if ( isset( $receipt['total_cents'], $receipt['currency'] ) ) {
+			$amount = sprintf( '%s %s', $receipt['currency'], number_format_i18n( (int) $receipt['total_cents'] / 100, 2 ) );
+			$html  .= '<dt>' . esc_html__( 'Amount paid', 'agend-apps-shop' ) . '</dt><dd>' . esc_html( $amount ) . '</dd>';
+		}
+		$html .= '</dl>';
 	}
 
 	foreach ( $events as $event ) {
