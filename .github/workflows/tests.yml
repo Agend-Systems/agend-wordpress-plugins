@@ -114,6 +114,8 @@ jobs:
       - run: node --test agend-apps-shop/tests/js/cancel-landing.test.cjs
       # Cart dates in the site's language ("6 December 2026" on en-AU sites).
       - run: node --test agend-apps-shop/tests/js/dates.test.cjs
+      # Discount codes in the cart.
+      - run: node --test agend-apps-shop/tests/js/discount.test.cjs
       - name: Committed build is up to date
         run: |
           git add -N agend-apps-core/build agend-apps-shop/build agend-content-access/build

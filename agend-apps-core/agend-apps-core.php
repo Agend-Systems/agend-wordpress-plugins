@@ -391,6 +391,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/class-agend-apps-rest-controller.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/health-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-discount-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/directory-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-me-routes.php';
@@ -488,6 +489,7 @@ add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
 function agend_apps_core_register_rest_routes() {
 	agend_apps_register_health_routes();
 	agend_apps_register_cart_routes();
+	agend_apps_register_cart_discount_routes();
 	agend_apps_register_directory_routes();
 	agend_apps_register_cms_routes();
 	agend_apps_register_jobs_routes();

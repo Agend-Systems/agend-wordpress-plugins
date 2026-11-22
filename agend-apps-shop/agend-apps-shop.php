@@ -165,6 +165,7 @@ function agend_apps_shop_register_assets(): void {
 		'checkoutCancelUrl'  => esc_url_raw( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
 		'guestCheckout'      => agend_apps_shop_guest_checkout_allowed(),
 		'payOnInvoice'       => agend_apps_shop_pay_on_invoice_enabled(),
+		'discountCodes'      => agend_apps_shop_discount_codes_enabled(),
 		'portalHomeUrl'      => agend_apps_shop_portal_home_url(),
 		// The site's language ("en-AU"), so dates read the way the site writes
 		// them ("6 December 2026"), not the way the visitor's browser is set.

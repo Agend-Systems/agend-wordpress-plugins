@@ -154,6 +154,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var contentEl        = wrapper.querySelector( '.agend-shop-cart-content' );
 		var tbodyEl          = wrapper.querySelector( '.agend-shop-cart-items' );
 		var totalAmountEl    = wrapper.querySelector( '.agend-shop-cart-total-amount' );
+		var discountEl       = wrapper.querySelector( '.agend-shop-cart-discount' );
+		var discountApplied  = false;
 		var clearBtn         = wrapper.querySelector( '.agend-shop-btn-clear-cart' );
 		var buyerName        = wrapper.querySelector( '.agend-shop-buyer-name' );
 		var buyerEmail       = wrapper.querySelector( '.agend-shop-buyer-email' );
@@ -377,7 +379,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 */
 		function setEditControlsDisabled( disabled ) {
 			var controls = contentEl.querySelectorAll(
-				'.agend-shop-atc-qty-input, .agend-shop-qty-input, .agend-shop-btn-remove-item, .agend-shop-btn-clear-cart, .agend-shop-btn-proceed-checkout'
+				'.agend-shop-atc-qty-input, .agend-shop-qty-input, .agend-shop-btn-remove-item, .agend-shop-btn-clear-cart, .agend-shop-btn-proceed-checkout, .agend-shop-discount-input, .agend-shop-discount-apply, .agend-shop-discount-remove'
 			);
 			controls.forEach( function ( el ) {
 				el.disabled = disabled;
@@ -542,16 +544,193 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				}
 			} );
 
-			// Render total.
+			// Render total: the discounted total while a code applies.
+			var payable = renderDiscount( cart, isLocked );
 			if ( totalAmountEl ) {
-				totalAmountEl.textContent = formatCurrency( cart.total_amount, cart.currency );
+				totalAmountEl.textContent = formatCurrency( payable, cart.currency );
 			}
 			eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
 			hasEventTickets  = cart.items.some( function ( item ) { return 'event_tickets' === item.product_type; } );
 			// A changed cart is a new attempt.
 			invoiceKey = null;
-			updateCheckoutLabel( cart.total_amount, cart.currency );
-			loadCheckoutOptions( isLocked || 0 === Number( cart.total_amount ) );
+			updateCheckoutLabel( payable, cart.currency );
+			loadCheckoutOptions( isLocked || 0 === Number( payable ) );
+		}
+
+		/**
+		 * Draws the discount code section from the cart's `discount_code` and
+		 * `discount_quote` (see Core's cart-discount-routes.php), and returns
+		 * the amount to pay: the quote's total while a code applies, else the
+		 * cart total. Hidden when the site has not turned codes on (no
+		 * section in the markup), for an empty cart, and for a cart the
+		 * platform cannot discount (membership add-on quotes).
+		 *
+		 * @param {Object}  cart     Cart.
+		 * @param {boolean} isLocked Whether a checkout holds the cart.
+		 * @return {number} Amount to pay, in minor units.
+		 */
+		function renderDiscount( cart, isLocked ) {
+			var items = ( cart && cart.items ) || [];
+			var code  = 'string' === typeof cart.discount_code ? cart.discount_code : '';
+			var quote = cart.discount_quote && 'object' === typeof cart.discount_quote ? cart.discount_quote : null;
+			var applies = !! ( code && quote && quote.applies && Number.isFinite( Number( quote.total_cents ) ) );
+			discountApplied = !! code;
+			if ( ! discountEl ) {
+				return applies ? Number( quote.total_cents ) : cart.total_amount;
+			}
+			var discountable = items.length > 0 && ! items.some( function ( item ) {
+				return 'crm_subscription_products' === item.product_type;
+			} );
+			discountEl.innerHTML = '';
+			if ( ! discountable && ! code ) {
+				discountEl.setAttribute( 'hidden', '' );
+				return cart.total_amount;
+			}
+			discountEl.removeAttribute( 'hidden' );
+
+			var message = document.createElement( 'p' );
+			message.className = 'agend-shop-discount-message';
+			message.setAttribute( 'role', 'alert' );
+
+			if ( code ) {
+				var applied = document.createElement( 'p' );
+				applied.className = 'agend-shop-discount-applied';
+				applied.appendChild( document.createTextNode( 'Discount code ' ) );
+				var strong = document.createElement( 'strong' );
+				strong.textContent = code;
+				applied.appendChild( strong );
+				applied.appendChild( document.createTextNode( ' ' ) );
+				var remove = document.createElement( 'button' );
+				remove.type = 'button';
+				remove.className = 'agend-shop-discount-remove';
+				remove.textContent = 'Remove';
+				remove.setAttribute( 'aria-label', 'Remove discount code ' + code );
+				remove.disabled = isLocked;
+				remove.addEventListener( 'click', function () {
+					changeDiscount( 'DELETE', null, message, remove );
+				} );
+				applied.appendChild( remove );
+				discountEl.appendChild( applied );
+
+				if ( applies ) {
+					var list = document.createElement( 'dl' );
+					list.className = 'agend-shop-discount-summary';
+					var rows = [
+						[ 'Subtotal', formatCurrency( Number( quote.undiscounted_total_cents ), cart.currency ) ],
+						[ 'Discount', '−' + formatCurrency( Number( quote.discount_cents ), cart.currency ) ],
+					];
+					if ( quote.show_gst ) {
+						rows.push( [ 'GST included', formatCurrency( Number( quote.tax_cents ), cart.currency ) ] );
+					}
+					rows.push( [ 'Total', formatCurrency( Number( quote.total_cents ), cart.currency ) ] );
+					rows.forEach( function ( row ) {
+						var dt = document.createElement( 'dt' );
+						dt.textContent = row[ 0 ];
+						var dd = document.createElement( 'dd' );
+						dd.textContent = row[ 1 ];
+						list.appendChild( dt );
+						list.appendChild( dd );
+					} );
+					discountEl.appendChild( list );
+				} else if ( quote && quote.refusal_message ) {
+					message.textContent = quote.refusal_message;
+				}
+			} else {
+				var form = document.createElement( 'form' );
+				form.className = 'agend-shop-discount-form';
+				form.setAttribute( 'novalidate', 'novalidate' );
+				var inputId = 'agend-shop-discount-' + Math.random().toString( 36 ).slice( 2, 10 );
+				var label = document.createElement( 'label' );
+				label.setAttribute( 'for', inputId );
+				label.textContent = 'Discount code';
+				var input = document.createElement( 'input' );
+				input.type = 'text';
+				input.id = inputId;
+				input.className = 'agend-shop-discount-input';
+				input.autocomplete = 'off';
+				input.maxLength = 100;
+				input.disabled = isLocked;
+				var apply = document.createElement( 'button' );
+				apply.type = 'submit';
+				apply.className = 'agend-shop-discount-apply';
+				apply.textContent = 'Apply';
+				apply.disabled = isLocked;
+				form.appendChild( label );
+				form.appendChild( input );
+				form.appendChild( apply );
+				form.addEventListener( 'submit', function ( event ) {
+					event.preventDefault();
+					var value = input.value.trim();
+					if ( ! value ) {
+						message.textContent = 'Enter a discount code.';
+						input.focus();
+						return;
+					}
+					var body = { discount_code: value };
+					if ( 'true' !== wrapper.dataset.memberSignedIn ) {
+						var nameInput  = wrapper.querySelector( '.agend-shop-buyer-name' );
+						var emailInput = wrapper.querySelector( '.agend-shop-buyer-email' );
+						if ( ! nameInput || ! emailInput || ! nameInput.value.trim() || ! emailInput.value.trim() ) {
+							message.textContent = 'Enter your name and email above, then apply the code.';
+							return;
+						}
+						body.guest_buyer = { name: nameInput.value.trim(), email: emailInput.value.trim() };
+					}
+					changeDiscount( 'POST', body, message, apply );
+				} );
+				discountEl.appendChild( form );
+			}
+			discountEl.appendChild( message );
+
+			return applies ? Number( quote.total_cents ) : cart.total_amount;
+		}
+
+		/**
+		 * Applies (POST) or removes (DELETE) the cart's discount code, then
+		 * reloads the cart so every total comes from the platform.
+		 *
+		 * @param {string}      method  'POST' or 'DELETE'.
+		 * @param {Object|null} body    Request body for POST.
+		 * @param {HTMLElement} message Message element (role="alert").
+		 * @param {HTMLElement} button  Button to disable meanwhile.
+		 */
+		function changeDiscount( method, body, message, button ) {
+			if ( cartLocked ) {
+				return;
+			}
+			button.disabled = true;
+			message.textContent = '';
+			var headers = AgendCartSession.getHeaders();
+			if ( body ) {
+				headers[ 'Content-Type' ] = 'application/json';
+			}
+			fetch( restUrl + 'cart/discount', {
+				method: method,
+				headers: headers,
+				body: body ? JSON.stringify( body ) : undefined,
+			} )
+				.then( function ( response ) {
+					return response.json().catch( function () {
+						return null;
+					} ).then( function ( data ) {
+						if ( response.ok ) {
+							document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+							return;
+						}
+						var described = describeCartError( response.status, data, 'POST' === method
+							? 'That code can\'t be used. Check it and try again.'
+							: 'We couldn\'t remove the code. Please try again.' );
+						if ( described.locked ) {
+							showFailure( response.status, data, '' );
+						}
+						message.textContent = described.message;
+						button.disabled = false;
+					} );
+				} )
+				.catch( function () {
+					message.textContent = 'We couldn\'t reach the shop. Check your connection and try again.';
+					button.disabled = false;
+				} );
 		}
 
 		/**
@@ -580,6 +759,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			// The discount is worked out on the whole cart: refresh it.
+			refreshDiscountTotals();
 
 			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
@@ -983,10 +1164,40 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			refreshDiscountTotals();
 			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: { count: totals.newTotalCount, amount: totalAmount },
 			} ) );
+		}
+
+		/**
+		 * After an in-place quantity change with a code applied, reads the cart
+		 * again and redraws only the discount section and the totals (the
+		 * rows and any open attendee editor are left as they are).
+		 */
+		function refreshDiscountTotals() {
+			if ( ! discountApplied ) {
+				return;
+			}
+			fetch( restUrl + 'cart', { method: 'GET', headers: AgendCartSession.getHeaders() } )
+				.then( function ( response ) {
+					return response.ok ? response.json() : null;
+				} )
+				.then( function ( body ) {
+					var cart = body && body.data ? ( body.data.cart || body.data ) : null;
+					if ( ! cart || ! cart.items ) {
+						return;
+					}
+					var payable = renderDiscount( cart, cartLocked );
+					if ( totalAmountEl ) {
+						totalAmountEl.textContent = formatCurrency( payable, cart.currency );
+					}
+					updateCheckoutLabel( payable, cart.currency );
+				} )
+				.catch( function () {
+					// The checkout charges the platform's own total either way.
+				} );
 		}
 
 		/**

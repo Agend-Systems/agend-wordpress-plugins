@@ -193,6 +193,36 @@ class Agend_Apps_Shop_Admin {
 			self::PAGE_SLUG,
 			'agend_apps_shop_checkout_section'
 		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_shop_discount_codes',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_pay_on_invoice' ),
+				'default'           => '0',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_shop_discount_codes',
+			__( 'Discount codes', 'agend-apps-shop' ),
+			array( $this, 'render_discount_codes_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_shop_checkout_section'
+		);
+	}
+
+	/**
+	 * Renders the discount codes checkbox.
+	 */
+	public function render_discount_codes_field(): void {
+		printf(
+			'<input type="hidden" name="agend_apps_shop_discount_codes" value="0" /><label><input type="checkbox" id="agend_apps_shop_discount_codes" name="agend_apps_shop_discount_codes" value="1"%s /> %s</label>',
+			checked( agend_apps_shop_discount_codes_enabled(), true, false ),
+			esc_html__( 'Show a discount code field in the cart', 'agend-apps-shop' )
+		);
+		echo '<p class="description">' . esc_html__( 'Buyers can enter a code you have set up in Agend. The discount carries through to card payment and Pay on Invoice. Off by default.', 'agend-apps-shop' ) . '</p>';
 	}
 
 	/**
