@@ -53,7 +53,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	function formatCurrency( amount, currency ) {
 		if ( typeof Intl !== 'undefined' && Intl.NumberFormat ) {
 			try {
-				return new Intl.NumberFormat( undefined, {
+				// The site's language, not the visitor's browser ("$121.00" on an
+				// en-AU site, not "A$121.00").
+				var tag = ( window.agendAppsShop && window.agendAppsShop.locale ) || ( window.agendApps && window.agendApps.locale ) || document.documentElement.lang || undefined;
+				try {
+					if ( tag && ! Intl.NumberFormat.supportedLocalesOf( [ tag ] ).length ) tag = undefined;
+				} catch ( err ) {
+					tag = undefined;
+				}
+				return new Intl.NumberFormat( tag, {
 					style: 'currency',
 					currency: currency,
 				} ).format( amount/100 );
@@ -156,6 +164,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var totalAmountEl    = wrapper.querySelector( '.agend-shop-cart-total-amount' );
 		var discountEl       = wrapper.querySelector( '.agend-shop-cart-discount' );
 		var discountApplied  = false;
+		var discountCode     = '';
+		var discountVersion  = '';
+		var discountRefresh  = 0;
 		var clearBtn         = wrapper.querySelector( '.agend-shop-btn-clear-cart' );
 		var buyerName        = wrapper.querySelector( '.agend-shop-buyer-name' );
 		var buyerEmail       = wrapper.querySelector( '.agend-shop-buyer-email' );
@@ -575,6 +586,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var quote = cart.discount_quote && 'object' === typeof cart.discount_quote ? cart.discount_quote : null;
 			var applies = !! ( code && quote && quote.applies && Number.isFinite( Number( quote.total_cents ) ) );
 			discountApplied = !! code;
+			// Sent with the checkout, so the platform refuses a quote that has
+			// changed since the buyer saw it instead of charging another amount.
+			discountCode    = applies ? code : '';
+			discountVersion = applies && 'string' === typeof quote.version ? quote.version : '';
 			if ( ! discountEl ) {
 				return applies ? Number( quote.total_cents ) : cart.total_amount;
 			}
@@ -679,6 +694,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					changeDiscount( 'POST', body, message, apply );
 				} );
 				discountEl.appendChild( form );
+			}
+			if ( ! code && 'buyer_changed' === cart.discount_code_cleared_reason ) {
+				message.textContent = 'Your discount code was removed because the buyer\'s details changed. Apply it again to check it still applies.';
 			}
 			discountEl.appendChild( message );
 
@@ -1180,23 +1198,39 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( ! discountApplied ) {
 				return;
 			}
+			// Only the latest answer counts, and checkout waits for it.
+			var generation = ++discountRefresh;
+			if ( checkoutBtn ) {
+				checkoutBtn.disabled = true;
+			}
 			fetch( restUrl + 'cart', { method: 'GET', headers: AgendCartSession.getHeaders() } )
 				.then( function ( response ) {
 					return response.ok ? response.json() : null;
 				} )
 				.then( function ( body ) {
-					var cart = body && body.data ? ( body.data.cart || body.data ) : null;
-					if ( ! cart || ! cart.items ) {
+					if ( generation !== discountRefresh ) {
 						return;
 					}
-					var payable = renderDiscount( cart, cartLocked );
-					if ( totalAmountEl ) {
-						totalAmountEl.textContent = formatCurrency( payable, cart.currency );
+					var cart = body && body.data ? ( body.data.cart || body.data ) : null;
+					if ( cart && cart.items ) {
+						var payable = renderDiscount( cart, cartLocked );
+						if ( totalAmountEl ) {
+							totalAmountEl.textContent = formatCurrency( payable, cart.currency );
+						}
+						eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
+						updateCheckoutLabel( payable, cart.currency );
+						loadCheckoutOptions( cartLocked || 0 === Number( payable ) );
 					}
-					updateCheckoutLabel( payable, cart.currency );
+					if ( checkoutBtn && ! cartLocked ) {
+						checkoutBtn.disabled = false;
+					}
 				} )
 				.catch( function () {
-					// The checkout charges the platform's own total either way.
+					// The quote version sent with the checkout still protects the
+					// amount: a changed quote is refused, not charged.
+					if ( generation === discountRefresh && checkoutBtn && ! cartLocked ) {
+						checkoutBtn.disabled = false;
+					}
 				} );
 		}
 
@@ -2346,6 +2380,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			invoiceKey = invoiceKey || newInvoiceKey();
 			var payload = { paymentMethod: 'invoice', idempotencyKey: invoiceKey };
+			if ( discountCode && discountVersion ) {
+				payload.discountCode = discountCode;
+				payload.acceptedQuoteVersion = discountVersion;
+			}
 			if ( po && po.value ) payload.purchaseOrderNumber = po.value;
 			var companies = invoiceCompanies( invoiceOption );
 			if ( 1 === companies.length ) {
@@ -2379,6 +2417,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						invoiceKey = null;
 					}
 					showMessage( errorMessage( result.data, result.status ), 'error' );
+					if ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) refreshDiscountTotals();
 					checkoutBtn.disabled = false;
 				} )
 				.catch( function () {
@@ -2480,6 +2519,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					successUrl: shopConfig.checkoutSuccessUrl || successUrl.href,
 					cancelUrl: shopConfig.checkoutCancelUrl || cartUrl,
 				};
+				if ( discountCode && discountVersion ) {
+					payload.discount_code = discountCode;
+					payload.accepted_quote_version = discountVersion;
+				}
 				if ( buyerName && buyerEmail ) {
 					buyerName.value = buyerName.value.trim();
 					buyerEmail.value = buyerEmail.value.trim();
@@ -2511,6 +2554,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							window.location.href = checkoutUrl;
 						} else {
 							showMessage( errorMessage( result.data, result.status ), 'error' );
+					if ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) refreshDiscountTotals();
 							checkoutBtn.disabled = false;
 						}
 					} )

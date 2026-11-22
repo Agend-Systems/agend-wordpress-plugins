@@ -90,6 +90,11 @@
 				stale: true,
 			};
 		}
+		// The order changed since the buyer reviewed it (a discount quote, the
+		// buyer's details): the platform's own sentence says what to do.
+		if ( 'CART_CONFLICT' === code && platform.details && platform.details.reviewStale && 'string' === typeof raw && '' !== raw ) {
+			return { message: raw, locked: false };
+		}
 		// Refusals the platform words for buyers ("Only 2 places are left
 		// for Early Bird. Choose a smaller quantity.").
 		if ( -1 !== BUYER_CODES.indexOf( code ) && 'string' === typeof raw && '' !== raw ) {

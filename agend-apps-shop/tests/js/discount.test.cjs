@@ -18,7 +18,7 @@ const QUOTE = {
   undiscounted_total_cents: 12100, discount_cents: 1210, subtotal_cents: 9900, tax_cents: 990, total_cents: 10890, show_gst: true, lines: [],
 };
 
-async function setup(t, { member = true, discountSlot = true, status = 'current', productType = 'event_tickets', applyReply, stored = null } = {}) {
+async function setup(t, { member = true, discountSlot = true, status = 'current', productType = 'event_tickets', applyReply, stored = null, checkoutReply, cartDelay } = {}) {
   const dom = new JSDOM(`<!doctype html><html lang="en-AU"><body>
     <div class="agend-apps-shop-cart-view" data-member-signed-in="${member}">
       <div class="agend-shop-cart-loading"></div>
@@ -49,6 +49,11 @@ async function setup(t, { member = true, discountSlot = true, status = 'current'
       return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
     }
     if (path === '/api/cart/checkout-options') return { ok: true, status: 200, json: async () => ({ data: { invoice: null } }) };
+    if (path === '/api/cart/checkout') {
+      const reply = checkoutReply || { status: 200, body: { data: { checkoutUrl: 'https://checkout.stripe.example/cs_test_1' } } };
+      return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
+    }
+    if (cartDelay) await cartDelay();
     const item = { id: '1', name: 'Workshop', unit_amount: 12100, currency: 'AUD', quantity: 1, product_type: productType, metadata: {} };
     return { ok: true, status: 200, json: async () => ({ data: { items: [item], total_amount: 12100, currency: 'AUD', status, discount_code: code, discount_quote: code ? QUOTE : null } }) };
   };
@@ -133,4 +138,34 @@ test('a guest names the buyer before applying a code', async (t) => {
   doc.querySelector('.agend-shop-buyer-email').value = 'sam@example.test';
   await applyCode(window, doc, 'ATEMDEMO10');
   assert.deepEqual(calls.find((c) => c.path === '/api/cart/discount').body, { discount_code: 'ATEMDEMO10', guest_buyer: { name: 'Sam Guest', email: 'sam@example.test' } });
+});
+
+test('card checkout sends the reviewed code and quote version', async (t) => {
+  const { window, doc, calls } = await setup(t, {
+    stored: 'ATEMDEMO10',
+    checkoutReply: { status: 409, body: { code: 'agend_api_error', message: 'x', data: { status_code: 409, body: { error: { code: 'CART_CONFLICT', message: 'Your order changed since you reviewed it. Review it again before paying.', details: { reviewStale: true } } } } } },
+  });
+  doc.querySelector('.agend-shop-btn-proceed-checkout').click();
+  for (let i = 0; i < 10; i++) await tick();
+  const checkout = calls.find((c) => c.path === '/api/cart/checkout');
+  assert.equal(checkout.body.discount_code, 'ATEMDEMO10');
+  assert.equal(checkout.body.accepted_quote_version, 'v1');
+  assert.equal(doc.querySelector('.agend-shop-cart-message').textContent, 'Your order changed since you reviewed it. Review it again before paying.');
+  const reads = calls.filter((c) => c.path === '/api/cart');
+  assert.ok(reads.length >= 2, 'the totals are read again after a changed quote');
+  void window;
+});
+
+test('a checkout without a code sends no discount fields', async (t) => {
+  const { doc, calls } = await setup(t);
+  doc.querySelector('.agend-shop-btn-proceed-checkout').click();
+  for (let i = 0; i < 6; i++) await tick();
+  const checkout = calls.find((c) => c.path === '/api/cart/checkout');
+  assert.equal('discount_code' in checkout.body, false);
+  assert.equal('accepted_quote_version' in checkout.body, false);
+});
+
+test('money reads the site\'s way whatever the browser language', async (t) => {
+  const { doc } = await setup(t, { stored: 'ATEMDEMO10' });
+  assert.equal(doc.querySelector('.agend-shop-cart-total-amount').textContent, '$108.90');
 });
