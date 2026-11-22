@@ -169,3 +169,25 @@ test('money reads the site\'s way whatever the browser language', async (t) => {
   const { doc } = await setup(t, { stored: 'ATEMDEMO10' });
   assert.equal(doc.querySelector('.agend-shop-cart-total-amount').textContent, '$108.90');
 });
+
+test('after a changed quote, checkout stays held until the new totals arrive', async (t) => {
+  let release;
+  let holdReads = false;
+  const { doc, calls } = await setup(t, {
+    stored: 'ATEMDEMO10',
+    checkoutReply: { status: 409, body: { code: 'agend_api_error', message: 'x', data: { status_code: 409, body: { error: { code: 'CART_CONFLICT', message: 'Your order changed since you reviewed it. Review it again before paying.', details: { reviewStale: true } } } } } },
+    cartDelay: () => (holdReads ? new Promise((resolve) => { release = resolve; }) : Promise.resolve()),
+  });
+  holdReads = true;
+  const button = doc.querySelector('.agend-shop-btn-proceed-checkout');
+  button.click();
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(button.disabled, true, 'held while the totals are read again');
+  button.click();
+  for (let i = 0; i < 4; i++) await tick();
+  assert.equal(calls.filter((c) => c.path === '/api/cart/checkout').length, 1, 'no second checkout meanwhile');
+  holdReads = false;
+  release();
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(button.disabled, false);
+});

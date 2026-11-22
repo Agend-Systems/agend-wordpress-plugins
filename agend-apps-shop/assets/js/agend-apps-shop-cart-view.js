@@ -2417,8 +2417,13 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						invoiceKey = null;
 					}
 					showMessage( errorMessage( result.data, result.status ), 'error' );
-					if ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) refreshDiscountTotals();
-					checkoutBtn.disabled = false;
+					// A changed quote: the refresh re-enables checkout once the
+					// new totals are shown.
+					if ( discountApplied && ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) ) {
+						refreshDiscountTotals();
+					} else {
+						checkoutBtn.disabled = false;
+					}
 				} )
 				.catch( function () {
 					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
@@ -2554,8 +2559,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							window.location.href = checkoutUrl;
 						} else {
 							showMessage( errorMessage( result.data, result.status ), 'error' );
-					if ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) refreshDiscountTotals();
-							checkoutBtn.disabled = false;
+							if ( discountApplied && ( describeCartError( result.status, result.data, '' ).stale || ( result.data && result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.reviewStale ) ) ) {
+								refreshDiscountTotals();
+							} else {
+								checkoutBtn.disabled = false;
+							}
 						}
 					} )
 					.catch( function () {
