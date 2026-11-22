@@ -1860,6 +1860,27 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * The site's language for dates ("en-AU"): the shop's localised data,
+		 * then Core's, then the page's lang attribute. The visitor's browser
+		 * setting is never used, so en-AU sites read "6 December 2026".
+		 *
+		 * @return {string} BCP 47 tag.
+		 */
+		function siteLocale() {
+			var candidates = [ shopConfig.locale, window.agendApps && window.agendApps.locale, document.documentElement.lang, 'en-AU' ];
+			for ( var i = 0; i < candidates.length; i++ ) {
+				var tag = candidates[ i ];
+				if ( 'string' !== typeof tag || '' === tag ) continue;
+				try {
+					if ( Intl.DateTimeFormat.supportedLocalesOf( [ tag ] ).length ) return tag;
+				} catch ( e ) {
+					// Not a valid tag: try the next.
+				}
+			}
+			return 'en-AU';
+		}
+
+		/**
 		 * Formats a `YYYY-MM-DD` calendar date for display, without shifting
 		 * it through the visitor's timezone.
 		 *
@@ -1871,7 +1892,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( ! match ) return '';
 			var date = new Date( Date.UTC( Number( match[ 1 ] ), Number( match[ 2 ] ) - 1, Number( match[ 3 ] ) ) );
 			try {
-				return date.toLocaleDateString( undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' } );
+				return date.toLocaleDateString( siteLocale(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' } );
 			} catch ( e ) {
 				return value;
 			}

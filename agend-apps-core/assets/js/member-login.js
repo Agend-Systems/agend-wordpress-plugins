@@ -210,11 +210,36 @@
     root.appendChild(wrap);
   }
 
+  // The platform sends a new member back here with ?agend_email_verified=1
+  // once they have confirmed their email. Read once per page load and taken
+  // out of the address straight away, so a reload or a shared link does not
+  // repeat it.
+  var emailVerifiedLanding = (function () {
+    try {
+      var url = new URL(window.location.href);
+      if (url.searchParams.get('agend_email_verified') !== '1') {
+        return false;
+      }
+      url.searchParams.delete('agend_email_verified');
+      if (window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(window.history.state, '', url.href);
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  })();
+
   function renderForm(root, cfg) {
     root.innerHTML = '';
     var wrap = el('div', 'agend-ml-card');
     if (cfg.messages.heading) {
       wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.heading));
+    }
+    if (emailVerifiedLanding && cfg.messages.emailVerified) {
+      var verified = el('p', 'agend-ml-form__notice agend-ml-verified-notice', cfg.messages.emailVerified);
+      verified.setAttribute('role', 'status');
+      wrap.appendChild(verified);
     }
     if (cfg.messages.intro) {
       wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.intro));

@@ -123,12 +123,16 @@ final class MemberProvisioningTest extends TestCase {
 
 	#[Test]
 	public function should_omit_the_contact_block_when_no_name_is_supplied(): void {
+		$payload = agend_apps_provision_register_payload( 'a@b.co', 'pw' );
+		// The return address after confirming the email is covered by
+		// RegisterReturnTest; this test is about the contact block.
+		unset( $payload['redirect_to'] );
 		$this->assertSame(
 			array(
 				'email'    => 'a@b.co',
 				'password' => 'pw',
 			),
-			agend_apps_provision_register_payload( 'a@b.co', 'pw' )
+			$payload
 		);
 	}
 

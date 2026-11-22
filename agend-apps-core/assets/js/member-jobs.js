@@ -92,7 +92,8 @@
       return '';
     }
     try {
-      return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      // The site's language, not the visitor's browser setting ("6 December 2026" on an en-AU site).
+      return date.toLocaleDateString((window.agendApps && window.agendApps.locale) || document.documentElement.lang || 'en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
     } catch (e) {
       return date.toDateString();
     }

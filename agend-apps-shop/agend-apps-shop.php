@@ -166,6 +166,9 @@ function agend_apps_shop_register_assets(): void {
 		'guestCheckout'      => agend_apps_shop_guest_checkout_allowed(),
 		'payOnInvoice'       => agend_apps_shop_pay_on_invoice_enabled(),
 		'portalHomeUrl'      => agend_apps_shop_portal_home_url(),
+		// The site's language ("en-AU"), so dates read the way the site writes
+		// them ("6 December 2026"), not the way the visitor's browser is set.
+		'locale'             => function_exists( 'agend_apps_js_locale' ) ? agend_apps_js_locale() : str_replace( '_', '-', (string) get_locale() ),
 	);
 	// wp_localize_script() only needs the handle registered, not enqueued: the
 	// data is attached now and printed alongside the script if and when it is

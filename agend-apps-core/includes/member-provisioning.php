@@ -140,7 +140,54 @@ function agend_apps_provision_register_payload( string $email, string $password,
 		$payload['contact'] = $contact;
 	}
 
+	$redirect = agend_apps_provision_register_redirect_to();
+	if ( '' !== $redirect ) {
+		$payload['redirect_to'] = $redirect;
+	}
+
 	return $payload;
+}
+
+/**
+ * Where a new member is sent after confirming their email: this site's
+ * sign-in page, with `agend_email_verified=1` added by the platform, so they
+ * come back here instead of to the Agend portal.
+ *
+ * The site's member sign-in page (the "event checkout sign-in page" setting,
+ * which is the Member Login page in credentials mode) is used when set,
+ * otherwise `wp_login_url()`. The address comes from the site's own settings,
+ * never from the request, and the platform also checks it against the API
+ * key's redirect allowlist. A platform release that predates the return
+ * ignores it; one whose allowlist lacks it refuses it, and
+ * {@see agend_apps_auth_register()} then registers again without it.
+ *
+ * @return string An absolute http(s) URL, or '' to send none.
+ */
+function agend_apps_provision_register_redirect_to(): string {
+	$url = '';
+	if ( class_exists( 'Agend_Apps_Settings' ) && Agend_Apps_Settings::credential_login_enabled() ) {
+		$url = (string) get_option( 'agend_apps_checkout_signin_url', '' );
+	}
+	if ( '' === trim( $url ) && function_exists( 'wp_login_url' ) ) {
+		$url = (string) wp_login_url();
+	}
+
+	/**
+	 * Filters the address a new member returns to after confirming their
+	 * email. Return '' to send none (the platform's own landing page is used).
+	 *
+	 * @param string $url The site's sign-in page.
+	 */
+	$url = apply_filters( 'agend_apps_register_redirect_to', $url );
+	if ( ! is_string( $url ) ) {
+		return '';
+	}
+	$url    = trim( $url );
+	$scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+	if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === (string) wp_parse_url( $url, PHP_URL_HOST ) ) {
+		return '';
+	}
+	return esc_url_raw( $url );
 }
 
 /**

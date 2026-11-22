@@ -96,6 +96,7 @@ define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20261104-1' );
 // unconditionally so the endpoints register even when a page-builder plugin
 // consuming them is temporarily unavailable; the widgets that consume them
 // stay gated.
+require_once AGEND_APPS_CORE_DIR . 'includes/locale.php';
 require_once AGEND_APPS_CORE_DIR . 'includes/records/routing.php';
 
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
@@ -529,6 +530,10 @@ function agend_apps_output_config_js() {
 		// member: the route that serves the details answers that.
 		'signedIn'       => get_current_user_id() > 0,
 		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
+		// The site's language as a BCP 47 tag ("en-AU"), so widgets format
+		// dates the way the site does rather than the way the visitor's browser
+		// is set.
+		'locale'         => agend_apps_js_locale(),
 	);
 
 	// The site's wording for the non-member price and rate, for the

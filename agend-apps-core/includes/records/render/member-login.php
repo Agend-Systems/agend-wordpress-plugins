@@ -99,6 +99,9 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 			'firstName'        => __( 'First name', 'agend-apps-core' ),
 			'lastName'         => __( 'Last name', 'agend-apps-core' ),
 			'passwordHint'     => __( 'Use at least 8 characters.', 'agend-apps-core' ),
+			// Shown on the sign-in form when the platform returns a new member
+			// here after they confirm their email (?agend_email_verified=1).
+			'emailVerified'    => __( 'Your email is confirmed. Sign in to continue.', 'agend-apps-core' ),
 			'registerSubmit'   => __( 'Create account', 'agend-apps-core' ),
 			'registerWorking'  => __( 'Creating…', 'agend-apps-core' ),
 			'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-apps-core' ),
@@ -325,10 +328,12 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 		$flag      = isset( $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ) : '';
 		// phpcs:enable
 		$error = agend_apps_wp_login_inline_failure_message( $flag );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		$email_verified = isset( $_GET['agend_email_verified'] ) && '1' === $_GET['agend_email_verified'];
 
 		// The markup carries request-dependent values (the error and the
 		// return destinations), so a page cache must not serve it to others.
-		if ( ( '' !== $requested || '' !== $flag ) && ! defined( 'DONOTCACHEPAGE' ) ) {
+		if ( ( '' !== $requested || '' !== $flag || $email_verified ) && ! defined( 'DONOTCACHEPAGE' ) ) {
 			define( 'DONOTCACHEPAGE', true );
 		}
 
@@ -343,6 +348,10 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 			<div class="agend-ml-card">
 				<?php if ( '' !== $heading ) : ?>
 					<h3 class="agend-ml-card__heading"><?php echo esc_html( $heading ); ?></h3>
+				<?php endif; ?>
+				<?php if ( $email_verified ) : ?>
+					<p class="agend-ml-form__notice agend-ml-verified-notice" role="status"><?php esc_html_e( 'Your email is confirmed. Sign in to continue.', 'agend-apps-core' ); ?></p>
+					<script>try{var u=new URL(window.location.href);u.searchParams.delete('agend_email_verified');window.history.replaceState(window.history.state,'',u.href);}catch(e){}</script>
 				<?php endif; ?>
 				<p class="agend-ml-card__text"><?php echo esc_html( $intro ); ?></p>
 				<?php if ( '' !== $error ) : ?>
