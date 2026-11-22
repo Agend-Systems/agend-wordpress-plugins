@@ -520,9 +520,11 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		// amount.
 		$code    = trim( (string) $request->get_param( 'discount_code' ) );
 		$version = trim( (string) $request->get_param( 'accepted_quote_version' ) );
-		if ( '' !== $code && '' !== $version && strlen( $code ) <= 100 && strlen( $version ) <= 128 ) {
-			$urls['discount_code']          = $code;
-			$urls['accepted_quote_version'] = $version;
+		if ( '' !== $code && strlen( $code ) <= 100 ) {
+			$urls['discount_code'] = $code;
+			if ( '' !== $version && strlen( $version ) <= 128 ) {
+				$urls['accepted_quote_version'] = $version;
+			}
 		}
 		$buyer = $request->get_param( 'guest_buyer' );
 		if ( '' === $identity['bearer_token'] && is_array( $buyer ) ) {

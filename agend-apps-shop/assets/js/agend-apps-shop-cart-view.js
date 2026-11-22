@@ -1228,26 +1228,46 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						return;
 					}
 					var cart = body && body.data ? ( body.data.cart || body.data ) : null;
-					if ( cart && cart.items ) {
-						var payable = renderDiscount( cart, cartLocked );
-						if ( totalAmountEl ) {
-							totalAmountEl.textContent = formatCurrency( payable, cart.currency );
-						}
-						eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
-						updateCheckoutLabel( payable, cart.currency );
-						loadCheckoutOptions( cartLocked || 0 === Number( payable ) );
+					if ( ! cart || ! cart.items ) {
+						totalsRefreshFailed();
+						return;
 					}
+					var payable = renderDiscount( cart, cartLocked );
+					if ( totalAmountEl ) {
+						totalAmountEl.textContent = formatCurrency( payable, cart.currency );
+					}
+					eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
+					updateCheckoutLabel( payable, cart.currency );
+					loadCheckoutOptions( cartLocked || 0 === Number( payable ) );
 					if ( checkoutBtn && ! cartLocked ) {
 						checkoutBtn.disabled = false;
 					}
 				} )
 				.catch( function () {
-					// The quote version sent with the checkout still protects the
-					// amount: a changed quote is refused, not charged.
-					if ( generation === discountRefresh && checkoutBtn && ! cartLocked ) {
-						checkoutBtn.disabled = false;
+					if ( generation === discountRefresh ) {
+						totalsRefreshFailed();
 					}
 				} );
+		}
+
+		/**
+		 * The totals could not be read again after a change: checkout stays
+		 * held (the amount shown may be out of date) and the buyer can retry.
+		 */
+		function totalsRefreshFailed() {
+			if ( checkoutBtn ) {
+				checkoutBtn.disabled = true;
+			}
+			showMessage( 'We couldn\'t update your totals. ', 'error' );
+			var retry = document.createElement( 'button' );
+			retry.type = 'button';
+			retry.className = 'agend-shop-totals-retry';
+			retry.textContent = 'Try again';
+			retry.addEventListener( 'click', function () {
+				clearMessage();
+				refreshDiscountTotals();
+			} );
+			messageEl.appendChild( retry );
 		}
 
 		/**

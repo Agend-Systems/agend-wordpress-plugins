@@ -191,3 +191,23 @@ test('after a changed quote, checkout stays held until the new totals arrive', a
   for (let i = 0; i < 10; i++) await tick();
   assert.equal(button.disabled, false);
 });
+
+test('if the totals cannot be read again, checkout stays held and the buyer can retry', async (t) => {
+  let fail = false;
+  const { doc } = await setup(t, {
+    stored: 'ATEMDEMO10',
+    checkoutReply: { status: 409, body: { code: 'agend_api_error', message: 'x', data: { status_code: 409, body: { error: { code: 'CART_CONFLICT', message: 'Your order changed since you reviewed it. Review it again before paying.' } } } } },
+    cartDelay: () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve()),
+  });
+  fail = true;
+  const button = doc.querySelector('.agend-shop-btn-proceed-checkout');
+  button.click();
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(button.disabled, true);
+  const retry = doc.querySelector('.agend-shop-totals-retry');
+  assert.ok(retry, 'a Try again control is offered');
+  fail = false;
+  retry.click();
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(button.disabled, false);
+});
