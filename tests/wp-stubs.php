@@ -4018,3 +4018,40 @@ if ( ! function_exists( 'get_comment' ) ) {
 		);
 	}
 }
+
+if ( ! function_exists( 'shortcode_atts' ) ) {
+	/** Minimal `shortcode_atts()` stand-in: the known keys, defaults filled in. */
+	function shortcode_atts( array $pairs, $atts, string $shortcode = '' ): array {
+		$atts = (array) $atts;
+		$out  = array();
+		foreach ( $pairs as $name => $default ) {
+			$out[ $name ] = array_key_exists( $name, $atts ) ? $atts[ $name ] : $default;
+		}
+		return $out;
+	}
+}
+
+if ( ! function_exists( 'wp_is_uuid' ) ) {
+	/** `wp_is_uuid()` as WordPress has it, for version 4 or any version. */
+	function wp_is_uuid( $uuid, $version = null ): bool {
+		if ( ! is_string( $uuid ) ) {
+			return false;
+		}
+		$regex = is_numeric( $version ) && 4 === (int) $version
+			? '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/'
+			: '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/';
+		return (bool) preg_match( $regex, $uuid );
+	}
+}
+
+if ( ! function_exists( 'wp_generate_password' ) ) {
+	/** `wp_generate_password()` stand-in: random letters and digits of the given length. */
+	function wp_generate_password( int $length = 12, bool $special_chars = true, bool $extra_special_chars = false ): string {
+		$chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+		$out   = '';
+		for ( $i = 0; $i < $length; $i++ ) {
+			$out .= $chars[ random_int( 0, strlen( $chars ) - 1 ) ];
+		}
+		return $out;
+	}
+}

@@ -27,6 +27,23 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	var shopConfig  = window.agendAppsShop || {};
 
 	/**
+	 * AgendCartSession.describeError(). An older cart session script without it
+	 * (never shipped alongside this file) gets the previous behaviour: the
+	 * response's own message, else the fallback.
+	 *
+	 * @param {number} status   HTTP status.
+	 * @param {Object} body     Decoded response body.
+	 * @param {string} fallback Text for an error with nothing more specific.
+	 * @return {{message: string, locked: boolean}}
+	 */
+	function describeCartError( status, body, fallback ) {
+		if ( window.AgendCartSession && 'function' === typeof window.AgendCartSession.describeError ) {
+			return window.AgendCartSession.describeError( status, body, fallback );
+		}
+		return { message: ( body && 'string' === typeof body.message && body.message ) || fallback, locked: false };
+	}
+
+	/**
 	 * Formats a monetary amount using Intl.NumberFormat when available.
 	 *
 	 * @param {number} amount   Amount in minor currency units.
@@ -36,7 +53,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	function formatCurrency( amount, currency ) {
 		if ( typeof Intl !== 'undefined' && Intl.NumberFormat ) {
 			try {
-				return new Intl.NumberFormat( undefined, {
+				// The site's language, not the visitor's browser ("$121.00" on an
+				// en-AU site, not "A$121.00").
+				var tag = ( window.agendAppsShop && window.agendAppsShop.locale ) || ( window.agendApps && window.agendApps.locale ) || document.documentElement.lang || undefined;
+				try {
+					if ( tag && ! Intl.NumberFormat.supportedLocalesOf( [ tag ] ).length ) tag = undefined;
+				} catch ( err ) {
+					tag = undefined;
+				}
+				return new Intl.NumberFormat( tag, {
 					style: 'currency',
 					currency: currency,
 				} ).format( amount/100 );
@@ -137,6 +162,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var contentEl        = wrapper.querySelector( '.agend-shop-cart-content' );
 		var tbodyEl          = wrapper.querySelector( '.agend-shop-cart-items' );
 		var totalAmountEl    = wrapper.querySelector( '.agend-shop-cart-total-amount' );
+		var discountEl       = wrapper.querySelector( '.agend-shop-cart-discount' );
+		var discountApplied  = false;
+		var discountCode     = '';
+		var discountVersion  = '';
+		var discountRefresh  = 0;
 		var clearBtn         = wrapper.querySelector( '.agend-shop-btn-clear-cart' );
 		var buyerName        = wrapper.querySelector( '.agend-shop-buyer-name' );
 		var buyerEmail       = wrapper.querySelector( '.agend-shop-buyer-email' );
@@ -267,6 +297,85 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Puts the cart into its locked view without a reload: the notice, the
+		 * disabled edit controls and the "Cancel checkout and edit cart" button.
+		 * Used when a change is refused because a checkout holds the cart.
+		 */
+		function showLockedState() {
+			lockAllInputs();
+			cartLocked = true;
+			lockedNoticeEl.removeAttribute( 'hidden' );
+			setEditControlsDisabled( true );
+			// The quantity steppers and the attendee editor too: every control
+			// that would change the cart.
+			contentEl.querySelectorAll( '.agend-shop-cart-items button, .agend-shop-cart-items input, .agend-shop-cart-items select, .agend-shop-cart-items textarea' ).forEach( function ( control ) {
+				control.disabled = true;
+			} );
+			if ( cancelBtn ) {
+				cancelBtn.hidden = false;
+				cancelBtn.disabled = false;
+			}
+		}
+
+		/**
+		 * Shows a failed cart request in plain English (see
+		 * AgendCartSession.describeError). A cart held by a checkout switches to
+		 * the locked view, whose cancel button is the way out.
+		 *
+		 * @param {number} status   HTTP status (0 when unknown).
+		 * @param {Object} body     Decoded response body.
+		 * @param {string} fallback Text for an error with nothing more specific.
+		 */
+		function showFailure( status, body, fallback ) {
+			var described = describeCartError( status, body, fallback );
+			if ( described.stale ) {
+				setEditControlsDisabled( true );
+				showMessage( described.message, 'error' );
+				return;
+			}
+			if ( described.locked ) {
+				showLockedState();
+				showMessage( 'This cart is being checked out, so it can\'t be changed right now. Finish paying, or choose "Cancel checkout and edit cart" to make changes.', 'error' );
+				return;
+			}
+			showMessage( described.message, 'error' );
+		}
+
+		/**
+		 * A rejected promise's error for a failed cart request, carrying the
+		 * plain-English text and whether a checkout holds the cart.
+		 *
+		 * @param {Response} response The failed response.
+		 * @param {string}   fallback Text for an error with nothing more specific.
+		 * @return {Promise<never>}
+		 */
+		function failedRequest( response, fallback ) {
+			return response.json().catch( function () {
+				return null;
+			} ).then( function ( data ) {
+				var error = new Error( fallback );
+				error.cartStatus = response.status;
+				error.cartBody = data;
+				throw error;
+			} );
+		}
+
+		/**
+		 * Shows the error a failedRequest() promise rejected with, or the
+		 * fallback for a network failure.
+		 *
+		 * @param {Error}  err      The rejection.
+		 * @param {string} fallback Text for an error with nothing more specific.
+		 */
+		function showCaught( err, fallback ) {
+			if ( err && err.cartStatus ) {
+				showFailure( err.cartStatus, err.cartBody, fallback );
+				return;
+			}
+			showMessage( fallback, 'error' );
+		}
+
+		/**
 		 * Clears the cart message div.
 		 */
 		function clearMessage() {
@@ -281,7 +390,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 */
 		function setEditControlsDisabled( disabled ) {
 			var controls = contentEl.querySelectorAll(
-				'.agend-shop-atc-qty-input, .agend-shop-qty-input, .agend-shop-btn-remove-item, .agend-shop-btn-clear-cart, .agend-shop-btn-proceed-checkout'
+				'.agend-shop-atc-qty-input, .agend-shop-qty-input, .agend-shop-btn-remove-item, .agend-shop-btn-clear-cart, .agend-shop-btn-proceed-checkout, .agend-shop-discount-input, .agend-shop-discount-apply, .agend-shop-discount-remove'
 			);
 			controls.forEach( function ( el ) {
 				el.disabled = disabled;
@@ -293,6 +402,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			})
 		}
 		function unlockInputs(id) {
+			// A cart a checkout holds stays read-only until it is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			document.querySelectorAll(`[data--item-id="${id}"]`).forEach( el => {
 				el.disabled = false;
 			})
@@ -303,6 +416,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			})
 		}
 		function unlockAllInputs() {
+			if ( cartLocked ) {
+				return;
+			}
 			document.querySelectorAll('.agend-shop-qty-decrement, .agend-shop-qty-input, .agend-shop-qty-increment, .agend-shop-btn-remove-item').forEach( el => {
 				el.disabled = false;
 			})
@@ -339,10 +455,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						return null;
 					}
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
 							loadingEl.setAttribute( 'hidden', '' );
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showMessage( describeCartError( response.status, data, 'We couldn\'t load your cart. Please refresh the page to try again.' ).message, 'error' );
 							return null;
 						} );
 					}
@@ -438,16 +555,200 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				}
 			} );
 
-			// Render total.
+			// Render total: the discounted total while a code applies.
+			var payable = renderDiscount( cart, isLocked );
 			if ( totalAmountEl ) {
-				totalAmountEl.textContent = formatCurrency( cart.total_amount, cart.currency );
+				totalAmountEl.textContent = formatCurrency( payable, cart.currency );
 			}
 			eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
 			hasEventTickets  = cart.items.some( function ( item ) { return 'event_tickets' === item.product_type; } );
 			// A changed cart is a new attempt.
 			invoiceKey = null;
-			updateCheckoutLabel( cart.total_amount, cart.currency );
-			loadCheckoutOptions( isLocked || 0 === Number( cart.total_amount ) );
+			updateCheckoutLabel( payable, cart.currency );
+			loadCheckoutOptions( isLocked || 0 === Number( payable ) );
+		}
+
+		/**
+		 * Draws the discount code section from the cart's `discount_code` and
+		 * `discount_quote` (see Core's cart-discount-routes.php), and returns
+		 * the amount to pay: the quote's total while a code applies, else the
+		 * cart total. Hidden when the site has not turned codes on (no
+		 * section in the markup), for an empty cart, and for a cart the
+		 * platform cannot discount (membership add-on quotes).
+		 *
+		 * @param {Object}  cart     Cart.
+		 * @param {boolean} isLocked Whether a checkout holds the cart.
+		 * @return {number} Amount to pay, in minor units.
+		 */
+		function renderDiscount( cart, isLocked ) {
+			var items = ( cart && cart.items ) || [];
+			var code  = 'string' === typeof cart.discount_code ? cart.discount_code : '';
+			var quote = cart.discount_quote && 'object' === typeof cart.discount_quote ? cart.discount_quote : null;
+			var applies = !! ( code && quote && quote.applies && Number.isFinite( Number( quote.total_cents ) ) );
+			discountApplied = !! code;
+			// Sent with the checkout, so the platform refuses a quote that has
+			// changed since the buyer saw it instead of charging another amount.
+			discountCode    = applies ? code : '';
+			discountVersion = applies && 'string' === typeof quote.version ? quote.version : '';
+			if ( ! discountEl ) {
+				return applies ? Number( quote.total_cents ) : cart.total_amount;
+			}
+			var discountable = items.length > 0 && ! items.some( function ( item ) {
+				return 'crm_subscription_products' === item.product_type;
+			} );
+			discountEl.innerHTML = '';
+			if ( ! discountable && ! code ) {
+				discountEl.setAttribute( 'hidden', '' );
+				return cart.total_amount;
+			}
+			discountEl.removeAttribute( 'hidden' );
+
+			var message = document.createElement( 'p' );
+			message.className = 'agend-shop-discount-message';
+			message.setAttribute( 'role', 'alert' );
+
+			if ( code ) {
+				var applied = document.createElement( 'p' );
+				applied.className = 'agend-shop-discount-applied';
+				applied.appendChild( document.createTextNode( 'Discount code ' ) );
+				var strong = document.createElement( 'strong' );
+				strong.textContent = code;
+				applied.appendChild( strong );
+				applied.appendChild( document.createTextNode( ' ' ) );
+				var remove = document.createElement( 'button' );
+				remove.type = 'button';
+				remove.className = 'agend-shop-discount-remove';
+				remove.textContent = 'Remove';
+				remove.setAttribute( 'aria-label', 'Remove discount code ' + code );
+				remove.disabled = isLocked;
+				remove.addEventListener( 'click', function () {
+					changeDiscount( 'DELETE', null, message, remove );
+				} );
+				applied.appendChild( remove );
+				discountEl.appendChild( applied );
+
+				if ( applies ) {
+					var list = document.createElement( 'dl' );
+					list.className = 'agend-shop-discount-summary';
+					var rows = [
+						[ 'Subtotal', formatCurrency( Number( quote.undiscounted_total_cents ), cart.currency ) ],
+						[ 'Discount', '−' + formatCurrency( Number( quote.discount_cents ), cart.currency ) ],
+					];
+					if ( quote.show_gst ) {
+						rows.push( [ 'GST included', formatCurrency( Number( quote.tax_cents ), cart.currency ) ] );
+					}
+					rows.push( [ 'Total', formatCurrency( Number( quote.total_cents ), cart.currency ) ] );
+					rows.forEach( function ( row ) {
+						var dt = document.createElement( 'dt' );
+						dt.textContent = row[ 0 ];
+						var dd = document.createElement( 'dd' );
+						dd.textContent = row[ 1 ];
+						list.appendChild( dt );
+						list.appendChild( dd );
+					} );
+					discountEl.appendChild( list );
+				} else if ( quote && quote.refusal_message ) {
+					message.textContent = quote.refusal_message;
+				}
+			} else {
+				var form = document.createElement( 'form' );
+				form.className = 'agend-shop-discount-form';
+				form.setAttribute( 'novalidate', 'novalidate' );
+				var inputId = 'agend-shop-discount-' + Math.random().toString( 36 ).slice( 2, 10 );
+				var label = document.createElement( 'label' );
+				label.setAttribute( 'for', inputId );
+				label.textContent = 'Discount code';
+				var input = document.createElement( 'input' );
+				input.type = 'text';
+				input.id = inputId;
+				input.className = 'agend-shop-discount-input';
+				input.autocomplete = 'off';
+				input.maxLength = 100;
+				input.disabled = isLocked;
+				var apply = document.createElement( 'button' );
+				apply.type = 'submit';
+				apply.className = 'agend-shop-discount-apply';
+				apply.textContent = 'Apply';
+				apply.disabled = isLocked;
+				form.appendChild( label );
+				form.appendChild( input );
+				form.appendChild( apply );
+				form.addEventListener( 'submit', function ( event ) {
+					event.preventDefault();
+					var value = input.value.trim();
+					if ( ! value ) {
+						message.textContent = 'Enter a discount code.';
+						input.focus();
+						return;
+					}
+					var body = { discount_code: value };
+					if ( 'true' !== wrapper.dataset.memberSignedIn ) {
+						var nameInput  = wrapper.querySelector( '.agend-shop-buyer-name' );
+						var emailInput = wrapper.querySelector( '.agend-shop-buyer-email' );
+						if ( ! nameInput || ! emailInput || ! nameInput.value.trim() || ! emailInput.value.trim() ) {
+							message.textContent = 'Enter your name and email above, then apply the code.';
+							return;
+						}
+						body.guest_buyer = { name: nameInput.value.trim(), email: emailInput.value.trim() };
+					}
+					changeDiscount( 'POST', body, message, apply );
+				} );
+				discountEl.appendChild( form );
+			}
+			if ( ! code && 'buyer_changed' === cart.discount_code_cleared_reason ) {
+				message.textContent = 'Your discount code was removed because the buyer\'s details changed. Apply it again to check it still applies.';
+			}
+			discountEl.appendChild( message );
+
+			return applies ? Number( quote.total_cents ) : cart.total_amount;
+		}
+
+		/**
+		 * Applies (POST) or removes (DELETE) the cart's discount code, then
+		 * reloads the cart so every total comes from the platform.
+		 *
+		 * @param {string}      method  'POST' or 'DELETE'.
+		 * @param {Object|null} body    Request body for POST.
+		 * @param {HTMLElement} message Message element (role="alert").
+		 * @param {HTMLElement} button  Button to disable meanwhile.
+		 */
+		function changeDiscount( method, body, message, button ) {
+			if ( cartLocked ) {
+				return;
+			}
+			button.disabled = true;
+			message.textContent = '';
+			var headers = AgendCartSession.getHeaders();
+			if ( body ) {
+				headers[ 'Content-Type' ] = 'application/json';
+			}
+			fetch( restUrl + 'cart/discount', {
+				method: method,
+				headers: headers,
+				body: body ? JSON.stringify( body ) : undefined,
+			} )
+				.then( function ( response ) {
+					return response.json().catch( function () {
+						return null;
+					} ).then( function ( data ) {
+						if ( response.ok ) {
+							document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+							return;
+						}
+						var described = describeCartError( response.status, data, 'POST' === method
+							? 'That code can\'t be used. Check it and try again.'
+							: 'We couldn\'t remove the code. Please try again.' );
+						if ( described.locked ) {
+							showFailure( response.status, data, '' );
+						}
+						message.textContent = described.message;
+						button.disabled = false;
+					} );
+				} )
+				.catch( function () {
+					message.textContent = 'We couldn\'t reach the shop. Check your connection and try again.';
+					button.disabled = false;
+				} );
 		}
 
 		/**
@@ -476,6 +777,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			// The discount is worked out on the whole cart: refresh it.
+			refreshDiscountTotals();
 
 			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
@@ -844,9 +1147,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				body: JSON.stringify( { quantity: quantity, itemId: item.id } ),
 			} ).then( function ( response ) {
 				if ( ! response.ok ) {
-					return response.json().then( function ( data ) {
-						throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
-					} );
+					return failedRequest( response, 'Unable to update tickets. Please try again.' );
 				}
 				return response.json();
 			} );
@@ -881,10 +1182,92 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			refreshDiscountTotals();
 			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: { count: totals.newTotalCount, amount: totalAmount },
 			} ) );
+		}
+
+		/**
+		 * Whether a refused checkout says the cart changed since the buyer saw
+		 * it (the platform's CART_CONFLICT "Your order changed since you
+		 * reviewed it"), so the totals should be read again.
+		 *
+		 * @param {Object} body Decoded response body.
+		 * @return {boolean}
+		 */
+		function orderChanged( body ) {
+			var error = body && body.data && body.data.body && body.data.body.error;
+			if ( ! error || 'CART_CONFLICT' !== error.code ) {
+				return false;
+			}
+			return !! ( ( error.details && error.details.reviewStale ) || /^Your order changed since you reviewed it/.test( error.message || '' ) );
+		}
+
+		/**
+		 * After an in-place quantity change with a code applied, reads the cart
+		 * again and redraws only the discount section and the totals (the
+		 * rows and any open attendee editor are left as they are).
+		 */
+		function refreshDiscountTotals() {
+			if ( ! discountApplied ) {
+				return;
+			}
+			// Only the latest answer counts, and checkout waits for it.
+			var generation = ++discountRefresh;
+			if ( checkoutBtn ) {
+				checkoutBtn.disabled = true;
+			}
+			fetch( restUrl + 'cart', { method: 'GET', headers: AgendCartSession.getHeaders() } )
+				.then( function ( response ) {
+					return response.ok ? response.json() : null;
+				} )
+				.then( function ( body ) {
+					if ( generation !== discountRefresh ) {
+						return;
+					}
+					var cart = body && body.data ? ( body.data.cart || body.data ) : null;
+					if ( ! cart || ! cart.items ) {
+						totalsRefreshFailed();
+						return;
+					}
+					var payable = renderDiscount( cart, cartLocked );
+					if ( totalAmountEl ) {
+						totalAmountEl.textContent = formatCurrency( payable, cart.currency );
+					}
+					eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
+					updateCheckoutLabel( payable, cart.currency );
+					loadCheckoutOptions( cartLocked || 0 === Number( payable ) );
+					if ( checkoutBtn && ! cartLocked ) {
+						checkoutBtn.disabled = false;
+					}
+				} )
+				.catch( function () {
+					if ( generation === discountRefresh ) {
+						totalsRefreshFailed();
+					}
+				} );
+		}
+
+		/**
+		 * The totals could not be read again after a change: checkout stays
+		 * held (the amount shown may be out of date) and the buyer can retry.
+		 */
+		function totalsRefreshFailed() {
+			if ( checkoutBtn ) {
+				checkoutBtn.disabled = true;
+			}
+			showMessage( 'We couldn\'t update your totals. ', 'error' );
+			var retry = document.createElement( 'button' );
+			retry.type = 'button';
+			retry.className = 'agend-shop-totals-retry';
+			retry.textContent = 'Try again';
+			retry.addEventListener( 'click', function () {
+				clearMessage();
+				refreshDiscountTotals();
+			} );
+			messageEl.appendChild( retry );
 		}
 
 		/**
@@ -1017,6 +1400,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {number} quantity New quantity.
 		 */
 		function changeEventQty( item, quantity ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs( item.id );
 			putItemQuantity( item, quantity )
 				.then( function ( data ) {
@@ -1035,7 +1422,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
-					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+					showCaught( err, 'Unable to update tickets. Please try again.' );
 				} )
 				.finally( function () {
 					unlockInputs( item.id );
@@ -1052,6 +1439,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Object} item Cart item.
 		 */
 		function handleTicketDecrement( item ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			if ( item.quantity <= 1 ) {
 				removeItem( item.id );
 				return;
@@ -1140,9 +1531,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
-						} );
+						return failedRequest( response, 'Unable to update tickets. Please try again.' );
 					}
 					scheduleCheckoutOptions();
 					// Reduce the quantity; the retained attendees are already the
@@ -1167,7 +1556,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
-					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+					showCaught( err, 'Unable to update tickets. Please try again.' );
 				} )
 				.finally( function () {
 					unlockInputs( item.id );
@@ -1513,6 +1902,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {HTMLElement} status  Status text element.
 		 */
 		function saveAttendees( item, seatEls, fields, saveBtn, status ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			var attendees = [];
 			for ( var i = 0; i < seatEls.length; i++ ) {
 				var result = readSeat( seatEls[ i ] );
@@ -1538,10 +1931,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'Unable to save attendees. Please try again.';
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							var described = describeCartError( response.status, data, 'Unable to save attendees. Please try again.' );
+							if ( described.locked ) {
+								showFailure( response.status, data, '' );
+							}
 							status.className = 'agend-shop-attendee-panel__status is-error';
-							status.textContent = message;
+							status.textContent = described.locked ? 'This cart is being checked out, so attendees can\'t be changed right now.' : described.message;
 						} );
 					}
 					status.className = 'agend-shop-attendee-panel__status is-success';
@@ -1577,6 +1975,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {HTMLElement} input    The quantity input element (for revert on error).
 		 */
 		function updateItemQty( item, quantity, input ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs(item.id)
 			document.querySelector(`tr[data--item-id="${item.id}"]`).classList.add('agend-cart-row-loading')
 			var prevValue = input.getAttribute( 'data-prev-value' );
@@ -1592,11 +1994,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
 							input.value = prevValue;
 							input.setAttribute( 'data-prev-value', prevValue );
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showFailure( response.status, data, 'We couldn\'t change the quantity. Please try again.' );
 						} );
 					}
 					response.json().then( data => {
@@ -1622,6 +2025,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {string} itemId Cart item ID.
 		 */
 		function removeItem( itemId ) {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockInputs(itemId)
 			fetch( restUrl + 'cart/item/delete/' + encodeURIComponent(itemId), {
 				method: 'DELETE',
@@ -1629,9 +2036,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							unlockInputs( itemId );
+							showFailure( response.status, data, 'We couldn\'t remove that item. Please try again.' );
 						} );
 					}
 					loadCart(true);
@@ -1639,7 +2048,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					return null;
 				} )
 				.catch( function () {
-					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
+					unlockInputs( itemId );
+					showMessage( 'We couldn\'t remove that item. Check your connection and try again.', 'error' );
 				} );
 		}
 
@@ -1647,6 +2057,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * Sends a DELETE request to clear all items from the cart.
 		 */
 		function clearCart() {
+			// A cart a checkout holds is read-only until that checkout is cancelled.
+			if ( cartLocked ) {
+				return;
+			}
 			lockAllInputs()
 			fetch( restUrl + 'cart/clear', {
 				method: 'DELETE',
@@ -1654,9 +2068,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} )
 				.then( function ( response ) {
 					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							var message = ( data && data.message ) ? data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+						return response.json().catch( function () {
+							return null;
+						} ).then( function ( data ) {
+							unlockAllInputs();
+							showFailure( response.status, data, 'We couldn\'t clear your cart. Please try again.' );
 						} );
 					}
 					loadCart();
@@ -1725,6 +2141,27 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * The site's language for dates ("en-AU"): the shop's localised data,
+		 * then Core's, then the page's lang attribute. The visitor's browser
+		 * setting is never used, so en-AU sites read "6 December 2026".
+		 *
+		 * @return {string} BCP 47 tag.
+		 */
+		function siteLocale() {
+			var candidates = [ shopConfig.locale, window.agendApps && window.agendApps.locale, document.documentElement.lang, 'en-AU' ];
+			for ( var i = 0; i < candidates.length; i++ ) {
+				var tag = candidates[ i ];
+				if ( 'string' !== typeof tag || '' === tag ) continue;
+				try {
+					if ( Intl.DateTimeFormat.supportedLocalesOf( [ tag ] ).length ) return tag;
+				} catch ( e ) {
+					// Not a valid tag: try the next.
+				}
+			}
+			return 'en-AU';
+		}
+
+		/**
 		 * Formats a `YYYY-MM-DD` calendar date for display, without shifting
 		 * it through the visitor's timezone.
 		 *
@@ -1736,7 +2173,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( ! match ) return '';
 			var date = new Date( Date.UTC( Number( match[ 1 ] ), Number( match[ 2 ] ) - 1, Number( match[ 3 ] ) ) );
 			try {
-				return date.toLocaleDateString( undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' } );
+				return date.toLocaleDateString( siteLocale(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' } );
 			} catch ( e ) {
 				return value;
 			}
@@ -1761,12 +2198,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Object} body Response body.
 		 * @return {string} Message.
 		 */
-		function errorMessage( body ) {
-			var fields = body && body.data && body.data.body && body.data.body.error && body.data.body.error.details && body.data.body.error.details.fields;
-			var messages = fields ? Object.keys( fields ).reduce( function ( all, key ) {
-				return all.concat( fields[ key ] );
-			}, [] ) : [];
-			return messages.length ? messages.join( ' ' ) : ( ( body && body.message ) || 'An unexpected error occurred. Please try again.' );
+		function errorMessage( body, status ) {
+			return describeCartError( status || 0, body, 'We couldn\'t complete your checkout. Please try again.' ).message;
 		}
 
 		/**
@@ -1983,6 +2416,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			invoiceKey = invoiceKey || newInvoiceKey();
 			var payload = { paymentMethod: 'invoice', idempotencyKey: invoiceKey };
+			// The code the buyer applied: the platform checks it again for this
+			// cart and buyer and refuses (rather than charging full price) if
+			// it no longer applies. The quote version is not sent: the
+			// platform's checkout re-validates items before comparing it, which
+			// changes the cart's revision, so a first attempt would always be
+			// refused as stale.
+			if ( discountCode ) {
+				payload.discountCode = discountCode;
+			}
 			if ( po && po.value ) payload.purchaseOrderNumber = po.value;
 			var companies = invoiceCompanies( invoiceOption );
 			if ( 1 === companies.length ) {
@@ -2015,8 +2457,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					if ( result.status >= 400 && result.status < 500 ) {
 						invoiceKey = null;
 					}
-					showMessage( errorMessage( result.data ), 'error' );
-					checkoutBtn.disabled = false;
+					showMessage( errorMessage( result.data, result.status ), 'error' );
+					// A changed quote: the refresh re-enables checkout once the
+					// new totals are shown.
+					if ( discountApplied && ( orderChanged( result.data ) ) ) {
+						refreshDiscountTotals();
+					} else {
+						checkoutBtn.disabled = false;
+					}
 				} )
 				.catch( function () {
 					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
@@ -2117,6 +2565,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					successUrl: shopConfig.checkoutSuccessUrl || successUrl.href,
 					cancelUrl: shopConfig.checkoutCancelUrl || cartUrl,
 				};
+				// As for Pay on Invoice: the code, not the quote version.
+				if ( discountCode ) {
+					payload.discount_code = discountCode;
+				}
 				if ( buyerName && buyerEmail ) {
 					buyerName.value = buyerName.value.trim();
 					buyerEmail.value = buyerEmail.value.trim();
@@ -2147,8 +2599,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						if ( 200 === result.status && checkoutUrl ) {
 							window.location.href = checkoutUrl;
 						} else {
-							showMessage( errorMessage( result.data ), 'error' );
-							checkoutBtn.disabled = false;
+							showMessage( errorMessage( result.data, result.status ), 'error' );
+							if ( discountApplied && ( orderChanged( result.data ) ) ) {
+								refreshDiscountTotals();
+							} else {
+								checkoutBtn.disabled = false;
+							}
 						}
 					} )
 					.catch( function () {
@@ -2212,8 +2668,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
 							window.location.href = shopConfig.cartPageUrl || '';
 						} else {
-							var message = ( result.data && result.data.message ) ? result.data.message : 'An unexpected error occurred. Please try again.';
-							showMessage( message, 'error' );
+							showMessage( describeCartError( result.status, result.data, 'We couldn\'t cancel the checkout. Please try again.' ).message, 'error' );
 							cancelBtn.disabled = false;
 						}
 					} )
@@ -2229,8 +2684,18 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			loadCart();
 		} );
 
-		// Initial load.
-		loadCart();
+		// Initial load, once any abandoned checkout this page returned from has
+		// been cancelled (AgendCartSession.landing), so the cart shows unlocked.
+		var landing = window.AgendCartSession && window.AgendCartSession.landing;
+		if ( landing && 'function' === typeof landing.then ) {
+			landing.then( function () {
+				loadCart();
+			}, function () {
+				loadCart();
+			} );
+		} else {
+			loadCart();
+		}
 	}
 
 	applyTheme();

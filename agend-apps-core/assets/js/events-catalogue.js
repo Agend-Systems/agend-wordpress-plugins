@@ -163,21 +163,82 @@
       headers: headers,
       body: JSON.stringify(payload),
     }).then(function (res) {
-      return res.json().then(function (body) {
-        return { status: res.status, data: body && body.data };
+      return res.json().catch(function () {
+        return null;
+      }).then(function (body) {
+        return { status: res.status, body: body, data: body && body.data };
       });
     }).then(function (result) {
       if (result.status !== 200) {
-        var message = (result.data && result.data.body && result.data.body.error && result.data.body.error.message)
-          ? result.data.body.error.message
-          : 'Unable to add to cart. Please try again.';
-        throw new Error(message);
+        var described = cartError(result.status, result.body, 'Unable to add to cart. Please try again.');
+        var error = new Error(described.message);
+        error.cartLocked = described.locked;
+        error.friendly = true;
+        throw error;
       }
       if (result.data && result.data.guestSessionToken && window.AgendCartSession) {
         window.AgendCartSession.setToken(result.data.guestSessionToken);
       }
       return result.data;
     });
+  }
+
+  // Plain-English text for a failed cart request, from the shop's
+  // AgendCartSession.describeError() when the shop script is on the page. The
+  // fallback keeps the same rules so a raw platform message ("Cart … is not
+  // mutable (status: locked)") never reaches a visitor.
+  function cartError(status, body, fallback) {
+    if (window.AgendCartSession && typeof window.AgendCartSession.describeError === 'function') {
+      return window.AgendCartSession.describeError(status, body, fallback);
+    }
+    return cartErrorFallback(status, body, fallback);
+  }
+
+  // WordPress's own cart refusals that are written for visitors.
+  var CART_VISITOR_CODES = ['agend_apps_sign_in_required', 'agend_apps_invoice_disabled', 'agend_apps_invalid_purchase_order'];
+  // Platform refusals worded for buyers ("Only 2 places are left …").
+  var CART_BUYER_CODES = ['PRODUCT_UNAVAILABLE', 'DUPLICATE_ATTENDEE', 'MAX_QUANTITY_EXCEEDED', 'INVALID_QUANTITY', 'INVALID_DISCOUNT_CODE', 'INVALID_PURCHASE_ORDER'];
+
+  function cartErrorFallback(status, body, fallback) {
+    var platform = body && body.data && body.data.body && body.data.body.error;
+    var code = (platform && platform.code) || '';
+    var raw = (platform && platform.message) || (body && body.message) || '';
+    if (code === 'CHECKOUT_ALREADY_INITIATED' || code === 'CART_LOCKED' || /not mutable/i.test(raw)) {
+      var details = platform && platform.details;
+      var cartStatus = (details && typeof details.currentStatus === 'string' && details.currentStatus) || ((/status: ([a-z_]+)/i.exec(raw) || [])[1]) || '';
+      if (cartStatus === '' || cartStatus.toLowerCase() === 'locked') {
+        return {
+          message: 'Your cart is being checked out, so it can\'t be changed right now. Go to your cart to finish paying, or cancel that checkout to make changes.',
+          locked: true,
+        };
+      }
+      return { message: 'Your cart has changed since this page loaded. Refresh the page, then try again.', locked: false, stale: true };
+    }
+    if (CART_BUYER_CODES.indexOf(code) !== -1 && typeof raw === 'string' && raw !== '') {
+      return { message: raw, locked: false };
+    }
+    if (body && typeof body.code === 'string' && CART_VISITOR_CODES.indexOf(body.code) !== -1 && typeof body.message === 'string' && body.message !== '') {
+      return { message: body.message, locked: false };
+    }
+    if (status === 401) {
+      return { message: 'Your session has ended. Sign in again, then try again.', locked: false };
+    }
+    if (status === 429) {
+      return { message: 'Too many attempts. Wait a moment, then try again.', locked: false };
+    }
+    var fields = platform && platform.details && platform.details.fields;
+    var fieldMessages = fields && typeof fields === 'object' ? Object.keys(fields).reduce(function (all, key) {
+      return all.concat(fields[key]);
+    }, []).filter(function (text) {
+      return typeof text === 'string' && text !== '';
+    }) : [];
+    if (fieldMessages.length) {
+      return { message: fieldMessages.join(' '), locked: false };
+    }
+    if ((status === 400 || status === 422) && typeof raw === 'string' && raw !== '') {
+      return { message: raw, locked: false };
+    }
+    return { message: fallback || 'Something went wrong with your cart. Please try again.', locked: false };
   }
 
   // Maps a registration line's per-seat rows to the cart attendee shape. A seat
@@ -271,12 +332,19 @@
     return body || null;
   }
 
+  // "$1,325.00": two decimals with a thousands separator. Mirrors
+  // agend_apps_records_format_money() in includes/records/format.php.
+  function money(num) {
+    var parts = Math.abs(num).toFixed(2).split('.');
+    return (num < 0 ? '-' : '') + '$' + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+  }
+
   function formatPrice(value) {
     var num = typeof value === 'string' ? parseFloat(value) : value;
     if (num === null || num === undefined || isNaN(num)) {
       return null;
     }
-    return num === 0 ? 'FREE' : '$' + num.toFixed(2);
+    return num === 0 ? 'FREE' : money(num);
   }
 
   function truncate(text, length) {
@@ -515,19 +583,21 @@
 
   // -- Catalogue ------------------------------------------------------------
 
-  function renderCard(event, cfg, onOpen) {
-    var card = el('article', 'agend-ev-card');
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', '0');
-    card.addEventListener('click', function () {
-      onOpen(event.slug);
-    });
-    card.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onOpen(event.slug);
+  // The card's title is a real link to the event (href), stretched over the
+  // whole card by CSS, so the card can be opened in a new tab, is followed by
+  // search engines and is announced as a link. The card holds no other
+  // interactive element. A plain click still opens the detail in place when
+  // the catalogue is on the detail page (onOpen); a modified click (new tab,
+  // new window) is left to the browser.
+  function renderCard(event, cfg, onOpen, href) {
+    var card = el('article', 'agend-ev-card agend-ev-card--linked');
+    var openFromLink = function (e) {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+        return;
       }
-    });
+      e.preventDefault();
+      onOpen(event.slug);
+    };
 
     if (cfg.card.image) {
       var media = el('div', 'agend-ev-card__media');
@@ -567,7 +637,12 @@
       body.appendChild(pills);
     }
 
-    body.appendChild(el('h3', 'agend-ev-card__title', event.name || ''));
+    var title = el('h3', 'agend-ev-card__title');
+    var titleLink = el('a', 'agend-ev-card__link', event.name || '');
+    titleLink.href = href || '#';
+    titleLink.addEventListener('click', openFromLink);
+    title.appendChild(titleLink);
+    body.appendChild(title);
 
     var range = dateRange(event.start_date, event.end_date, event.timezone);
     if (range) {
@@ -1382,6 +1457,33 @@
     return link;
   }
 
+  // The note a signed-in visitor who is not on member pricing sees in place of
+  // the sign-in link: they are already signed in, so asking them to sign in
+  // would be wrong. Links to the site's join page when one is set
+  // (Settings > Agend Widgets > Event Pricing > Membership join page).
+  function memberPricingJoinNote() {
+    var note = el('p', 'agend-ev-reg__join', 'Member pricing applies to current Members.');
+    var joinUrl = window.agendApps && window.agendApps.memberJoinUrl;
+    var href = null;
+    if (typeof joinUrl === 'string' && joinUrl) {
+      try {
+        var parsed = new URL(joinUrl, window.location.href);
+        if (/^https?:$/.test(parsed.protocol) && !parsed.username && !parsed.password) {
+          href = parsed.href;
+        }
+      } catch (error) {
+        href = null;
+      }
+    }
+    if (href) {
+      note.appendChild(document.createTextNode(' '));
+      var link = el('a', 'agend-ev-reg__join-link', 'Become a member');
+      link.href = href;
+      note.appendChild(link);
+    }
+    return note;
+  }
+
   // Registration screen (US-EVT.9): ticket quantity selection, per-seat
   // attendee details, guest buyer capture, order summary, then register +
   // (for paid tickets) hand off to the checkout session (US-EVT.10).
@@ -1451,8 +1553,13 @@
     // ticketId -> { entry, qty, price, attendeeRows: [{name,email}] }
     var lines = {};
     var resume = checkoutSignInState(event.slug);
-    var signIn = !isSignedIn && (cfg.onDetailPage || cfg.ssrDetail)
+    // Signed in to WordPress, whether or not the event payload carries a price
+    // group: a signed-in visitor with no membership arrives with none.
+    var signedInToSite = isSignedIn || !!(window.agendApps && window.agendApps.signedIn);
+    var signIn = !signedInToSite && (cfg.onDetailPage || cfg.ssrDetail)
       ? eventCheckoutSignIn(cfg, event.slug, lines) : null;
+    var joinNote = signedInToSite && group !== 'member' && group !== 'corporate'
+      ? memberPricingJoinNote() : null;
 
     function total() {
       return Object.keys(lines).reduce(function (sum, id) {
@@ -1472,13 +1579,13 @@
         any = true;
         var row = el('div', 'agend-ev-reg__summary-row');
         row.appendChild(el('span', null, (line.entry.ticket.name || 'Ticket') + ' × ' + line.qty));
-        row.appendChild(el('span', null, line.price === 0 ? 'Free' : '$' + (line.qty * line.price).toFixed(2)));
+        row.appendChild(el('span', null, line.price === 0 ? 'Free' : money(line.qty * line.price)));
         summary.appendChild(row);
       });
       if (any) {
         var totalRow = el('div', 'agend-ev-reg__summary-row agend-ev-reg__summary-row--total');
         totalRow.appendChild(el('span', null, 'Total'));
-        totalRow.appendChild(el('span', null, t === 0 ? 'Free' : '$' + t.toFixed(2)));
+        totalRow.appendChild(el('span', null, t === 0 ? 'Free' : money(t)));
         summary.appendChild(totalRow);
         submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
       }
@@ -1531,6 +1638,8 @@
         rateNote.textContent = pricingLabel('freeForAll');
       } else if (signIn) {
         form.insertBefore(signIn, ticketsSection);
+      } else if (joinNote) {
+        form.insertBefore(joinNote, ticketsSection);
       }
       items.forEach(function (entry) {
         var ticket = entry.ticket || entry;
@@ -1545,7 +1654,7 @@
         var row = el('div', 'agend-ev-reg__ticket');
         var info = el('div', 'agend-ev-reg__ticket-info');
         info.appendChild(el('span', 'agend-ev-reg__ticket-name', ticket.name || 'Ticket'));
-        info.appendChild(el('span', 'agend-ev-reg__ticket-price', price === 0 ? 'Free' : '$' + price.toFixed(2)));
+        info.appendChild(el('span', 'agend-ev-reg__ticket-price', price === 0 ? 'Free' : money(price)));
         if (typeof cap === 'number') {
           info.appendChild(el('span', 'agend-ev-reg__ticket-cap', cap + ' remaining'));
         }
@@ -1594,9 +1703,18 @@
       form.style.display = 'none';
     });
 
-    function showError(message) {
+    // The error box is a live region (role="alert"), so screen readers read
+    // the message out. A cart held by a checkout in progress gets a link to
+    // the cart page, where that checkout can be finished or cancelled.
+    function showError(message, cartLink) {
       errorBox.style.display = '';
       errorBox.textContent = message;
+      if (cartLink && cfg.cartPageUrl) {
+        errorBox.appendChild(document.createTextNode(' '));
+        var link = el('a', 'agend-ev-reg__error-link', 'Go to your cart');
+        link.href = cfg.cartPageUrl;
+        errorBox.appendChild(link);
+      }
     }
 
     submit.addEventListener('click', function () {
@@ -1646,7 +1764,9 @@
         }).catch(function (err) {
           submit.disabled = false;
           refreshSummary();
-          showError((err && err.message) || 'Unable to add to cart. Please try again.');
+          // Only a message written for visitors is shown; a network failure's
+          // own text ("Failed to fetch") is not.
+          showError((err && err.friendly && err.message) || 'Unable to add to cart. Please try again.', !!(err && err.cartLocked));
         });
         return;
       }
@@ -2276,7 +2396,7 @@
           insertFragments(result.items);
         } else {
           result.items.forEach(function (event) {
-            grid.appendChild(renderCard(event, cfg, function (slug) { openItem(slug); }));
+            grid.appendChild(renderCard(event, cfg, function (slug) { openItem(slug); }, deepLinkUrl(event.slug)));
           });
         }
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);

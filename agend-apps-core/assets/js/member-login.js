@@ -126,11 +126,27 @@
     return btn;
   }
 
+  // Only an http(s) address is used as a link target.
+  function safeHttpUrl(value) {
+    if (typeof value !== 'string' || !value) {
+      return '';
+    }
+    try {
+      var url = new URL(value, window.location.href);
+      return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.href : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
   function renderSignedIn(root, cfg, portalUrl, verificationPending, pendingEmail) {
     root.innerHTML = '';
     var wrap = el('div', 'agend-ml-card is-signed-in');
-    if (cfg.messages.heading) {
-      wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.heading));
+    // A "Sign in" heading over a signed-in card is wrong, so the signed-in
+    // view has its own ("You're signed in" unless the site wrote its own).
+    var heading = cfg.messages.signedInHeading || cfg.messages.heading;
+    if (heading) {
+      wrap.appendChild(el('h3', 'agend-ml-card__heading', heading));
     }
 
     if (verificationPending) {
@@ -146,23 +162,34 @@
         wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.signedIn));
       }
 
-      if (portalUrl && cfg.messages.portalButton) {
-        var portalBtn = el('button', 'agend-ml-card__button', cfg.messages.portalButton);
-        portalBtn.type = 'button';
-        portalBtn.addEventListener('click', function () {
-          portalBtn.disabled = true;
+      var portalHref = safeHttpUrl(portalUrl);
+      if (portalHref && cfg.messages.portalButton) {
+        // A real link to the portal, so it is announced as a link and can be
+        // opened in a new tab. A plain click asks for a signed hand-off first
+        // so the member arrives signed in; if that fails the link is followed
+        // as it stands.
+        var portalLink = el('a', 'agend-ml-card__button', cfg.messages.portalButton);
+        portalLink.href = portalHref;
+        var handingOff = false;
+        portalLink.addEventListener('click', function (event) {
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+          }
+          event.preventDefault();
+          if (handingOff) {
+            return;
+          }
+          handingOff = true;
+          portalLink.setAttribute('aria-busy', 'true');
           request('POST', '/auth/portal-handoff', {}).then(function (r) {
             var data = unwrap(r.data);
-            if (r.ok && data.url) {
-              window.location.assign(data.url);
-            } else {
-              portalBtn.disabled = false;
-            }
+            var target = r.ok ? safeHttpUrl(data.url) : '';
+            window.location.assign(target || portalHref);
           }).catch(function () {
-            portalBtn.disabled = false;
+            window.location.assign(portalHref);
           });
         });
-        wrap.appendChild(portalBtn);
+        wrap.appendChild(portalLink);
       }
     }
 
@@ -183,11 +210,36 @@
     root.appendChild(wrap);
   }
 
+  // The platform sends a new member back here with ?agend_email_verified=1
+  // once they have confirmed their email. Read once per page load and taken
+  // out of the address straight away, so a reload or a shared link does not
+  // repeat it.
+  var emailVerifiedLanding = (function () {
+    try {
+      var url = new URL(window.location.href);
+      if (url.searchParams.get('agend_email_verified') !== '1') {
+        return false;
+      }
+      url.searchParams.delete('agend_email_verified');
+      if (window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(window.history.state, '', url.href);
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  })();
+
   function renderForm(root, cfg) {
     root.innerHTML = '';
     var wrap = el('div', 'agend-ml-card');
     if (cfg.messages.heading) {
       wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.heading));
+    }
+    if (emailVerifiedLanding && cfg.messages.emailVerified) {
+      var verified = el('p', 'agend-ml-form__notice agend-ml-verified-notice', cfg.messages.emailVerified);
+      verified.setAttribute('role', 'status');
+      wrap.appendChild(verified);
     }
     if (cfg.messages.intro) {
       wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.intro));
@@ -396,6 +448,16 @@
     var email = field(cfg.messages.email, 'email', 'email', 'email', true);
     email.input.value = prefillEmail || '';
     var password = field(cfg.messages.password, 'password', 'password', 'new-password', true);
+    // The platform accepts 8 to 72 characters; say so before the member types.
+    password.input.minLength = 8;
+    password.input.maxLength = 72;
+    if (cfg.messages.passwordHint) {
+      var hintId = 'agend-ml-password-hint-' + Math.random().toString(36).slice(2, 10);
+      var hint = el('span', 'agend-ml-form__hint', cfg.messages.passwordHint);
+      hint.id = hintId;
+      password.input.setAttribute('aria-describedby', hintId);
+      password.label.appendChild(hint);
+    }
 
     var emailError = el('p', 'agend-ml-form__error');
     emailError.setAttribute('role', 'alert');
@@ -433,6 +495,12 @@
       error.style.display = 'none';
       emailError.style.display = 'none';
       if (!email.input.value || !password.input.value) {
+        return;
+      }
+      if (password.input.value.length < 8 && cfg.messages.passwordHint) {
+        error.textContent = cfg.messages.passwordHint;
+        error.style.display = '';
+        password.input.focus();
         return;
       }
       submit.disabled = true;

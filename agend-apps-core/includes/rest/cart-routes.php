@@ -165,6 +165,14 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_url',
 						),
+						'discount_code'          => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'accepted_quote_version' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
 					),
 				),
 			)
@@ -207,6 +215,10 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 							'sanitize_callback' => 'sanitize_text_field',
 						),
 						'discountCode'        => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'acceptedQuoteVersion' => array(
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
@@ -503,6 +515,17 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		if ( empty( $urls['cancelUrl'] ) ) {
 			$urls['cancelUrl'] = get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ?: $cart_url;
 		}
+		// The discount the buyer reviewed: the platform refuses the checkout
+		// if the cart's quote has changed since, rather than charging another
+		// amount.
+		$code    = trim( (string) $request->get_param( 'discount_code' ) );
+		$version = trim( (string) $request->get_param( 'accepted_quote_version' ) );
+		if ( '' !== $code && strlen( $code ) <= 100 ) {
+			$urls['discount_code'] = $code;
+			if ( '' !== $version && strlen( $version ) <= 128 ) {
+				$urls['accepted_quote_version'] = $version;
+			}
+		}
 		$buyer = $request->get_param( 'guest_buyer' );
 		if ( '' === $identity['bearer_token'] && is_array( $buyer ) ) {
 			$urls['guest_buyer'] = array(
@@ -685,6 +708,10 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		$discount = trim( (string) $request->get_param( 'discountCode' ) );
 		if ( '' !== $discount ) {
 			$payload['discountCode'] = $discount;
+		}
+		$quote_version = trim( (string) $request->get_param( 'acceptedQuoteVersion' ) );
+		if ( '' !== $quote_version && strlen( $quote_version ) <= 128 ) {
+			$payload['acceptedQuoteVersion'] = $quote_version;
 		}
 
 		$result = agend_apps_cart_checkout_invoice( $payload, $identity['cart_session'], $identity['bearer_token'] );

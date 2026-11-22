@@ -34,9 +34,10 @@ final class ShopAdminSettingsTest extends TestCase {
 	public function should_add_both_checkout_fields_to_the_checkout_section(): void {
 		( new Agend_Apps_Shop_Admin() )->register_settings();
 		$fields = Agend_Test_WP::$settings_sections[ Agend_Apps_Shop_Admin::PAGE_SLUG ]['agend_apps_shop_checkout_section']['fields'];
-		self::assertSame( array( 'agend_apps_shop_guest_checkout', 'agend_apps_shop_pay_on_invoice' ), array_keys( $fields ) );
+		self::assertSame( array( 'agend_apps_shop_guest_checkout', 'agend_apps_shop_pay_on_invoice', 'agend_apps_shop_discount_codes' ), array_keys( $fields ) );
 		self::assertSame( 'Guest checkout', $fields['agend_apps_shop_guest_checkout']['title'] );
 		self::assertSame( 'Pay on Invoice', $fields['agend_apps_shop_pay_on_invoice']['title'] );
+		self::assertSame( 'Discount codes', $fields['agend_apps_shop_discount_codes']['title'] );
 	}
 
 	#[Test]
@@ -75,5 +76,13 @@ final class ShopAdminSettingsTest extends TestCase {
 		update_option( 'agend_apps_shop_pay_on_invoice', '0' );
 		self::assertFalse( agend_apps_shop_pay_on_invoice_enabled() );
 		self::assertStringNotContainsString( 'checked', $this->render( 'render_pay_on_invoice_field' ) );
+	}
+
+	#[\PHPUnit\Framework\Attributes\Test]
+	public function should_leave_discount_codes_off_until_a_site_turns_them_on(): void {
+		require_once dirname( __DIR__ ) . '/includes/checkout-settings.php';
+		self::assertFalse( agend_apps_shop_discount_codes_enabled() );
+		update_option( 'agend_apps_shop_discount_codes', '1' );
+		self::assertTrue( agend_apps_shop_discount_codes_enabled() );
 	}
 }

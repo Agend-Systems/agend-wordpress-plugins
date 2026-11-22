@@ -307,6 +307,47 @@
   margin: 0.15rem 0 0;
 }
 
+/* The title link covers the whole card (a "stretched link"), so the card
+   opens on a click anywhere while only the link is interactive. */
+.agend-ev-card--linked {
+  position: relative;
+  cursor: pointer;
+}
+
+.agend-ev-card__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.agend-ev-card__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.agend-ev-card__link:hover,
+.agend-ev-card__link:focus-visible {
+  text-decoration: underline;
+}
+
+.agend-ev-card__link:focus-visible {
+  outline: 2px solid var(--agend-ev-accent);
+  outline-offset: 2px;
+}
+
+/* Where :has() is supported, the focus ring goes round the whole card. */
+@supports selector(:has(a)) {
+  .agend-ev-card__link:focus-visible {
+    outline: none;
+  }
+
+  .agend-ev-card--linked:has(.agend-ev-card__link:focus-visible) {
+    outline: 2px solid var(--agend-ev-accent);
+    outline-offset: 2px;
+  }
+}
+
 .agend-ev-card__date,
 .agend-ev-card__location {
   font-size: 0.85rem;
@@ -807,6 +848,13 @@
   background: #fdecec;
   color: #a11a1a;
   font-size: 0.9rem;
+}
+
+.agend-ev-reg__error-link,
+.agend-ev-reg__join-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .agend-ev-reg__confirm {

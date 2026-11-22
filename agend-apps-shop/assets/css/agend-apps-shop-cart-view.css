@@ -711,3 +711,49 @@
 	color: var( --agend-shop-heading );
 	font-weight: 600;
 }
+
+/* Discount code (Settings > Agend Apps Shop > Checkout > Discount codes). */
+.agend-shop-cart-discount {
+	margin: 1rem 0;
+}
+
+.agend-shop-discount-form {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.agend-shop-discount-form label {
+	font-weight: 600;
+}
+
+.agend-shop-discount-input {
+	min-width: 12rem;
+	padding: 0.4rem 0.6rem;
+}
+
+.agend-shop-discount-summary {
+	display: grid;
+	grid-template-columns: max-content max-content;
+	gap: 0.25rem 1.5rem;
+	margin: 0.5rem 0 0;
+}
+
+.agend-shop-discount-summary dt,
+.agend-shop-discount-summary dd {
+	margin: 0;
+}
+
+.agend-shop-discount-summary dd {
+	text-align: right;
+}
+
+.agend-shop-discount-message:empty {
+	display: none;
+}
+
+.agend-shop-discount-message {
+	color: #a11a1a;
+	margin: 0.5rem 0 0;
+}

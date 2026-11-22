@@ -140,3 +140,18 @@
   color: var(--agend-ml-body);
   font-size: 0.875rem;
 }
+
+/* The portal link waiting for its signed hand-off. */
+.agend-ml-card__button[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Password rules under the create-account password field. */
+.agend-ml-form__hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 400;
+  opacity: 0.8;
+}

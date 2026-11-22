@@ -257,7 +257,9 @@
     if (num === null || num === undefined || isNaN(num) || num === 0) {
       return 'Free';
     }
-    return '$' + num.toFixed(2);
+    // Thousands separator, matching agend_apps_records_ssr_lms_price().
+    var parts = num.toFixed(2).split('.');
+    return '$' + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
   }
 
   function normaliseColour(value) {
@@ -746,6 +748,7 @@
       var search = el('input', 'agend-lms-search');
       search.type = 'search';
       search.placeholder = 'Search courses…';
+      search.setAttribute('aria-label', 'Search courses');
       var debounce;
       search.addEventListener('input', function () {
         window.clearTimeout(debounce);
@@ -760,6 +763,7 @@
 
     if (cfg.filters.category) {
       var category = el('select', 'agend-lms-filter');
+      category.setAttribute('aria-label', 'Filter by category');
       category.appendChild(new Option('All Categories', ''));
       var excludedCategories = exclusions.categories || [];
       // Course categories are free-text on the course; derive the distinct set
@@ -783,6 +787,7 @@
 
     if (cfg.filters.difficulty) {
       var difficulty = el('select', 'agend-lms-filter');
+      difficulty.setAttribute('aria-label', 'Filter by level');
       var excludedDifficulties = exclusions.difficulties || [];
       [['All Levels', ''], ['Beginner', 'beginner'], ['Intermediate', 'intermediate'], ['Advanced', 'advanced']].forEach(function (o) {
         if (o[1] && excludedDifficulties.indexOf(o[1]) !== -1) {
@@ -800,6 +805,7 @@
 
     if (cfg.filters.deliveryMode) {
       var mode = el('select', 'agend-lms-filter');
+      mode.setAttribute('aria-label', 'Filter by format');
       var excludedModes = exclusions.deliveryModes || [];
       [['All Formats', ''], ['Self-paced', 'self_paced'], ['Live Online', 'live_online'], ['In-Person', 'in_person'], ['Blended', 'blended']].forEach(function (o) {
         if (o[1] && excludedModes.indexOf(o[1]) !== -1) {

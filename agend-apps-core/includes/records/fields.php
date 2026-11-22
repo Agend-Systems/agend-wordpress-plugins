@@ -1368,7 +1368,7 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 			if ( 0.0 === $num ) {
 				return esc_html( (string) ( $opts['price_free_label'] ?? __( 'Free', 'agend-apps-core' ) ) );
 			}
-			return esc_html( (string) ( $opts['price_prefix'] ?? '' ) . '$' . number_format( $num, 2, '.', '' ) );
+			return esc_html( (string) ( $opts['price_prefix'] ?? '' ) . agend_apps_records_format_money( $num ) );
 
 		case 'list':
 			$items     = is_array( $value ) ? array_values( array_filter( array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ) ) : array( (string) $value );

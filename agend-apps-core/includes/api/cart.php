@@ -356,9 +356,19 @@ function agend_apps_cart_checkout( array $urls, string $cart_session, string $be
  *
  * @param string $cart_session Cart session token forwarded as `X-Cart-Session`.
  * @param string $bearer_token Optional. Supabase bearer token forwarded as `Authorization: Bearer`. Default empty string.
+ * @param array  $body         Optional. Request body, e.g. `array( 'externalId' => … )`
+ *                             naming the checkout session to complete. Default none.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
-function agend_apps_cart_checkout_complete( string $cart_session, string $bearer_token = '' ) {
+function agend_apps_cart_checkout_complete( string $cart_session, string $bearer_token = '', array $body = array() ) {
+	$request_args = array(
+		'cart_session' => $cart_session,
+		'bearer_token' => $bearer_token,
+	);
+	if ( array() !== $body ) {
+		$request_args['body'] = $body;
+	}
+
 	/**
 	 * Filters the cart checkout complete request args before the request is sent.
 	 *
@@ -368,10 +378,7 @@ function agend_apps_cart_checkout_complete( string $cart_session, string $bearer
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_cart_checkout_complete_args',
-		array(
-			'cart_session' => $cart_session,
-			'bearer_token' => $bearer_token,
-		),
+		$request_args,
 		$cart_session,
 		$bearer_token
 	);

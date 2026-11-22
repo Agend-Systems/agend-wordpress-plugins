@@ -47,9 +47,22 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 		$back_label = __( 'Back to sign in', 'agend-apps-core' );
 	}
 
+	$heading = (string) ( $s['heading_text'] ?? '' );
+
+	// The verification notice's earlier default told the member to "use Resend
+	// below" beside a button labelled "Send another link". A saved copy of
+	// that default gets the corrected wording; a site's own text is kept.
+	$verification_sent = (string) ( $s['verification_sent_message'] ?? '' );
+	if ( in_array( $verification_sent, agend_apps_records_member_login_old_verification_defaults(), true ) ) {
+		$verification_sent = agend_apps_records_member_login_verification_default();
+	}
+
 	return array(
 		'messages' => array(
-			'heading'      => (string) ( $s['heading_text'] ?? '' ),
+			'heading'      => $heading,
+			// The heading over the signed-in card: the site's heading unless it
+			// is the stock "Sign in", which would be wrong once signed in.
+			'signedInHeading' => agend_apps_records_member_login_signed_in_heading( $heading ),
 			'intro'        => (string) ( $s['intro_text'] ?? '' ),
 			'email'        => __( 'Email', 'agend-apps-core' ),
 			'password'     => __( 'Password', 'agend-apps-core' ),
@@ -85,6 +98,10 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 			'registerIntro'    => __( 'Create a member account to sign in on this site.', 'agend-apps-core' ),
 			'firstName'        => __( 'First name', 'agend-apps-core' ),
 			'lastName'         => __( 'Last name', 'agend-apps-core' ),
+			'passwordHint'     => __( 'Use at least 8 characters.', 'agend-apps-core' ),
+			// Shown on the sign-in form when the platform returns a new member
+			// here after they confirm their email (?agend_email_verified=1).
+			'emailVerified'    => __( 'Your email is confirmed. Sign in to continue.', 'agend-apps-core' ),
 			'registerSubmit'   => __( 'Create account', 'agend-apps-core' ),
 			'registerWorking'  => __( 'Creating…', 'agend-apps-core' ),
 			'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-apps-core' ),
@@ -92,7 +109,7 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 			'resend'              => __( 'Send another link', 'agend-apps-core' ),
 			// The gateway's own 202 message says a link was sent but not what to
 			// do with it; the member must return here and sign in again once.
-			'verificationSent'    => (string) ( $s['verification_sent_message'] ?? '' ),
+			'verificationSent'    => $verification_sent,
 			'verificationPending' => __( 'Your email address is not yet verified. Check your inbox for the verification link, or request a new one below.', 'agend-apps-core' ),
 		),
 		// Seconds the resend button stays disabled after each attempt
@@ -102,6 +119,48 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 		// form has no font settings to inherit or override (Decision 2.1/6.2).
 		'theme'                 => array( 'colourSource' => $colours['source'] ),
 	);
+}
+
+/**
+ * The heading shown over the signed-in card.
+ *
+ * The stock heading is "Sign in", which is wrong above "You are signed in.",
+ * so it becomes "You're signed in". A heading the site wrote itself ("Member
+ * area") is kept, and an empty heading stays empty.
+ *
+ * @param string $heading The surface's heading setting.
+ * @return string
+ */
+function agend_apps_records_member_login_signed_in_heading( string $heading ): string {
+	$trimmed = trim( $heading );
+	if ( '' === $trimmed ) {
+		return '';
+	}
+	if ( in_array( $trimmed, array( 'Sign in', __( 'Sign in', 'agend-apps-core' ) ), true ) ) {
+		return __( 'You’re signed in', 'agend-apps-core' );
+	}
+	return $heading;
+}
+
+/**
+ * The default text shown after an account is created or a sign-in needs the
+ * email confirmed. Kept in step with the schema default.
+ *
+ * @return string
+ */
+function agend_apps_records_member_login_verification_default(): string {
+	return __( 'Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn\'t arrived in a few minutes, choose Send another link below. You only need to do this once.', 'agend-apps-core' );
+}
+
+/**
+ * Earlier defaults of the verification notice, English and translated, which
+ * named a "Resend" control the form does not have.
+ *
+ * @return string[]
+ */
+function agend_apps_records_member_login_old_verification_defaults(): array {
+	$old = 'Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn\'t arrived in a few minutes, use Resend below. You only need to do this once.';
+	return array_values( array_unique( array( $old, __( $old, 'agend-apps-core' ) ) ) ); // phpcs:ignore WordPress.WP.I18n.NonSingularStringLiteralText -- matching a saved earlier default.
 }
 
 /**
@@ -219,10 +278,11 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 				: Agend_Apps_Settings::get_portal_url();
 		}
 		?>
+		<?php $signed_in_heading = agend_apps_records_member_login_signed_in_heading( $heading ); ?>
 		<div class="agend-member-login" style="<?php echo esc_attr( $style ); ?>">
 			<div class="agend-ml-card is-signed-in">
-				<?php if ( '' !== $heading ) : ?>
-					<h3 class="agend-ml-card__heading"><?php echo esc_html( $heading ); ?></h3>
+				<?php if ( '' !== $signed_in_heading ) : ?>
+					<h3 class="agend-ml-card__heading"><?php echo esc_html( $signed_in_heading ); ?></h3>
 				<?php endif; ?>
 				<?php if ( '' !== $signed_in_message ) : ?>
 					<p class="agend-ml-card__text"><?php echo esc_html( $signed_in_message ); ?></p>
@@ -268,10 +328,12 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 		$flag      = isset( $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ) : '';
 		// phpcs:enable
 		$error = agend_apps_wp_login_inline_failure_message( $flag );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		$email_verified = isset( $_GET['agend_email_verified'] ) && '1' === $_GET['agend_email_verified'];
 
 		// The markup carries request-dependent values (the error and the
 		// return destinations), so a page cache must not serve it to others.
-		if ( ( '' !== $requested || '' !== $flag ) && ! defined( 'DONOTCACHEPAGE' ) ) {
+		if ( ( '' !== $requested || '' !== $flag || $email_verified ) && ! defined( 'DONOTCACHEPAGE' ) ) {
 			define( 'DONOTCACHEPAGE', true );
 		}
 
@@ -286,6 +348,10 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 			<div class="agend-ml-card">
 				<?php if ( '' !== $heading ) : ?>
 					<h3 class="agend-ml-card__heading"><?php echo esc_html( $heading ); ?></h3>
+				<?php endif; ?>
+				<?php if ( $email_verified ) : ?>
+					<p class="agend-ml-form__notice agend-ml-verified-notice" role="status"><?php esc_html_e( 'Your email is confirmed. Sign in to continue.', 'agend-apps-core' ); ?></p>
+					<script>try{var u=new URL(window.location.href);u.searchParams.delete('agend_email_verified');window.history.replaceState(window.history.state,'',u.href);}catch(e){}</script>
 				<?php endif; ?>
 				<p class="agend-ml-card__text"><?php echo esc_html( $intro ); ?></p>
 				<?php if ( '' !== $error ) : ?>

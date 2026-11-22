@@ -390,6 +390,24 @@ function agend_apps_records_settings_init(): void {
 
 	register_setting(
 		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_apps_records_sanitize_member_join_url',
+			'default'           => '',
+		)
+	);
+	add_settings_field(
+		AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION,
+		__( 'Membership join page', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_member_join_url',
+		'agend-elementor',
+		'agend_apps_section_event_pricing',
+		array( 'label_for' => AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION )
+	);
+
+	register_setting(
+		'agend_elementor_settings',
 		AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION,
 		array(
 			'type'              => 'string',
@@ -505,6 +523,24 @@ function agend_apps_records_settings_field_non_member_rate_label(): void {
 			/* translators: %s: The built-in word, "non-member". */
 			esc_html__( 'The word used in the note under the Register button, as in "The public rate is shown where available." Write it as it should appear mid-sentence, usually in lower case. Leave blank to use "%s".', 'agend-apps-core' ),
 			esc_html( agend_apps_records_default_non_member_rate_label() )
+		);
+		?>
+	</p>
+	<?php
+}
+
+/**
+ * Renders the membership join page field.
+ */
+function agend_apps_records_settings_field_member_join_url(): void {
+	$value = agend_apps_records_sanitize_member_join_url( get_option( AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION, '' ) );
+	?>
+	<input type="url" class="regular-text code" id="<?php echo esc_attr( AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION ); ?>" name="<?php echo esc_attr( AGEND_APPS_RECORDS_MEMBER_JOIN_URL_OPTION ); ?>" value="<?php echo esc_attr( $value ); ?>" placeholder="https://" />
+	<p class="description">
+		<?php
+		esc_html_e(
+			'A signed-in visitor who is not a member sees "Member pricing applies to current Members." on the event registration form. Enter the page where they can join, for example your membership page, to add a "Become a member" link. Leave blank for no link.',
+			'agend-apps-core'
 		);
 		?>
 	</p>

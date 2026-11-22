@@ -99,6 +99,23 @@ jobs:
       - run: node --test agend-apps-core/tests/js/memberships-catalogue.test.cjs
       # Events catalogue: the site's non-member price wording and filter labels.
       - run: node --test agend-apps-core/tests/js/events-catalogue-labels.test.cjs
+      # Fixes from a client's end-to-end tests: event cards as links, the
+      # member pricing note for a signed-in non-member, plain-English cart and
+      # checkout errors (no browser alerts), price formatting, the Member Login
+      # signed-in card, and the courses and directory filter names.
+      - run: node --test agend-apps-core/tests/js/events-registration.test.cjs
+      - run: node --test agend-apps-core/tests/js/memberships-errors.test.cjs
+      # A paid membership join completes on the member's return from the payment page.
+      - run: node --test agend-apps-core/tests/js/memberships-return.test.cjs
+      - run: node --test agend-apps-core/tests/js/member-login-signed-in.test.cjs
+      - run: node --test agend-apps-core/tests/js/catalogue-filter-names.test.cjs
+      - run: node --test agend-apps-shop/tests/js/cart-errors.test.cjs
+      # Returning from the payment page's cancel link unlocks the cart.
+      - run: node --test agend-apps-shop/tests/js/cancel-landing.test.cjs
+      # Cart dates in the site's language ("6 December 2026" on en-AU sites).
+      - run: node --test agend-apps-shop/tests/js/dates.test.cjs
+      # Discount codes in the cart.
+      - run: node --test agend-apps-shop/tests/js/discount.test.cjs
       - name: Committed build is up to date
         run: |
           git add -N agend-apps-core/build agend-apps-shop/build agend-content-access/build

@@ -101,7 +101,11 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 				<div class="agend-shop-cart-payment" hidden></div>
 			<?php endif; ?>
 
-			<div class="agend-shop-cart-actions">
+			<?php
+			// The discount code slot, only where the site offers codes (the
+			// markup is otherwise unchanged); the cart script fills it.
+			echo ( function_exists( 'agend_apps_shop_discount_codes_enabled' ) && agend_apps_shop_discount_codes_enabled() && ( $is_member || $guest_allowed ) ) ? '<div class="agend-shop-cart-discount" hidden></div>' . "\n\t\t\t" : '';
+			?><div class="agend-shop-cart-actions">
 				<a class="agend-shop-keep-browsing" href="<?php echo esc_url( home_url( '/' ) ); ?>"><?php esc_html_e( 'Keep browsing', 'agend-apps-shop' ); ?></a>
 				<button class="agend-shop-btn-clear-cart"><?php esc_html_e( 'Clear Cart', 'agend-apps-shop' ); ?></button>
 				<div class="agend-shop-cart-primary-actions">

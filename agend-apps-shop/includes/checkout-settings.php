@@ -40,6 +40,17 @@ function agend_apps_shop_pay_on_invoice_enabled(): bool {
 }
 
 /**
+ * Whether the cart offers a discount code field
+ * (Settings > Agend Apps Shop > Checkout). Off by default, so a site without
+ * codes sees no change.
+ *
+ * @return bool
+ */
+function agend_apps_shop_discount_codes_enabled(): bool {
+	return '1' === (string) get_option( 'agend_apps_shop_discount_codes', '0' );
+}
+
+/**
  * The connected account's member portal home, for the link to an invoice
  * after a Pay on Invoice order. Empty when no account slug is configured,
  * so the cart never links to the generic portal.

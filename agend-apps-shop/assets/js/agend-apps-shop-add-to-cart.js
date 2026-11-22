@@ -19,6 +19,23 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	}
 
 	/**
+	 * AgendCartSession.describeError(). An older cart session script without it
+	 * (never shipped alongside this file) gets the previous behaviour: the
+	 * response's own message, else the fallback.
+	 *
+	 * @param {number} status   HTTP status.
+	 * @param {Object} body     Decoded response body.
+	 * @param {string} fallback Text for an error with nothing more specific.
+	 * @return {{message: string, locked: boolean}}
+	 */
+	function describeCartError( status, body, fallback ) {
+		if ( window.AgendCartSession && 'function' === typeof window.AgendCartSession.describeError ) {
+			return window.AgendCartSession.describeError( status, body, fallback );
+		}
+		return { message: ( body && 'string' === typeof body.message && body.message ) || fallback, locked: false };
+	}
+
+	/**
 	 * Shows a message in the widget's message div.
 	 *
 	 * @param {HTMLElement} msgEl  The message container element.
@@ -29,6 +46,29 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		msgEl.textContent = text;
 		msgEl.classList.remove( 'is-success', 'is-error' );
 		msgEl.classList.add( 'is-' + type );
+	}
+
+	/**
+	 * Shows a failed add, with a link to the cart page when the cart is held by
+	 * a checkout in progress (the cart page is where that checkout can be
+	 * finished or cancelled).
+	 *
+	 * @param {HTMLElement} msgEl    The message container element.
+	 * @param {number}      status   HTTP status.
+	 * @param {Object}      body     Decoded response body.
+	 */
+	function showFailure( msgEl, status, body ) {
+		var described = describeCartError( status, body, 'We couldn\'t add this to your cart. Please try again.' );
+		showMessage( msgEl, described.message, 'error' );
+		var cartUrl = ( window.agendAppsShop && window.agendAppsShop.cartPageUrl ) || '';
+		if ( described.locked && cartUrl ) {
+			msgEl.appendChild( document.createTextNode( ' ' ) );
+			var link = document.createElement( 'a' );
+			link.className = 'agend-shop-atc-cart-link';
+			link.href = cartUrl;
+			link.textContent = 'Go to your cart';
+			msgEl.appendChild( link );
+		}
 	}
 
 	/**
@@ -115,17 +155,16 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				} ),
 			} )
 				.then( function ( response ) {
-					return response.json().then( function ( data ) {
-						return { status: response.status, data: data.data };
+					return response.json().catch( function () {
+						return null;
+					} ).then( function ( body ) {
+						return { status: response.status, body: body, data: body && body.data };
 					} );
 				} )
 				.then( function ( result ) {
-					console.log('123')
 					if ( 200 === result.status ) {
-
-						console.log(result.data && result.data['guestSessionToken'], result.data, result.data['guestSessionToken'])
-						if ( result.data && result.data['guestSessionToken'] ) {
-							AgendCartSession.setToken( result.data['guestSessionToken'] );
+						if ( result.data && result.data.guestSessionToken ) {
+							AgendCartSession.setToken( result.data.guestSessionToken );
 						}
 						showMessage( msgEl, 'Added to cart!', 'success' );
 						setTimeout( function () {
@@ -133,16 +172,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						}, 3000 );
 						document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
 					} else {
-						console.log('136', result)
-						var message = ( result.data && result.data.body.error.message )
-							? result.data.body.error.message
-							: 'An unexpected error occurred. Please try again.';
-						showMessage( msgEl, message, 'error' );
+						showFailure( msgEl, result.status, result.body );
 					}
 				} )
 				.catch( function () {
-					console.log('144')
-					showMessage( msgEl, 'An unexpected error occurred. Please try again.', 'error' );
+					showMessage( msgEl, 'We couldn\'t add this to your cart. Check your connection and try again.', 'error' );
 				} )
 				.finally( function () {
 					addBtn.disabled = false;

@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.89.0
+ * Version:           1.90.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.89.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.90.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -96,6 +96,7 @@ define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20261104-1' );
 // unconditionally so the endpoints register even when a page-builder plugin
 // consuming them is temporarily unavailable; the widgets that consume them
 // stay gated.
+require_once AGEND_APPS_CORE_DIR . 'includes/locale.php';
 require_once AGEND_APPS_CORE_DIR . 'includes/records/routing.php';
 
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
@@ -390,6 +391,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/class-agend-apps-rest-controller.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/health-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-discount-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/directory-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-me-routes.php';
@@ -421,6 +423,11 @@ function agend_apps_core_bootstrap() {
 	}
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
+
+	// A paid membership join completes on the member's return from the
+	// payment page, without waiting for the provider's webhook.
+	require_once AGEND_APPS_CORE_DIR . 'includes/membership-return.php';
+	agend_apps_register_membership_return();
 
 	if ( $agend_apps_credential_login_enabled ) {
 		// Agend-first authentication for wp-login.php and wp_signon() callers.
@@ -482,6 +489,7 @@ add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
 function agend_apps_core_register_rest_routes() {
 	agend_apps_register_health_routes();
 	agend_apps_register_cart_routes();
+	agend_apps_register_cart_discount_routes();
 	agend_apps_register_directory_routes();
 	agend_apps_register_cms_routes();
 	agend_apps_register_jobs_routes();
@@ -529,12 +537,24 @@ function agend_apps_output_config_js() {
 		// member: the route that serves the details answers that.
 		'signedIn'       => get_current_user_id() > 0,
 		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
+		// The site's language as a BCP 47 tag ("en-AU"), so widgets format
+		// dates the way the site does rather than the way the visitor's browser
+		// is set.
+		'locale'         => agend_apps_js_locale(),
 	);
 
 	// The site's wording for the non-member price and rate, for the
 	// browser-rendered events catalogue (includes/records/pricing-labels.php).
 	if ( function_exists( 'agend_apps_records_pricing_labels_for_js' ) ) {
 		$config['pricingLabels'] = agend_apps_records_pricing_labels_for_js();
+	}
+	// Where a signed-in visitor who is not a member can join, for the events
+	// registration form's member pricing note. Sent only when the site sets one.
+	if ( function_exists( 'agend_apps_records_member_join_url' ) ) {
+		$join_url = agend_apps_records_member_join_url();
+		if ( '' !== $join_url ) {
+			$config['memberJoinUrl'] = $join_url;
+		}
 	}
 
 	// Expose the Agend member-session state so every widget can render its

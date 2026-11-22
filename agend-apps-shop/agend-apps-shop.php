@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-shop
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
- * Version:           1.7.0
+ * Version:           1.8.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_SHOP_VERSION', '1.7.0' );
+define( 'AGEND_APPS_SHOP_VERSION', '1.8.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -57,6 +57,8 @@ function agend_apps_shop_bootstrap(): void {
 
 	require_once AGEND_APPS_SHOP_DIR . 'includes/booking-confirmation.php';
 	agend_apps_shop_register_booking_confirmation();
+	require_once AGEND_APPS_SHOP_DIR . 'includes/checkout-cancel-landing.php';
+	agend_apps_shop_register_checkout_cancel_landing();
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/schema.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/render.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/blocks.php';
@@ -163,13 +165,20 @@ function agend_apps_shop_register_assets(): void {
 		'checkoutCancelUrl'  => esc_url_raw( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
 		'guestCheckout'      => agend_apps_shop_guest_checkout_allowed(),
 		'payOnInvoice'       => agend_apps_shop_pay_on_invoice_enabled(),
+		'discountCodes'      => agend_apps_shop_discount_codes_enabled(),
 		'portalHomeUrl'      => agend_apps_shop_portal_home_url(),
+		// The site's language ("en-AU"), so dates read the way the site writes
+		// them ("6 December 2026"), not the way the visitor's browser is set.
+		'locale'             => function_exists( 'agend_apps_js_locale' ) ? agend_apps_js_locale() : str_replace( '_', '-', (string) get_locale() ),
 	);
 	// wp_localize_script() only needs the handle registered, not enqueued: the
 	// data is attached now and printed alongside the script if and when it is
 	// actually enqueued, so this is safe to call unconditionally here.
 	wp_localize_script( 'agend-apps-shop-cart-view', 'agendAppsShop', $localized );
 	wp_localize_script( 'agend-apps-shop-cart-header', 'agendAppsShop', $localized );
+	// The Add to Cart widget links to the cart page when a checkout in progress
+	// holds the cart.
+	wp_localize_script( 'agend-apps-shop-add-to-cart', 'agendAppsShop', $localized );
 }
 add_action( 'init', 'agend_apps_shop_register_assets', 5 );
 

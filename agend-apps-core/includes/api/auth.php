@@ -231,6 +231,24 @@ function agend_apps_auth_login( string $email, string $password ) {
 }
 
 /**
+ * Whether a register error is the platform refusing `redirect_to` because it
+ * is not on the API key's redirect allowlist. Released platforms answer a
+ * plain 400 naming `redirect_to`; later ones use the `REDIRECT_NOT_ALLOWED`
+ * code.
+ *
+ * @param WP_Error $error Gateway error.
+ * @return bool
+ */
+function agend_apps_auth_error_is_redirect_refused( WP_Error $error ): bool {
+	if ( 'REDIRECT_NOT_ALLOWED' === agend_apps_auth_error_code( $error ) ) {
+		return true;
+	}
+	$data    = $error->get_error_data();
+	$message = is_array( $data ) && isset( $data['body']['error']['message'] ) ? (string) $data['body']['error']['message'] : '';
+	return 400 === agend_apps_auth_error_status( $error ) && false !== stripos( $message, 'redirect_to' ) && false !== stripos( $message, 'allowlist' );
+}
+
+/**
  * Registers a new user account.
  *
  * Scope: `auth.users.register`.
@@ -254,6 +272,19 @@ function agend_apps_auth_register( array $payload ) {
 	);
 
 	$response = agend_apps_api()->request( 'POST', '/auth/register', $args );
+
+	// A platform whose API key allowlist does not include the return address
+	// refuses the whole registration. Sign-up must never break for that, so it
+	// is tried once more without the return address (the member then lands on
+	// the platform's own page after confirming), and the site is told why.
+	if ( is_wp_error( $response ) && isset( $args['body']['redirect_to'] ) && agend_apps_auth_error_is_redirect_refused( $response ) ) {
+		if ( function_exists( 'error_log' ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- operator warning.
+			error_log( sprintf( 'Agend Apps: registration refused the return address %s (not on the API key redirect allowlist); retrying without it. Add it to the key\'s redirect allowlist so new members return to this site.', (string) $args['body']['redirect_to'] ) );
+		}
+		unset( $args['body']['redirect_to'] );
+		$response = agend_apps_api()->request( 'POST', '/auth/register', $args );
+	}
 
 	if ( is_wp_error( $response ) ) {
 		return $response;
