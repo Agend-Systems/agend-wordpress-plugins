@@ -69,6 +69,22 @@ function agend_apps_membership_return_hashes( array $record ): array {
 }
 
 /**
+ * Caps a session's references without ever dropping the first: a checkout the
+ * platform hands back unchanged still returns with the reference it was
+ * first opened with. The four latest of the others are kept.
+ *
+ * @param string[] $hashes References, oldest first.
+ * @return string[]
+ */
+function agend_apps_membership_return_cap( array $hashes ): array {
+	$hashes = array_values( array_unique( $hashes ) );
+	if ( count( $hashes ) <= 5 ) {
+		return $hashes;
+	}
+	return array_merge( array( $hashes[0] ), array_slice( $hashes, -4 ) );
+}
+
+/**
  * Whether a token is one of a stored join's references.
  *
  * @param array  $record Stored join.
@@ -223,7 +239,7 @@ function agend_apps_register_membership_return(): void {
 				set_transient(
 					$key,
 					array(
-						'hashes'    => array_slice( array_values( array_unique( $hashes ) ), -5 ),
+						'hashes'    => agend_apps_membership_return_cap( $hashes ),
 						'session'   => $session,
 						'confirmed' => is_array( $previous ) && ( $previous['session'] ?? '' ) === $session && ! empty( $previous['confirmed'] ),
 					),

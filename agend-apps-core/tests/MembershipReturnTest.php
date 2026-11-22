@@ -139,4 +139,17 @@ final class MembershipReturnTest extends TestCase {
 		$this->join( 'cs_test_other' );
 		self::assertSame( array( 'status' => 'none' ), $this->confirm( $first ) );
 	}
+
+	#[Test]
+	public function should_keep_the_first_reference_however_often_the_checkout_is_handed_back(): void {
+		$first = $this->join( 'cs_test_same' );
+		for ( $i = 0; $i < 8; $i++ ) {
+			$latest = $this->join( 'cs_test_same' );
+		}
+		set_transient( 'agend_apps_checkout_status_missing', 1, 60 );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'order_id' => 'o1' ) ) );
+		self::assertSame( 'confirmed', $this->confirm( $first )['status'] );
+		self::assertSame( 'confirmed', $this->confirm( $latest )['status'] );
+		self::assertLessThanOrEqual( 5, count( get_transient( agend_apps_membership_return_key( 42 ) )['hashes'] ) );
+	}
 }
