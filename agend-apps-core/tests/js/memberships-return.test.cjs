@@ -101,3 +101,18 @@ test('an unsafe portal address is not linked', async (t) => {
   });
   assert.equal(document.querySelector('.agend-mem-confirmation a'), null);
 });
+
+test('a site\'s own success page confirms the join from the reference alone', async (t) => {
+  const { document, posts } = await land(t, {
+    search: `?welcome=1&agend_membership_ref=${REF}`,
+    replies: [{ status: 'confirmed', portalUrl: 'https://portal.example.test/' }],
+  });
+  assert.deepEqual(posts, [{ token: REF }]);
+  assert.equal(document.querySelector('.agend-mem-confirmation h2').textContent, 'Welcome, your membership is active');
+});
+
+test('a cancel return with a stray reference is still a cancel', async (t) => {
+  const { document, posts } = await land(t, { search: `?agend_membership=cancel&agend_membership_ref=${REF}`, replies: [] });
+  assert.equal(posts.length, 0);
+  assert.ok(document.querySelector('.agend-mem-notice--cancelled'));
+});

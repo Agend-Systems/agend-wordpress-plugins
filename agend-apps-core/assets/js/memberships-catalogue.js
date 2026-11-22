@@ -1118,7 +1118,10 @@
     function init() {
       // Checkout returns must be shown even if tiers or custom fields cannot load.
       var urlState = currentState();
-      if (urlState === SUCCESS_MARKER) {
+      // A return reference means a paid join came back here, whether or not
+      // the success address carried the usual marker (a site's own success
+      // page keeps its address, plus the reference).
+      if (urlState === SUCCESS_MARKER || (urlState !== CANCEL_MARKER && returnRef())) {
         showCheckoutConfirmation();
       } else if (urlState === CANCEL_MARKER) {
         showCheckoutCancelled();

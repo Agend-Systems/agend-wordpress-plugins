@@ -11,7 +11,8 @@
  * So the join's success URL now carries a return reference
  * (`agend_membership_ref=<token>`). Only a hash of the token is kept, with the
  * checkout session the platform opened, bound to the signed-in WordPress user
- * and replaced by their next join. On the return, the memberships catalogue
+ * and replaced by their next join with a different session (a reused session
+ * keeps every reference it was handed out with). On the return, the memberships catalogue
  * posts the token to `POST /agend-apps/v1/crm/me/memberships/return-confirm`,
  * which, for that user's own latest join only, asks the platform what became
  * of the payment: `GET /cart/checkout/status` where the platform has it, else
@@ -54,6 +55,34 @@ function agend_apps_membership_return_key( int $user_id ): string {
  */
 function agend_apps_membership_return_hash( string $token ): string {
 	return hash_hmac( 'sha256', $token, wp_salt( 'auth' ) );
+}
+
+/**
+ * The reference hashes a stored join accepts.
+ *
+ * @param array $record Stored join.
+ * @return string[]
+ */
+function agend_apps_membership_return_hashes( array $record ): array {
+	$hashes = is_array( $record['hashes'] ?? null ) ? $record['hashes'] : array();
+	return array_values( array_filter( $hashes, 'is_string' ) );
+}
+
+/**
+ * Whether a token is one of a stored join's references.
+ *
+ * @param array  $record Stored join.
+ * @param string $token  Return token.
+ * @return bool
+ */
+function agend_apps_membership_return_matches( array $record, string $token ): bool {
+	$hash = agend_apps_membership_return_hash( $token );
+	foreach ( agend_apps_membership_return_hashes( $record ) as $candidate ) {
+		if ( hash_equals( $candidate, $hash ) ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
@@ -161,10 +190,6 @@ function agend_apps_register_membership_return(): void {
 		static function ( array $args ) use ( &$token ): array {
 			$token   = '';
 			$user_id = get_current_user_id();
-			if ( $user_id > 0 ) {
-				// Starting a join revokes the user's earlier reference at once.
-				delete_transient( agend_apps_membership_return_key( $user_id ) );
-			}
 			$success = $args['body']['success_url'] ?? '';
 			if ( $user_id <= 0 || ! is_string( $success ) || '' === $success || ! agend_apps_membership_return_is_local( $success ) ) {
 				return $args;
@@ -184,14 +209,30 @@ function agend_apps_register_membership_return(): void {
 			$data    = is_array( $response ) && is_array( $response['data'] ?? null ) ? $response['data'] : ( is_array( $response ) ? $response : array() );
 			$session = $data['external_id'] ?? ( $data['externalId'] ?? '' );
 			if ( '' !== $token && $user_id > 0 && is_string( $session ) && '' !== $session && strlen( $session ) <= 255 ) {
+				// The platform may hand back a checkout it opened earlier, whose
+				// hosted page still returns with that earlier reference: for the
+				// same session every reference stays valid. A different session
+				// replaces them all.
+				$key      = agend_apps_membership_return_key( $user_id );
+				$previous = get_transient( $key );
+				$hashes   = array();
+				if ( is_array( $previous ) && ( $previous['session'] ?? '' ) === $session ) {
+					$hashes = agend_apps_membership_return_hashes( $previous );
+				}
+				$hashes[] = agend_apps_membership_return_hash( $token );
 				set_transient(
-					agend_apps_membership_return_key( $user_id ),
+					$key,
 					array(
-						'hash'    => agend_apps_membership_return_hash( $token ),
-						'session' => $session,
+						'hashes'    => array_slice( array_values( array_unique( $hashes ) ), -5 ),
+						'session'   => $session,
+						'confirmed' => is_array( $previous ) && ( $previous['session'] ?? '' ) === $session && ! empty( $previous['confirmed'] ),
 					),
 					AGEND_APPS_MEMBERSHIP_RETURN_TTL
 				);
+			} elseif ( $user_id > 0 && '' !== $token ) {
+				// The join opened no checkout this site can follow: forget the
+				// earlier one, as a new join supersedes it.
+				delete_transient( agend_apps_membership_return_key( $user_id ) );
 			}
 			$token = '';
 			return $response;
@@ -239,8 +280,7 @@ function agend_apps_membership_return_confirm( WP_REST_Request $request ): WP_RE
 	$key     = agend_apps_membership_return_key( $user_id );
 	$record  = $user_id > 0 ? get_transient( $key ) : false;
 
-	if ( '' === $token || strlen( $token ) > 64 || ! is_array( $record ) || ! is_string( $record['hash'] ?? null )
-		|| ! hash_equals( $record['hash'], agend_apps_membership_return_hash( $token ) ) ) {
+	if ( '' === $token || strlen( $token ) > 64 || ! is_array( $record ) || ! agend_apps_membership_return_matches( $record, $token ) ) {
 		return new WP_REST_Response( array( 'status' => 'none' ), 200 );
 	}
 
@@ -264,7 +304,7 @@ function agend_apps_membership_return_confirm( WP_REST_Request $request ): WP_RE
 	if ( 'confirmed' === $result['status'] ) {
 		// Remembered only if this is still the member's latest join.
 		$current = get_transient( $key );
-		if ( is_array( $current ) && hash_equals( (string) ( $current['hash'] ?? '' ), $record['hash'] ) ) {
+		if ( is_array( $current ) && ( $current['session'] ?? '' ) === ( $record['session'] ?? '' ) ) {
 			$current['confirmed'] = true;
 			set_transient( $key, $current, AGEND_APPS_MEMBERSHIP_RETURN_TTL );
 		}

@@ -123,4 +123,20 @@ final class MembershipReturnTest extends TestCase {
 			self::assertStringNotContainsString( $token, (string) json_encode( $value ) );
 		}
 	}
+
+	#[Test]
+	public function should_keep_every_reference_for_a_checkout_the_platform_hands_back_again(): void {
+		$first  = $this->join( 'cs_test_same' );
+		$second = $this->join( 'cs_test_same' );
+		set_transient( 'agend_apps_checkout_status_missing', 1, 60 );
+
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'order_id' => 'o1', 'order_number' => 'CRM-7' ) ) );
+		self::assertSame( 'confirmed', $this->confirm( $first )['status'], 'the hosted page still returns with the first reference' );
+		self::assertSame( 'confirmed', $this->confirm( $second )['status'] );
+		self::assertCount( 1, $this->calls( '/cart/checkout/complete' ) );
+
+		// A join that opens a different checkout replaces them.
+		$this->join( 'cs_test_other' );
+		self::assertSame( array( 'status' => 'none' ), $this->confirm( $first ) );
+	}
 }
