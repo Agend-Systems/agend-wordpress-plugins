@@ -78,6 +78,8 @@ class Agend_Loop_Sync_Rule_Sync {
 	private $api_override;
 
 	/**
+	 * Sets up the run, optionally with a stand-in Upbeat client.
+	 *
 	 * @param object|null $api Optional Upbeat client; defaults to the membership plugin's.
 	 */
 	public function __construct( $api = null ) {
@@ -287,11 +289,11 @@ class Agend_Loop_Sync_Rule_Sync {
 	/**
 	 * Replaces the lock value, only if it is still `$old`.
 	 *
-	 * @param string $old The value the caller read.
-	 * @param string $new The value to write.
+	 * @param string $old         The value the caller read.
+	 * @param string $replacement The value to write.
 	 * @return bool Whether the swap happened.
 	 */
-	private function swap_lock( string $old, string $new ): bool {
+	private function swap_lock( string $old, string $replacement ): bool {
 		global $wpdb;
 
 		if ( ! ( $wpdb instanceof wpdb ) ) {
@@ -300,7 +302,7 @@ class Agend_Loop_Sync_Rule_Sync {
 				return false;
 			}
 
-			update_option( self::LOCK, $new, false );
+			update_option( self::LOCK, $replacement, false );
 			return true;
 		}
 
@@ -308,7 +310,7 @@ class Agend_Loop_Sync_Rule_Sync {
 		$wpdb->query(
 			$wpdb->prepare(
 				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
-				$new,
+				$replacement,
 				self::LOCK,
 				$old
 			)
@@ -448,7 +450,16 @@ class Agend_Loop_Sync_Rule_Sync {
 			$this->archive_removed_rules( $rules, $live, $summary );
 		}
 
-		Agend_Loop_Sync_Logger::info( 'Rule sync run complete', array_diff_key( $summary, array( 'held_results' => true, 'rules' => true ) ) );
+		Agend_Loop_Sync_Logger::info(
+			'Rule sync run complete',
+			array_diff_key(
+				$summary,
+				array(
+					'held_results' => true,
+					'rules'        => true,
+				)
+			)
+		);
 	}
 
 	/**

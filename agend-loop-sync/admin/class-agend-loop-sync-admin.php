@@ -426,8 +426,9 @@ class Agend_Loop_Sync_Admin {
 		check_admin_referer( 'agend_loop_sync_save_rule' );
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Checked by check_admin_referer() above.
-		$posted = isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ? wp_unslash( $_POST['rule'] ) : array();
-		$posted = array_map(
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Every value is sanitised by the array_map() straight after.
+		$posted   = isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ? wp_unslash( $_POST['rule'] ) : array();
+		$posted   = array_map(
 			static function ( $value ) {
 				return is_array( $value ) ? array_map( 'sanitize_textarea_field', $value ) : sanitize_textarea_field( $value );
 			},
