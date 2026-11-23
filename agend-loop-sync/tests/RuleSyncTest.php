@@ -258,29 +258,35 @@ final class RuleSyncTest extends RuleTestCase {
 	}
 
 	#[Test]
-	public function a_rule_nobody_matches_archives_its_live_channel_on_a_complete_run(): void {
+	public function a_rule_nobody_matches_sends_an_empty_replace_roster_and_archives_nothing(): void {
 		$this->add_rule( 'Specialists', array( 'membership_types' => 'Specialist' ) );
 		$this->add_member( 1, '100', 'Financial', 'Fellow' );
 		Loop_Sync_Test_State::$loop_committees = array( $this->loop_channel( 'rule:specialists' ) );
 
 		$summary = $this->rule_sync()->run();
 
-		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ), 'the gateway ignores an empty roster' );
-		$this->assertSame( array( 'rule:specialists' ), $this->archived_ids() );
-		$this->assertSame( 1, $summary['archived_empty'] );
-		$this->assertSame( 'archived_empty', $summary['rules']['specialists']['outcome'] );
+		$payload = $this->payloads()['rule:specialists'];
+		$this->assertSame( array(), $payload['roster'] );
+		$this->assertSame( 'replace', $payload['mode'] );
+		$this->assertTrue( $payload['is_active'] );
+		$this->assertSame( array(), $this->archived_ids() );
+		$this->assertSame( 'emptied', $summary['rules']['specialists']['outcome'] );
+		$this->assertArrayNotHasKey( 'archived_empty', $summary );
 	}
 
 	#[Test]
-	public function a_rule_nobody_matches_makes_no_channel_and_no_call_when_none_exists(): void {
+	public function a_rule_nobody_matches_sends_nothing_and_archives_nothing_in_merge_mode(): void {
 		$this->add_rule( 'Specialists', array( 'membership_types' => 'Specialist' ) );
 		$this->add_member( 1, '100', 'Financial', 'Fellow' );
+		loop_sync_test_user( 2, '200' ); // No Upbeat record: forces merge mode.
+		Loop_Sync_Test_State::$loop_committees = array( $this->loop_channel( 'rule:specialists' ) );
 
 		$summary = $this->rule_sync()->run();
 
+		$this->assertSame( 'merge', $summary['mode'] );
 		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ) );
 		$this->assertSame( array(), $this->archived_ids() );
-		$this->assertSame( 'empty', $summary['rules']['specialists']['outcome'] );
+		$this->assertSame( 'empty_skipped', $summary['rules']['specialists']['outcome'] );
 	}
 
 	#[Test]

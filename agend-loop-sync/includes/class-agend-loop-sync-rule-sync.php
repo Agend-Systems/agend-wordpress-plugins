@@ -30,9 +30,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   members someone added by hand in Loop are never removed.
  * - Roster members with no Loop account yet are skipped by the gateway and
  *   reported; they join on a later run once they have one.
- * - A rule that matches nobody, on a complete run, archives its channel (the
- *   gateway ignores an empty roster, so removing the last members is otherwise
- *   impossible); it is unarchived when the rule matches someone again.
+ * - A rule that matches nobody, on a complete run, sends an empty roster in
+ *   replace mode, which clears the memberships this sync added (members added
+ *   by hand stay, and the channel is not archived). In merge mode nothing is
+ *   sent.
  * - Channels of deleted or disabled rules are archived, on a complete run only.
  * - Dry run logs what would be sent and sends nothing.
  *
@@ -143,7 +144,6 @@ class Agend_Loop_Sync_Rule_Sync {
 			'held_members'            => 0,
 			'held_results'            => array(),
 			'archived'                => 0,
-			'archived_empty'          => 0,
 			'mode'                    => 'replace',
 			'unresolved_external_ids' => array(),
 			'errors'                  => array(),
@@ -330,7 +330,7 @@ class Agend_Loop_Sync_Rule_Sync {
 	}
 
 	/**
-	 * Sends one rule's roster, or archives its channel when nobody matches.
+	 * Sends one rule's roster (empty in replace mode when nobody matches).
 	 *
 	 * @param array<string, mixed>                  $rule            The rule.
 	 * @param array<int, string>                    $members         Channel role by external id.
@@ -363,16 +363,11 @@ class Agend_Loop_Sync_Rule_Sync {
 			);
 		}
 
-		if ( array() === $roster ) {
-			// The gateway ignores an empty roster, so removing the last members
-			// means archiving the channel. Only when the data is complete (a
-			// Loop list was read) and the channel exists.
-			$stats['outcome'] = 'empty';
-			if ( null !== $loop_committees && isset( $live[ $unique_id ] ) && Agend_Loop_Sync_Gateway::archive_channel( $unique_id, 'no member matches the rule', $summary, 'rule channel' ) ) {
-				++$summary['archived_empty'];
-				$stats['outcome'] = 'archived_empty';
-			}
-
+		// Nobody matches. In merge mode there is nothing to add, so nothing is
+		// sent. In replace mode the empty roster is sent: it is how the
+		// memberships this sync added are cleared. Members added by hand stay.
+		if ( array() === $roster && 'replace' !== $summary['mode'] ) {
+			$stats['outcome']                  = 'empty_skipped';
 			$summary['rules'][ $rule['slug'] ] = $stats;
 			return;
 		}
@@ -458,7 +453,7 @@ class Agend_Loop_Sync_Rule_Sync {
 		$stats['skipped'] = $counts['skipped'];
 		$stats['removed'] = $counts['removed'];
 		$stats['held']    = Agend_Loop_Sync_Gateway::record_holds( $rule['name'], $data, $summary, 'rule' );
-		$stats['outcome'] = 'synced';
+		$stats['outcome'] = array() === $roster ? 'emptied' : 'synced';
 
 		Agend_Loop_Sync_Logger::info(
 			'Rule synced',

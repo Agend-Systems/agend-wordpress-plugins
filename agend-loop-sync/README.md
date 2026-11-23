@@ -499,10 +499,10 @@ roster to the gateway. Two runs never overlap.
 - **Holds still apply.** A Loop administrator's emergency removal or role cap
   is enforced by the gateway and shown in the summary as held.
 - **Archiving.** A rule that is deleted or disabled has its channel archived,
-  and so does a rule that matches nobody (the gateway ignores an empty roster,
-  so archiving is how the last members lose access); the channel is
-  unarchived when the rule matches someone again. Both happen on a complete,
-  non-dry run only.
+  on a complete, non-dry run only. A rule that matches nobody is not archived:
+  on a complete run it sends an empty roster, which removes the memberships
+  the sync added while members added by hand stay; in merge mode nothing is
+  sent.
 - **Dry run.** Logs "would sync rule" and "would archive rule channel" and
   sends nothing.
 
@@ -695,9 +695,9 @@ settles it or you clear it.
 - **Community rules need members to have Loop accounts.** A member who meets a
   rule but has no Loop user yet is skipped and joins on a later run, once they
   have signed in to Loop through SSO.
-- **A rule that matches nobody archives its channel.** The gateway ignores an
-  empty roster, so this is how the last members are removed. It returns when
-  someone matches again.
+- **A rule that matches nobody empties its channel, it does not archive it.**
+  On a complete run the empty roster removes only what the sync added, so
+  staff or guests added by hand stay and the channel stays visible to them.
 - **Rule runs grow with membership size.** Each run makes one cached Upbeat
   member call per local member (and one registrations call when a rule lists
   events). Leave large memberships to the schedule and the debounced runs.

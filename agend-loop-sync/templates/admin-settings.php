@@ -1026,8 +1026,8 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			'synced'         => __( 'synced', 'agend-loop-sync' ),
 			'dry_run'        => __( 'dry run, nothing sent', 'agend-loop-sync' ),
 			'failed'         => __( 'failed', 'agend-loop-sync' ),
-			'empty'          => __( 'nobody matches', 'agend-loop-sync' ),
-			'archived_empty' => __( 'nobody matches, channel archived', 'agend-loop-sync' ),
+			'emptied'        => __( 'nobody matches, sync-added members cleared', 'agend-loop-sync' ),
+			'empty_skipped'  => __( 'nobody matches, nothing sent (merge mode)', 'agend-loop-sync' ),
 			'too_large'      => __( 'too many members, not synced', 'agend-loop-sync' ),
 		);
 		?>
