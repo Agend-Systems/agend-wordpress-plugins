@@ -212,7 +212,12 @@ class Agend_Elementor_Directory_Search extends \Elementor\Widget_Base {
 			array(
 				'label'     => __( 'Placeholder colour', 'agend-elementor' ),
 				'type'      => $colour,
-				'selectors' => array( '{{WRAPPER}} .agend-ds__input::placeholder' => 'color: {{VALUE}}; opacity: 1;' ),
+				// A dropdown showing its first, "any", option reads as a
+				// placeholder too, so it takes the same colour.
+				'selectors' => array(
+					'{{WRAPPER}} .agend-ds__input::placeholder' => 'color: {{VALUE}}; opacity: 1;',
+					'{{WRAPPER}} .agend-ds__select.is-empty'    => 'color: {{VALUE}};',
+				),
 			)
 		);
 		$this->add_control(

@@ -1976,11 +1976,21 @@ The destination catalogue reads a parameter only when its filter template holds
 a matching filter (Search, Location, the custom field, and so on). A device
 position carried to another page is rounded to two decimals, because the
 address is shareable. Without script the search box is a GET form carrying `q`
-and each tile is a plain link.
+and each dropdown's parameter, and each tile is a plain link.
 
-Filter Shortcuts "all values" reads the directory facets (or categories) on the
-server. A signed-in visitor's custom field values depend on their entitlements,
-so for them the page leaves those to the browser.
+The search box's **Dropdown fields** setting adds one dropdown per row between
+the keyword and location fields, each for one directory filter (a custom field
+by key, category, state or city) with every value the directory holds. Search
+sends the dropdowns' choices with the keyword and place. A dropdown shows the
+catalogue's value when it holds exactly one, and its first option ("All
+professions") otherwise; choosing that option clears the filter, but leaves
+alone several values a checkbox filter chose. A row with nothing to offer is
+not drawn. Rows resolve their filter and values through the Filter Shortcuts
+functions, so the two widgets list the same values.
+
+Filter Shortcuts "all values" and the search box's dropdowns read the directory
+facets (or categories) on the server. A signed-in visitor's custom field values
+depend on their entitlements, so for them the page leaves those to the browser.
 
 Directory Count reads the total from the pagination meta of a one-listing
 directory search, so it is cached like any search.

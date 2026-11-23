@@ -66,9 +66,8 @@ function agend_apps_records_filter_shortcuts_href( string $target, string $param
 	}
 
 	// A comma separates values in a list parameter, so one inside a value is
-	// written as %2C, and a literal percent sign as %25, before the whole is
-	// encoded.
-	$escaped = str_replace( array( '%', ',' ), array( '%25', '%2C' ), $value );
+	// escaped before the whole is encoded.
+	$escaped = agend_apps_records_directory_search_link_value( $value );
 	$pair    = rawurlencode( $param ) . '=' . rawurlencode( $escaped );
 
 	return $target . ( false === strpos( $target, '?' ) ? '?' : '&' ) . $pair . $fragment;
