@@ -18,6 +18,37 @@
     return (window.agendApps && window.agendApps.nonce) || '';
   }
 
+  function returnAfterSignIn() {
+    try {
+      // The cart's sign-in prompt: back to the cart page, whose guest cart the
+      // sign-in has already moved onto the member.
+      if (new URL(window.location.href).searchParams.get('agend_cart_signin') === '1') {
+        var cart = JSON.parse(sessionStorage.getItem('agend_cart_signin_return'));
+        sessionStorage.removeItem('agend_cart_signin_return');
+        if (cart && cart.expires > Date.now()) {
+          var cartUrl = new URL(cart.target);
+          if (cartUrl.origin === window.location.origin && !cartUrl.username && !cartUrl.password) {
+            window.location.replace(cartUrl.href);
+            return;
+          }
+        }
+      }
+      if (new URL(window.location.href).searchParams.get('agend_event_signin') === '1') {
+        var state = JSON.parse(sessionStorage.getItem('agend_event_checkout_selection'));
+        if (state && state.expires > Date.now()) {
+          var url = new URL(state.target);
+          if (url.origin === window.location.origin && !url.username && !url.password && url.searchParams.has('agend_resume_booking')) {
+            window.location.replace(url.href);
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      // Usual post-sign-in behavior when there is no saved ticket selection.
+    }
+    window.location.reload();
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) {
@@ -234,9 +265,7 @@
         password: password.value,
       }).then(function (r) {
         if (r.status === 200 && r.ok) {
-          // The sign-in rotated the WordPress session; reload so the fresh
-          // nonce and the member's server-rendered widgets take effect.
-          window.location.reload();
+          returnAfterSignIn();
           return;
         }
         var data = unwrap(r.data);
@@ -249,7 +278,7 @@
           // Verification pending (SPEC-CORE-20260907 US-4.3 AC1): WordPress
           // has already signed the member in server-side; the form just
           // shows the notice and offers a resend, it never reloads here.
-          done.textContent = data.message || '';
+          done.textContent = cfg.messages.verificationSent || data.message || '';
           done.style.display = '';
           error.style.display = 'none';
           Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
@@ -318,7 +347,7 @@
       }).then(function (r) {
         code.value = '';
         if (r.ok) {
-          window.location.reload();
+          returnAfterSignIn();
           return;
         }
         error.textContent = unwrap(r.data).message || cfg.messages.error;
@@ -421,7 +450,7 @@
           return;
         }
         if (r.status === 202) {
-          done.textContent = data.message || '';
+          done.textContent = cfg.messages.verificationSent || data.message || '';
           done.style.display = '';
           Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
             i.disabled = true;

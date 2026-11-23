@@ -269,6 +269,42 @@ final class ListingEnquiryRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_put_the_listing_name_in_the_success_message_button_and_folded_copy(): void {
+		$this->pushListing();
+
+		$html = $this->render(
+			array(
+				'start_folded'        => 'yes',
+				'heading'             => '',
+				'folded_label'        => 'Ask {listing_name}',
+				'folded_intro'        => '{listing_name} replies by email.',
+				'message_placeholder' => 'Your question for {listing_name}',
+				'button_text'         => 'Message {listing_name}',
+				'success_message'     => 'Sent. {listing_name} will reply to the email address you gave.',
+			)
+		);
+
+		$this->assertStringNotContainsString( '{listing_name}', $html );
+		$this->assertStringContainsString( '>Ask Jane Smith Advisory</span>', $html );
+		$this->assertStringContainsString( '>Jane Smith Advisory replies by email.</span>', $html );
+		$this->assertStringContainsString( 'placeholder="Your question for Jane Smith Advisory"', $html );
+		$this->assertStringContainsString( '>Message Jane Smith Advisory</button>', $html );
+		preg_match( '/data-agend-enquiry-config="([^"]+)"/', $html, $m );
+		$config = json_decode( html_entity_decode( $m[1], ENT_QUOTES ), true );
+		$this->assertSame( 'Sent. Jane Smith Advisory will reply to the email address you gave.', $config['successMessage'] );
+	}
+
+	#[Test]
+	public function should_escape_the_listing_name_when_it_fills_the_button(): void {
+		$this->pushListing( array( 'name' => '<b>Jane</b>' ) );
+
+		$html = $this->render( array( 'button_text' => 'Message {listing_name}' ) );
+
+		$this->assertStringNotContainsString( '<b>Jane</b>', $html );
+		$this->assertStringContainsString( '>Message &lt;b&gt;Jane&lt;/b&gt;</button>', $html );
+	}
+
+	#[Test]
 	public function should_fall_back_to_the_default_when_a_label_or_button_is_left_blank(): void {
 		$this->pushListing();
 

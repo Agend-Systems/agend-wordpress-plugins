@@ -58,6 +58,15 @@ final class Agend_Apps_Captcha {
 	const DEFAULT_THRESHOLD = 0.5;
 	const DEFAULT_ACTION    = 'agend_enquiry';
 
+	/**
+	 * Google's published reCAPTCHA v2 test site key
+	 * (https://developers.google.com/recaptcha/docs/faq). With its matching test
+	 * secret every check passes, and Google names this placeholder host as the
+	 * token's hostname instead of the site's own.
+	 */
+	const RECAPTCHA_TEST_SITE_KEY = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
+	const RECAPTCHA_TEST_HOSTNAME = 'testkey.google.com';
+
 	const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 	const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 
@@ -174,6 +183,14 @@ final class Agend_Apps_Captcha {
 		$action = trim( (string) get_option( self::OPTION_ACTION, self::DEFAULT_ACTION ) );
 
 		return '' === $action ? self::DEFAULT_ACTION : $action;
+	}
+
+	/**
+	 * Whether the site is set up with Google's reCAPTCHA v2 test keys, which
+	 * pass every check and so give no protection. For development and staging.
+	 */
+	public static function uses_test_keys(): bool {
+		return self::PROVIDER_RECAPTCHA_V2 === self::provider() && self::RECAPTCHA_TEST_SITE_KEY === self::site_key();
 	}
 
 	/**
@@ -298,10 +315,17 @@ final class Agend_Apps_Captcha {
 			)
 		);
 
+		// Accepting the test host costs nothing: with the test key every
+		// check passes anyway. With any other key it stays refused.
+		if ( self::uses_test_keys() ) {
+			$allowed[] = self::RECAPTCHA_TEST_HOSTNAME;
+		}
+
 		/**
 		 * Filters the hostnames a captcha token may have been minted on.
 		 *
-		 * @param string[] $allowed The site's own hosts.
+		 * @param string[] $allowed The site's own hosts, plus Google's test host while
+		 *                          the reCAPTCHA v2 test site key is in use.
 		 */
 		$allowed = array_map( 'strtolower', array_map( 'strval', (array) apply_filters( 'agend_apps_captcha_allowed_hostnames', array_values( $allowed ) ) ) );
 

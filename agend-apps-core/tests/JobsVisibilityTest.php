@@ -194,4 +194,42 @@ final class JobsVisibilityTest extends TestCase {
 		self::assertSame( 'public', agend_apps_records_jobs_visibility() );
 		self::assertTrue( agend_apps_records_jobs_visitor_can_view( 'detail' ) );
 	}
+
+	#[Test]
+	public function should_refuse_the_board_categories_and_tags_to_a_signed_out_visitor_when_members_only(): void {
+		$this->visibility( 'members' );
+		$controller = new Agend_Apps_Jobs_REST_Controller();
+
+		self::assertSame( 401, $controller->get_categories()->get_status() );
+		self::assertSame( 401, $controller->get_tags()->get_status() );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_list_the_board_categories_and_tags_when_titles_are_public(): void {
+		$this->visibility( 'teaser' );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( array( 'id' => 'c1', 'name' => 'Audit', 'slug' => 'audit' ) ) ) );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( array( 'id' => 't1', 'name' => 'Accreditation required', 'slug' => 'accreditation-required' ) ) ) );
+		$controller = new Agend_Apps_Jobs_REST_Controller();
+
+		$categories = $controller->get_categories();
+		$tags       = $controller->get_tags();
+
+		self::assertSame( 200, $categories->get_status() );
+		self::assertSame( 'audit', $categories->get_data()['data'][0]['slug'] );
+		self::assertSame( 'accreditation-required', $tags->get_data()['data'][0]['slug'] );
+		self::assertStringEndsWith( '/jobs/categories', (string) parse_url( Agend_Test_WP::$requests[0]['url'], PHP_URL_PATH ) );
+		self::assertStringEndsWith( '/jobs/tags', (string) parse_url( Agend_Test_WP::$requests[1]['url'], PHP_URL_PATH ) );
+	}
+
+	#[Test]
+	public function should_register_the_term_routes_ahead_of_the_single_job_route(): void {
+		Agend_Test_WP::$rest_routes = array();
+		( new Agend_Apps_Jobs_REST_Controller() )->register_routes();
+
+		$routes = array_column( Agend_Test_WP::$rest_routes, 'route' );
+
+		self::assertLessThan( array_search( '/jobs/(?P<slug_or_id>[a-zA-Z0-9_-]+)', $routes, true ), array_search( '/jobs/categories', $routes, true ) );
+		self::assertLessThan( array_search( '/jobs/(?P<slug_or_id>[a-zA-Z0-9_-]+)', $routes, true ), array_search( '/jobs/tags', $routes, true ) );
+	}
 }

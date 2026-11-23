@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/member-summary",
+	"version": "1.15.2",
+	"title": "Agend Member Summary",
+	"category": "agend",
+	"icon": "admin-users",
+	"description": "A signed-in member's own membership, CPD points, upcoming events, certificates and badges, and directory listing.",
+	"keywords": [ "agend", "member", "membership", "my membership", "cpd", "dashboard", "account", "certificates" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-member-summary" ],
+	"style": [ "agend-apps-records-member-summary" ],
+	"render": "file:./render.php"
+}

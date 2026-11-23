@@ -182,8 +182,10 @@ class Agend_Loop_Sync_Committee_Sync {
 		);
 
 		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_committee_sync_enabled() ) {
+			// Nothing ran, so keep the last real run's time and summary: saving
+			// this would hide it and reset the stale-sync warning.
 			$summary['errors'][] = 'Committee sync is disabled in settings';
-			return $this->finish( $summary );
+			return $summary;
 		}
 
 		if ( null === $this->api() || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {

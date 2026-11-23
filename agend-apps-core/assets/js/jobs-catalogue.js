@@ -76,6 +76,10 @@
     var qs = [];
     Object.keys(params || {}).forEach(function (key) {
       var value = params[key];
+      if (Array.isArray(value)) {
+        // A list filter: WordPress splits a comma list for an array argument.
+        value = value.join(',');
+      }
       if (value === undefined || value === null || value === '' || value === false) {
         return;
       }
@@ -117,9 +121,13 @@
     if (!html) {
       return '';
     }
-    var tmp = document.createElement('div');
+    // Parsed in a document of its own, never the live page: there an
+    // <img onerror> in a job description would load and run while the text
+    // is read out of it.
+    var doc = document.implementation.createHTMLDocument('');
+    var tmp = doc.createElement('div');
     tmp.innerHTML = html;
-    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+    return (tmp.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
   // Allowlist mirrors the other catalogues (and the WP proxy's wp_kses_post)
@@ -242,6 +250,18 @@
     return 'Posted ' + formatDate(value);
   }
 
+  // How long ago, without the "Posted" the card's own column heading would
+  // repeat: "3 days ago", "Today"; an older job keeps its date.
+  function postedAge(value) {
+    var label = postedLabel(value);
+    var relative = /^Posted (today|yesterday|\d+ \w+ ago)$/.exec(label);
+    if (!relative) {
+      return label;
+    }
+    var text = relative[1];
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
   // Gateway values are entry, mid, senior or executive; anything else (an
   // older free-text value) is shown as written.
   function experienceLabel(value) {
@@ -259,10 +279,31 @@
     return !isNaN(time) && time < Date.now();
   }
 
+  // "City, STATE 1234, Country": the postcode sits with the state, as an
+  // Australian address is written. Any part the listing lacks is left out.
   function locationLabel(job) {
-    return [job.location_city, job.location_state, job.location_country]
+    var region = [job.location_state, job.location_postcode]
+      .filter(function (part) { return part; })
+      .join(' ');
+    return [job.location_city, region, job.location_country]
       .filter(function (part) { return part; })
       .join(', ');
+  }
+
+  // "12.3 km away", present only when the search carried a point; the
+  // gateway sends null otherwise.
+  function distanceLabel(job) {
+    var km = job.distance_km;
+    if (typeof km !== 'number' || !isFinite(km) || km < 0) {
+      return '';
+    }
+    return km.toFixed(1) + ' km away';
+  }
+
+  // A tel: link needs digits; anything else a poster typed is shown as text.
+  function telHref(phone) {
+    var number = String(phone || '').replace(/[^\d+]/g, '');
+    return number.replace(/\D/g, '').length >= 3 ? 'tel:' + number : '';
   }
 
   function salaryLabel(job) {
@@ -311,7 +352,7 @@
   }
 
   function applySiteTheme(root, cfg) {
-    if (!cfg.theme || (!cfg.theme.inheritFonts && cfg.theme.colourSource !== 'agend')) {
+    if (!cfg.theme || cfg.theme.siteConfig === false || (!cfg.theme.inheritFonts && cfg.theme.colourSource !== 'agend')) {
       return;
     }
     apiGet('/sites/config', {}).then(function (body) {
@@ -370,6 +411,94 @@
     return box;
   }
 
+  // Line icons for the jobs board designs, drawn in the text colour. Each is a
+  // list of SVG shapes on a 24 unit grid.
+  var ICONS = {
+    location: [['path', { d: 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z' }], ['circle', { cx: '12', cy: '10', r: '3' }]],
+    briefcase: [['rect', { x: '2', y: '7', width: '20', height: '14', rx: '2' }], ['path', { d: 'M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16' }]],
+    salary: [['path', { d: 'M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' }]],
+    clock: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M12 6v6l4 2' }]],
+    building: [['rect', { x: '4', y: '2', width: '16', height: '20', rx: '2' }], ['path', { d: 'M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01' }]],
+    calendar: [['rect', { x: '3', y: '4', width: '18', height: '18', rx: '2' }], ['path', { d: 'M16 2v4M8 2v4M3 10h18' }]],
+    level: [['path', { d: 'M3 3v18h18' }], ['path', { d: 'm7 15 4-4 3 3 5-6' }]],
+    external: [['path', { d: 'M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
+    globe: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z' }]],
+    back: [['path', { d: 'M19 12H5M12 19l-7-7 7-7' }]],
+  };
+
+  function icon(name) {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'agend-jobs-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    (ICONS[name] || []).forEach(function (shape) {
+      var node = document.createElementNS(ns, shape[0]);
+      Object.keys(shape[1]).forEach(function (attr) {
+        node.setAttribute(attr, shape[1][attr]);
+      });
+      svg.appendChild(node);
+    });
+    return svg;
+  }
+
+  // An icon followed by its text, or null when there is no text.
+  function iconLine(tag, className, name, text) {
+    if (!text) {
+      return null;
+    }
+    var line = el(tag, className);
+    line.appendChild(icon(name));
+    line.appendChild(el('span', null, text));
+    return line;
+  }
+
+  // Two letters for the employer tile: "Harbourside Super Partners" is HS.
+  // Bracketed words such as "(test)" are left out.
+  function initials(job) {
+    var words = String(job.company_name || job.title || '?')
+      .replace(/\([^)]*\)/g, ' ')
+      .split(/\s+/)
+      .filter(function (word) { return /[\p{L}\p{N}]/u.test(word); });
+    // One word in two parts ("FundDesk") takes both capitals. Letters are
+    // matched as Unicode, so "École Santé" is ÉS, and Array.from keeps a
+    // character outside the basic plane whole.
+    var capitals = words.length === 1 ? Array.from(words[0].replace(/[^\p{Lu}]/gu, '')) : [];
+    if (capitals.length >= 2) {
+      return capitals.slice(0, 2).join('');
+    }
+    var letters = words.slice(0, 2).map(function (word) {
+      return (Array.from(word.replace(/[^\p{L}\p{N}]/gu, ''))[0] || '').toUpperCase();
+    }).join('');
+    return letters || '?';
+  }
+
+  // The employer tile of the jobs board designs: the logo, else initials.
+  function boardLogo(job, size) {
+    var box = logo(job, size);
+    if (box.classList.contains('is-placeholder')) {
+      box.textContent = initials(job);
+    }
+    return box;
+  }
+
+  // "Sydney, NSW, Australia (Hybrid)": the work arrangement in brackets after
+  // the place (on site is left out, being what a place already says). With no
+  // place, or the place hidden, the arrangement stands alone. Either part can
+  // be turned off.
+  function boardLocation(job, showPlace, showArrangement) {
+    var place = showPlace === false ? '' : locationLabel(job);
+    var arrangement = showArrangement === false ? '' : WORK_ARRANGEMENT_LABELS[job.location_type] || '';
+    if (!place) {
+      return arrangement;
+    }
+    if (arrangement && job.location_type !== 'on-site') {
+      return place + ' (' + arrangement + ')';
+    }
+    return place;
+  }
+
   function skeletonCard() {
     var card = el('article', 'agend-jobs-card agend-jobs-skeleton');
     card.setAttribute('aria-hidden', 'true');
@@ -390,6 +519,115 @@
     }
   }
 
+  // The title link that opens a job: in place on the board's own page, else
+  // a normal link. The whole card follows it.
+  function jobLink(job, href, onOpen, className) {
+    var link = el('a', className, job.title);
+    link.href = href;
+    link.addEventListener('click', function (e) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) {
+        return;
+      }
+      if (onOpen) {
+        e.preventDefault();
+        onOpen(job.slug);
+      }
+    });
+    return link;
+  }
+
+  function cardFollowsLink(card, link) {
+    card.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('a')) {
+        return;
+      }
+      link.click();
+    });
+  }
+
+  // The jobs board card design: the employer tile beside the title and
+  // employer, the closing date on the right, icon rows for the place, job type
+  // and salary, the summary, then a footer of categories and the posted age.
+  function renderBoardCard(job, cfg, href, onOpen) {
+    var c = cfg.card;
+    var card = el('article', 'agend-jobs-card agend-jobs-bcard' + (job.is_featured ? ' is-featured' : ''));
+
+    if (c.logo) {
+      card.appendChild(boardLogo(job, 'card'));
+    }
+
+    var main = el('div', 'agend-jobs-bcard__main');
+    var head = el('div', 'agend-jobs-bcard__head');
+    var titles = el('div', 'agend-jobs-bcard__titles');
+    if (job.is_featured) {
+      titles.appendChild(el('span', 'agend-jobs-card__flag', 'Featured'));
+    }
+    var title = el('h3', 'agend-jobs-card__title');
+    var link = jobLink(job, href, onOpen, 'agend-jobs-card__link');
+    title.appendChild(link);
+    titles.appendChild(title);
+    if (c.company && job.company_name) {
+      titles.appendChild(iconLine('p', 'agend-jobs-bcard__company', 'building', job.company_name));
+    }
+    head.appendChild(titles);
+    if (c.closingDate && job.expires_at && formatDate(job.expires_at)) {
+      head.appendChild(el('span', 'agend-jobs-bcard__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at)));
+    }
+    main.appendChild(head);
+
+    var facts = el('ul', 'agend-jobs-bcard__facts');
+    var place = boardLocation(job, c.location, c.workArrangement);
+    var distance = distanceLabel(job);
+    // "Full time, senior"; either part alone when the other is hidden or
+    // missing, the experience then keeping its capital.
+    var type = [
+      c.employmentType ? EMPLOYMENT_TYPE_LABELS[job.employment_type] || '' : '',
+      c.experience ? experienceLabel(job.experience_level) : '',
+    ].filter(function (part) { return part; }).join(', ');
+    type = type.replace(/, (.)/, function (match, first) { return ', ' + first.toLowerCase(); });
+    [
+      iconLine('li', null, 'location', [place, distance].filter(function (part) { return part; }).join(' · ')),
+      iconLine('li', null, 'briefcase', type),
+      iconLine('li', 'agend-jobs-bcard__salary', 'salary', c.salary ? salaryLabel(job) : ''),
+    ].forEach(function (line) {
+      if (line) {
+        facts.appendChild(line);
+      }
+    });
+    if (facts.childNodes.length) {
+      main.appendChild(facts);
+    }
+
+    if (c.summary) {
+      var summary = job.short_description || stripHtml(toHtml(job.description || ''));
+      if (summary) {
+        main.appendChild(el('p', 'agend-jobs-card__summary', truncate(summary, c.excerptLength || 160)));
+      }
+    }
+
+    var foot = el('div', 'agend-jobs-bcard__foot');
+    var pills = el('div', 'agend-jobs-card__pills');
+    if (c.categories && Array.isArray(job.categories)) {
+      job.categories.forEach(function (category) {
+        if (category && category.name) {
+          pills.appendChild(pill(category.name, 'category'));
+        }
+      });
+    }
+    foot.appendChild(pills);
+    var age = c.postedDate ? postedAge(job.published_at || job.created_at) : '';
+    if (age) {
+      foot.appendChild(iconLine('span', 'agend-jobs-bcard__age', 'clock', age));
+    }
+    if (pills.childNodes.length || age) {
+      main.appendChild(foot);
+    }
+
+    card.appendChild(main);
+    cardFollowsLink(card, link);
+    return card;
+  }
+
   function renderCard(job, cfg, href, onOpen) {
     // A visitor who may see the list but not the details goes to sign in,
     // and comes back to this job afterwards.
@@ -397,8 +635,12 @@
       href = signInUrl(cfg, href);
       onOpen = null;
     }
+    if (cfg.card.style === 'board') {
+      return renderBoardCard(job, cfg, href, onOpen);
+    }
     var card = el('article', 'agend-jobs-card' + (job.is_featured ? ' is-featured' : ''));
     var c = cfg.card;
+    var sidebar = !!(cfg.filters && cfg.filters.layout === 'sidebar');
 
     if (c.logo) {
       card.appendChild(logo(job, 'card'));
@@ -425,6 +667,22 @@
     title.appendChild(link);
     body.appendChild(title);
 
+    // The sidebar layout's closing date and posted age, a column on the right
+    // that drops under the title in a narrow container.
+    if (sidebar) {
+      var side = el('div', 'agend-jobs-card__side');
+      if (c.closingDate && job.expires_at && formatDate(job.expires_at)) {
+        side.appendChild(el('span', 'agend-jobs-card__closing', (isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at)));
+      }
+      var age = c.postedDate ? postedAge(job.published_at || job.created_at) : '';
+      if (age) {
+        side.appendChild(el('span', 'agend-jobs-card__age', age));
+      }
+      if (side.childNodes.length) {
+        body.appendChild(side);
+      }
+    }
+
     if (c.company && job.company_name) {
       body.appendChild(el('p', 'agend-jobs-card__company', job.company_name));
     }
@@ -434,8 +692,21 @@
       meta.appendChild(el('span', 'agend-jobs-card__location', locationLabel(job)));
     }
     var salary = c.salary ? salaryLabel(job) : '';
-    if (salary) {
-      meta.appendChild(el('span', 'agend-jobs-card__salary', salary));
+    if (sidebar) {
+      // Location, then the salary in bold, then how far away it is.
+      if (salary) {
+        meta.appendChild(el('span', 'agend-jobs-card__salary', salary));
+      }
+      if (distanceLabel(job)) {
+        meta.appendChild(el('span', 'agend-jobs-card__distance', distanceLabel(job)));
+      }
+    } else {
+      if (distanceLabel(job)) {
+        meta.appendChild(el('span', 'agend-jobs-card__distance', distanceLabel(job)));
+      }
+      if (salary) {
+        meta.appendChild(el('span', 'agend-jobs-card__salary', salary));
+      }
     }
     if (meta.childNodes.length) {
       body.appendChild(meta);
@@ -470,10 +741,10 @@
     }
 
     var dates = [];
-    if (c.postedDate && postedLabel(job.published_at || job.created_at)) {
+    if (!sidebar && c.postedDate && postedLabel(job.published_at || job.created_at)) {
       dates.push(postedLabel(job.published_at || job.created_at));
     }
-    if (c.closingDate && job.expires_at && formatDate(job.expires_at)) {
+    if (!sidebar && c.closingDate && job.expires_at && formatDate(job.expires_at)) {
       dates.push((isClosed(job) ? 'Closed ' : 'Closes ') + formatDate(job.expires_at));
     }
     if (dates.length) {
@@ -557,7 +828,609 @@
     return wrap;
   }
 
-  function renderDetail(job, cfg, onBack) {
+  // Who to ask about the role: a name and a phone number, each only when
+  // the listing has one.
+  function contactBlock(job) {
+    var name = job.contact_name ? String(job.contact_name).trim() : '';
+    var phone = job.contact_phone ? String(job.contact_phone).trim() : '';
+    if (!name && !phone) {
+      return null;
+    }
+    var box = el('div', 'agend-jobs-detail__contact');
+    box.appendChild(el('h3', 'agend-jobs-detail__section-title', 'Contact'));
+    if (name) {
+      box.appendChild(el('p', 'agend-jobs-detail__contact-name', name));
+    }
+    if (phone) {
+      var line = el('p', 'agend-jobs-detail__contact-phone');
+      var href = telHref(phone);
+      if (href) {
+        var link = el('a', 'agend-jobs-detail__contact-link', phone);
+        link.href = href;
+        line.appendChild(link);
+      } else {
+        line.textContent = phone;
+      }
+      box.appendChild(line);
+    }
+    return box;
+  }
+
+  // One cell of the header layout's facts strip, or null when it is empty.
+  function factCell(label, value) {
+    if (!value) {
+      return null;
+    }
+    var cell = el('div', 'agend-jobs-fact');
+    cell.appendChild(el('dt', 'agend-jobs-fact__label', label));
+    cell.appendChild(el('dd', 'agend-jobs-fact__value', value));
+    return cell;
+  }
+
+  // "Full time, hybrid": the employment type with the work arrangement after
+  // it, either alone when the other is missing.
+  function jobTypeLabel(job) {
+    var type = EMPLOYMENT_TYPE_LABELS[job.employment_type] || '';
+    var arrangement = (WORK_ARRANGEMENT_LABELS[job.location_type] || '').toLowerCase();
+    return [type, arrangement].filter(function (part) { return part; }).join(', ');
+  }
+
+  // The apply box of the header layout: the button, and "or email ..." when
+  // the board offers email and the listing has an address.
+  function applyBox(job, cfg) {
+    var box = el('div', 'agend-jobs-box agend-jobs-box--apply');
+    if (isClosed(job)) {
+      box.appendChild(el('p', 'agend-jobs-detail__closed', 'Applications for this role have closed.'));
+      return box;
+    }
+    var url = safeUrl(job.application_url);
+    var email = cfg.detail.emailApply ? safeEmail(job.application_email) : '';
+    if (!url && !email) {
+      return null;
+    }
+    var button = el('a', 'agend-jobs-button', cfg.detail.applyLabel || 'Apply now');
+    if (url) {
+      button.href = url;
+      button.target = '_blank';
+      button.rel = 'noopener noreferrer';
+    } else {
+      button.href = 'mailto:' + email + '?subject=' + encodeURIComponent('Application: ' + (job.title || ''));
+    }
+    box.appendChild(button);
+    if (email) {
+      var alt = el('p', 'agend-jobs-box__alt', url ? 'or email ' : 'Apply by email to ');
+      var mail = el('a', 'agend-jobs-box__alt-link', email);
+      mail.href = 'mailto:' + email + '?subject=' + encodeURIComponent('Application: ' + (job.title || ''));
+      alt.appendChild(mail);
+      box.appendChild(alt);
+    }
+    return box;
+  }
+
+  // The job page's "header" layout: a rounded panel with the title, a facts
+  // strip overlapping its bottom edge, then the description beside an apply
+  // box, the contact and the employer.
+  function renderDetailHeader(job, cfg, onBack) {
+    var view = el('div', 'agend-jobs-detail agend-jobs-detail--header');
+
+    var hero = el('header', 'agend-jobs-hero');
+    var back = el('a', 'agend-jobs-hero__back', '‹ All jobs');
+    back.href = cfg.detailBase || cfg.basePath || '#';
+    back.addEventListener('click', function (e) {
+      if (onBack) {
+        e.preventDefault();
+        onBack();
+      }
+    });
+    hero.appendChild(back);
+    if (job.is_featured) {
+      hero.appendChild(el('span', 'agend-jobs-hero__flag', 'Featured'));
+    }
+    hero.appendChild(el('h2', 'agend-jobs-hero__title', job.title));
+    if (job.company_name) {
+      hero.appendChild(el('p', 'agend-jobs-hero__company', job.company_name));
+    }
+    var posted = formatDate(job.published_at || job.created_at);
+    var reference = job.reference_number ? 'Reference ' + String(job.reference_number).trim() : '';
+    var line = [reference, posted ? 'Posted ' + posted : ''].filter(function (part) { return part; }).join(' · ');
+    if (line) {
+      hero.appendChild(el('p', 'agend-jobs-hero__meta', line));
+    }
+    view.appendChild(hero);
+
+    var facts = el('dl', 'agend-jobs-facts');
+    [
+      factCell('Location', locationLabel(job)),
+      factCell('Salary', salaryLabel(job)),
+      factCell('Job type', jobTypeLabel(job)),
+      factCell(isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at)),
+    ].forEach(function (cell) {
+      if (cell) {
+        facts.appendChild(cell);
+      }
+    });
+    if (facts.childNodes.length) {
+      view.appendChild(facts);
+    } else {
+      view.classList.add('agend-jobs-detail--no-facts');
+    }
+
+    var layout = el('div', 'agend-jobs-detail__layout');
+    var main = el('div', 'agend-jobs-detail__main');
+    var side = el('aside', 'agend-jobs-detail__side');
+
+    var pills = el('div', 'agend-jobs-card__pills');
+    if (experienceLabel(job.experience_level)) {
+      pills.appendChild(pill(experienceLabel(job.experience_level)));
+    }
+    (job.categories || []).forEach(function (category) {
+      if (category && category.name) {
+        pills.appendChild(pill(category.name, 'category'));
+      }
+    });
+    (job.tags || []).forEach(function (tag) {
+      if (tag && tag.name) {
+        pills.appendChild(pill(tag.name, 'tag'));
+      }
+    });
+    if (pills.childNodes.length) {
+      main.appendChild(pills);
+    }
+
+    var description = el('div', 'agend-jobs-detail__description');
+    setSafeHtml(description, job.description || job.short_description || '');
+    main.appendChild(description);
+
+    if (job.application_instructions) {
+      var howTo = el('section', 'agend-jobs-detail__section');
+      howTo.appendChild(el('h3', 'agend-jobs-detail__section-title', 'How to apply'));
+      var howToBody = el('div');
+      setSafeHtml(howToBody, job.application_instructions);
+      howTo.appendChild(howToBody);
+      main.appendChild(howTo);
+    }
+
+    var apply = applyBox(job, cfg);
+    if (apply) {
+      side.appendChild(apply);
+    }
+
+    var contactName = job.contact_name ? String(job.contact_name).trim() : '';
+    var contactPhone = job.contact_phone ? String(job.contact_phone).trim() : '';
+    if (contactName || contactPhone) {
+      var contact = el('div', 'agend-jobs-box agend-jobs-box--contact');
+      contact.appendChild(el('h3', 'agend-jobs-box__title', 'Questions about the role'));
+      if (contactName) {
+        contact.appendChild(el('p', 'agend-jobs-box__name', contactName));
+      }
+      if (contactPhone) {
+        var phoneLine = el('p', 'agend-jobs-box__phone');
+        var tel = telHref(contactPhone);
+        if (tel) {
+          var telLink = el('a', 'agend-jobs-box__link', contactPhone);
+          telLink.href = tel;
+          phoneLine.appendChild(telLink);
+        } else {
+          phoneLine.textContent = contactPhone;
+        }
+        contact.appendChild(phoneLine);
+      }
+      side.appendChild(contact);
+    }
+
+    var website = safeUrl(job.company_website);
+    if (cfg.detail.companyPanel && (job.company_description || website)) {
+      var about = el('div', 'agend-jobs-box agend-jobs-box--employer');
+      var aboutHead = el('div', 'agend-jobs-box__head');
+      aboutHead.appendChild(logo(job, 'box'));
+      aboutHead.appendChild(el('h3', 'agend-jobs-box__title', 'About ' + (job.company_name || 'the employer')));
+      about.appendChild(aboutHead);
+      if (job.company_description) {
+        var aboutBody = el('div', 'agend-jobs-detail__about');
+        setSafeHtml(aboutBody, job.company_description);
+        about.appendChild(aboutBody);
+      }
+      if (website) {
+        var site = el('a', 'agend-jobs-box__link', 'Visit website');
+        site.href = website;
+        site.target = '_blank';
+        site.rel = 'noopener noreferrer';
+        about.appendChild(site);
+      }
+      side.appendChild(about);
+    }
+
+    layout.appendChild(main);
+    if (side.childNodes.length) {
+      layout.appendChild(side);
+    } else {
+      layout.classList.add('agend-jobs-detail__layout--single');
+    }
+    view.appendChild(layout);
+    return view;
+  }
+
+  // "in 16 days", "today", or '' once closed or with no date.
+  function closesIn(job) {
+    if (!job.expires_at || isClosed(job)) {
+      return '';
+    }
+    var closes = new Date(job.expires_at);
+    if (isNaN(closes.getTime())) {
+      return '';
+    }
+    // Calendar days in the visitor's time zone, the same days the date beside
+    // it is written in: a job closing at 5 pm today is "today", not
+    // "tomorrow". Date.UTC keeps a daylight saving change out of the count.
+    var now = new Date();
+    var days = Math.round(
+      (Date.UTC(closes.getFullYear(), closes.getMonth(), closes.getDate()) -
+        Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000
+    );
+    if (days <= 0) {
+      return 'today';
+    }
+    return days === 1 ? 'tomorrow' : 'in ' + days + ' days';
+  }
+
+  // One row of the jobs board layout's "Job details" card, or null.
+  function detailTile(iconName, label, value) {
+    if (!value) {
+      return null;
+    }
+    var row = el('div', 'agend-jobs-dc-fact');
+    var tile = el('span', 'agend-jobs-dc-fact__tile');
+    tile.appendChild(icon(iconName));
+    row.appendChild(tile);
+    var text = el('div', 'agend-jobs-dc-fact__text');
+    text.appendChild(el('span', 'agend-jobs-dc-fact__label', label));
+    text.appendChild(el('span', 'agend-jobs-dc-fact__value', value));
+    row.appendChild(text);
+    return row;
+  }
+
+  // Shares the job with the device's share sheet, or copies its link. Null
+  // where the browser can do neither (a page not served over HTTPS), so the
+  // page never shows a button that does nothing.
+  function shareButton(job, url) {
+    var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
+    if (!navigator.share && !canCopy) {
+      return null;
+    }
+    var wrap = el('div', 'agend-jobs-dc__share-wrap');
+    var button = el('button', 'agend-jobs-dc__share');
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Share this job');
+    button.title = 'Share this job';
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'agend-jobs-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    [['18', '5'], ['6', '12'], ['18', '19']].forEach(function (c) {
+      var circle = document.createElementNS(ns, 'circle');
+      circle.setAttribute('cx', c[0]);
+      circle.setAttribute('cy', c[1]);
+      circle.setAttribute('r', '3');
+      svg.appendChild(circle);
+    });
+    var lines = document.createElementNS(ns, 'path');
+    lines.setAttribute('d', 'm8.6 13.5 6.8 4M15.4 6.5l-6.8 4');
+    svg.appendChild(lines);
+    button.appendChild(svg);
+    wrap.appendChild(button);
+    // The confirmation sits beside the button, not inside it, so a screen
+    // reader announces it.
+    var said = el('span', 'agend-jobs-dc__share-said');
+    said.setAttribute('role', 'status');
+    wrap.appendChild(said);
+    var clearSaid = null;
+
+    function say(text) {
+      clearTimeout(clearSaid);
+      said.textContent = text;
+      clearSaid = setTimeout(function () { said.textContent = ''; }, 2500);
+    }
+
+    function copy() {
+      if (!canCopy) {
+        say('Sharing is not available here');
+        return;
+      }
+      navigator.clipboard.writeText(url).then(function () {
+        say('Link copied');
+      }).catch(function () {
+        say('The link could not be copied');
+      });
+    }
+
+    button.addEventListener('click', function () {
+      var title = job.title + (job.company_name ? ' at ' + job.company_name : '');
+      if (navigator.share) {
+        // A visitor closing the share sheet is not a failure; anything else
+        // falls back to copying the link.
+        navigator.share({ title: title, url: url }).catch(function (err) {
+          if (!err || err.name !== 'AbortError') {
+            copy();
+          }
+        });
+        return;
+      }
+      copy();
+    });
+    return wrap;
+  }
+
+  // A small card linking to another job, for "Similar jobs".
+  function similarCard(job, href, onOpen) {
+    var card = el('article', 'agend-jobs-dc-similar');
+    card.appendChild(boardLogo(job, 'box'));
+    var text = el('div', 'agend-jobs-dc-similar__text');
+    var title = el('h3', 'agend-jobs-dc-similar__title');
+    var link = jobLink(job, href, onOpen, 'agend-jobs-dc-similar__link');
+    title.appendChild(link);
+    text.appendChild(title);
+    if (job.company_name) {
+      text.appendChild(el('p', 'agend-jobs-dc-similar__company', job.company_name));
+    }
+    if (boardLocation(job)) {
+      text.appendChild(el('p', 'agend-jobs-dc-similar__place', boardLocation(job)));
+    }
+    card.appendChild(text);
+    cardFollowsLink(card, link);
+    return card;
+  }
+
+  // Fills `section` with up to three other open jobs: the job's own category
+  // first (or the board's pinned category), then the newest. The section
+  // stays hidden when there are none or the lookup fails.
+  function loadSimilar(section, list, job, cfg, links) {
+    var wanted = 3;
+    var seen = {};
+    seen[job.slug] = true;
+    var picked = [];
+    function take(body) {
+      unwrapList(body).items.forEach(function (other) {
+        if (picked.length < wanted && other && other.slug && !seen[other.slug] && !isClosed(other)) {
+          seen[other.slug] = true;
+          picked.push(other);
+        }
+      });
+    }
+    // A featured-only board suggests only featured jobs.
+    var base = {
+      limit: wanted + 1,
+      sortBy: 'published_at',
+      sortOrder: 'desc',
+      featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
+    };
+    var category = cfg.listing.category || ((job.categories || [])[0] || {}).slug || '';
+    var first = category
+      ? apiGet('/jobs', Object.assign({}, base, { category: [category] })).then(take)
+      : Promise.resolve();
+    first.then(function () {
+      // A board pinned to one category stays in it.
+      if (picked.length < wanted && !cfg.listing.category) {
+        return apiGet('/jobs', Object.assign({}, base, { limit: wanted + picked.length + 1 })).then(take);
+      }
+    }).then(function () {
+      if (!picked.length) {
+        return;
+      }
+      picked.forEach(function (other) {
+        list.appendChild(similarCard(other, links.href(other.slug), links.open));
+      });
+      section.hidden = false;
+    }).catch(function () {});
+  }
+
+  // The job page's "jobs board" layout: a title card and a role card beside
+  // a sidebar of apply, job details, contact and employer cards, then
+  // similar jobs.
+  function renderDetailCards(job, cfg, onBack, links) {
+    var view = el('div', 'agend-jobs-detail agend-jobs-detail--cards');
+
+    var back = el('a', 'agend-jobs-dc__back');
+    back.appendChild(icon('back'));
+    back.appendChild(el('span', null, 'All jobs'));
+    back.href = cfg.detailBase || cfg.basePath || '#';
+    back.addEventListener('click', function (e) {
+      if (onBack) {
+        e.preventDefault();
+        onBack();
+      }
+    });
+    view.appendChild(back);
+
+    var layout = el('div', 'agend-jobs-dc__layout');
+    var main = el('div', 'agend-jobs-dc__main');
+    var side = el('aside', 'agend-jobs-dc__side');
+
+    // Title card.
+    var head = el('header', 'agend-jobs-dc-card agend-jobs-dc__head');
+    head.appendChild(boardLogo(job, 'detail'));
+    var headText = el('div', 'agend-jobs-dc__head-text');
+    var titleRow = el('div', 'agend-jobs-dc__title-row');
+    var titles = el('div', 'agend-jobs-dc__titles');
+    if (job.is_featured) {
+      titles.appendChild(el('span', 'agend-jobs-card__flag', 'Featured'));
+    }
+    titles.appendChild(el('h2', 'agend-jobs-dc__title', job.title));
+    if (job.company_name) {
+      titles.appendChild(el('p', 'agend-jobs-dc__company', job.company_name));
+    }
+    titleRow.appendChild(titles);
+    var share = links && links.href ? shareButton(job, links.href(job.slug)) : null;
+    if (share) {
+      titleRow.appendChild(share);
+    }
+    headText.appendChild(titleRow);
+    var meta = el('ul', 'agend-jobs-dc__meta');
+    var posted = formatDate(job.published_at || job.created_at);
+    [
+      iconLine('li', null, 'location', boardLocation(job)),
+      iconLine('li', null, 'briefcase', EMPLOYMENT_TYPE_LABELS[job.employment_type] || ''),
+      iconLine('li', null, 'clock', posted ? 'Posted ' + posted : ''),
+    ].forEach(function (line) {
+      if (line) {
+        meta.appendChild(line);
+      }
+    });
+    if (meta.childNodes.length) {
+      headText.appendChild(meta);
+    }
+    var pills = el('div', 'agend-jobs-card__pills');
+    (job.categories || []).forEach(function (category) {
+      if (category && category.name) {
+        pills.appendChild(pill(category.name, 'category'));
+      }
+    });
+    (job.tags || []).forEach(function (tag) {
+      if (tag && tag.name) {
+        pills.appendChild(pill(tag.name, 'tag'));
+      }
+    });
+    if (pills.childNodes.length) {
+      headText.appendChild(pills);
+    }
+    head.appendChild(headText);
+    main.appendChild(head);
+
+    // Role card.
+    var role = el('section', 'agend-jobs-dc-card agend-jobs-dc__role');
+    role.appendChild(el('h3', 'agend-jobs-dc-card__title', 'About this role'));
+    var description = el('div', 'agend-jobs-detail__description');
+    setSafeHtml(description, job.description || job.short_description || '');
+    role.appendChild(description);
+    if (job.application_instructions) {
+      role.appendChild(el('h3', 'agend-jobs-dc-card__title', 'How to apply'));
+      var howTo = el('div', 'agend-jobs-detail__description');
+      setSafeHtml(howTo, job.application_instructions);
+      role.appendChild(howTo);
+    }
+    main.appendChild(role);
+
+    // Apply card: the closing date, then the button.
+    var apply = el('section', 'agend-jobs-dc-card agend-jobs-dc__apply');
+    var closing = formatDate(job.expires_at);
+    if (closing && !isClosed(job)) {
+      var when = el('div', 'agend-jobs-dc__closes');
+      when.appendChild(el('span', 'agend-jobs-dc__closes-label', 'Applications close'));
+      var date = el('span', 'agend-jobs-dc__closes-date', closing);
+      if (closesIn(job)) {
+        date.appendChild(el('span', 'agend-jobs-dc__closes-in', ' (' + closesIn(job) + ')'));
+      }
+      when.appendChild(date);
+      apply.appendChild(when);
+    }
+    var box = applyBox(job, cfg);
+    if (box) {
+      Array.prototype.slice.call(box.childNodes).forEach(function (node) {
+        apply.appendChild(node);
+      });
+      var button = apply.querySelector('.agend-jobs-button');
+      if (button && button.target === '_blank') {
+        button.insertBefore(icon('external'), button.firstChild);
+        button.appendChild(el('span', 'agend-jobs-sr', ' (opens in a new tab)'));
+      }
+    }
+    if (apply.childNodes.length) {
+      side.appendChild(apply);
+    }
+
+    // Job details card.
+    var details = el('section', 'agend-jobs-dc-card agend-jobs-dc__details');
+    details.appendChild(el('h3', 'agend-jobs-dc-card__title', 'Job details'));
+    [
+      detailTile('briefcase', 'Job type', EMPLOYMENT_TYPE_LABELS[job.employment_type] || ''),
+      detailTile('location', 'Location', boardLocation(job)),
+      detailTile('salary', 'Salary', salaryLabel(job)),
+      detailTile('level', 'Experience', experienceLabel(job.experience_level)),
+      detailTile('calendar', 'Posted', posted),
+    ].forEach(function (row) {
+      if (row) {
+        details.appendChild(row);
+      }
+    });
+    if (details.childNodes.length > 1) {
+      side.appendChild(details);
+    }
+
+    var contactName = job.contact_name ? String(job.contact_name).trim() : '';
+    var contactPhone = job.contact_phone ? String(job.contact_phone).trim() : '';
+    if (contactName || contactPhone) {
+      var contact = el('section', 'agend-jobs-dc-card agend-jobs-dc__contact');
+      contact.appendChild(el('h3', 'agend-jobs-dc-card__title', 'Questions about the role'));
+      if (contactName) {
+        contact.appendChild(el('p', 'agend-jobs-box__name', contactName));
+      }
+      if (contactPhone) {
+        var phoneLine = el('p', 'agend-jobs-box__phone');
+        var tel = telHref(contactPhone);
+        if (tel) {
+          var telLink = el('a', 'agend-jobs-box__link', contactPhone);
+          telLink.href = tel;
+          phoneLine.appendChild(telLink);
+        } else {
+          phoneLine.textContent = contactPhone;
+        }
+        contact.appendChild(phoneLine);
+      }
+      side.appendChild(contact);
+    }
+
+    var website = safeUrl(job.company_website);
+    if (cfg.detail.companyPanel && (job.company_description || website)) {
+      var about = el('section', 'agend-jobs-dc-card agend-jobs-dc__employer');
+      about.appendChild(el('h3', 'agend-jobs-dc-card__title', 'About the company'));
+      var aboutHead = el('div', 'agend-jobs-box__head');
+      aboutHead.appendChild(boardLogo(job, 'box'));
+      aboutHead.appendChild(el('p', 'agend-jobs-dc__employer-name', job.company_name || 'The employer'));
+      about.appendChild(aboutHead);
+      if (job.company_description) {
+        var aboutBody = el('div', 'agend-jobs-detail__about');
+        setSafeHtml(aboutBody, job.company_description);
+        about.appendChild(aboutBody);
+      }
+      if (website) {
+        var site = el('a', 'agend-jobs-box__link agend-jobs-dc__website');
+        site.appendChild(icon('globe'));
+        site.appendChild(el('span', null, 'Visit website'));
+        site.href = website;
+        site.target = '_blank';
+        site.rel = 'noopener noreferrer';
+        about.appendChild(site);
+      }
+      side.appendChild(about);
+    }
+
+    layout.appendChild(main);
+    if (side.childNodes.length) {
+      layout.appendChild(side);
+    } else {
+      layout.classList.add('agend-jobs-dc__layout--single');
+    }
+    view.appendChild(layout);
+
+    if (cfg.detail.similar && links && links.href) {
+      var similar = el('section', 'agend-jobs-dc__similar');
+      similar.hidden = true;
+      similar.appendChild(el('h2', 'agend-jobs-dc__similar-title', 'Similar jobs'));
+      var list = el('div', 'agend-jobs-dc__similar-list');
+      similar.appendChild(list);
+      view.appendChild(similar);
+      loadSimilar(similar, list, job, cfg, links);
+    }
+    return view;
+  }
+
+  function renderDetail(job, cfg, onBack, links) {
+    if (cfg.detail && cfg.detail.layout === 'header') {
+      return renderDetailHeader(job, cfg, onBack);
+    }
+    if (cfg.detail && cfg.detail.layout === 'cards') {
+      return renderDetailCards(job, cfg, onBack, links);
+    }
     var view = el('div', 'agend-jobs-detail');
 
     var back = el('a', 'agend-jobs-detail__back', '← All jobs');
@@ -579,6 +1452,9 @@
     headText.appendChild(el('h2', 'agend-jobs-detail__title', job.title));
     if (job.company_name) {
       headText.appendChild(el('p', 'agend-jobs-detail__company', job.company_name));
+    }
+    if (job.reference_number) {
+      headText.appendChild(el('p', 'agend-jobs-detail__reference', 'Reference: ' + job.reference_number));
     }
     var pills = el('div', 'agend-jobs-card__pills');
     if (EMPLOYMENT_TYPE_LABELS[job.employment_type]) {
@@ -639,6 +1515,10 @@
     detailRow(facts, 'Posted', formatDate(job.published_at || job.created_at));
     detailRow(facts, isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at));
     summary.appendChild(facts);
+    var contact = contactBlock(job);
+    if (contact) {
+      summary.appendChild(contact);
+    }
     side.appendChild(summary);
 
     var website = safeUrl(job.company_website);
@@ -689,13 +1569,531 @@
 
   // -- Filters and pagination --------------------------------------------------
 
+  var POSTED_WITHIN_LABELS = [
+    ['1', 'Last 24 hours'],
+    ['3', 'Last 3 days'],
+    ['7', 'Last 7 days'],
+    ['14', 'Last 14 days'],
+    ['30', 'Last 30 days'],
+  ];
+
+  function labelPairs(labels) {
+    return Object.keys(labels).map(function (key) {
+      return [key, labels[key]];
+    });
+  }
+
+  // A slug as words, for a term whose name has not loaded.
+  function slugLabel(slug) {
+    var words = String(slug).replace(/[-_]+/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  // The board's categories or tags as [slug, name] pairs, from the gateway's
+  // term list. Until a gateway offers that list, categories fall back to the
+  // distinct set on the published jobs.
+  function loadTerms(kind) {
+    return apiGet('/jobs/' + kind, {}).then(function (body) {
+      if (!body || !Array.isArray(body.data)) {
+        throw new Error(kind);
+      }
+      return body.data
+        .filter(function (term) {
+          return term && term.slug;
+        })
+        .map(function (term) {
+          return [term.slug, term.name || term.slug];
+        });
+    }).catch(function () {
+      if (kind !== 'categories') {
+        return [];
+      }
+      return apiGet('/jobs', { limit: 100 }).then(function (body) {
+        var seen = {};
+        unwrapList(body).items.forEach(function (job) {
+          (job.categories || []).forEach(function (cat) {
+            if (cat && cat.slug && !seen[cat.slug]) {
+              seen[cat.slug] = cat.name || cat.slug;
+            }
+          });
+        });
+        return Object.keys(seen)
+          .sort(function (a, b) { return seen[a].localeCompare(seen[b]); })
+          .map(function (slug) { return [slug, seen[slug]]; });
+      }).catch(function () {
+        return [];
+      });
+    });
+  }
+
+  var choiceSeq = 0;
+
+  // One filter whose value is a list. A dropdown sets a list of at most one;
+  // with `multiple`, a checkbox list in a disclosure sets any number, and a
+  // job matching any ticked option shows.
+  function choiceFilter(opts) {
+    var onChange = opts.onChange;
+    var selected = opts.selected || [];
+
+    if (!opts.multiple) {
+      var select = el('select', 'agend-jobs-select');
+      select.setAttribute('aria-label', opts.label);
+      function fillSelect(pairs) {
+        select.innerHTML = '';
+        select.appendChild(new Option(opts.allLabel, ''));
+        pairs.forEach(function (pair) {
+          select.appendChild(new Option(pair[1], pair[0], false, selected.indexOf(pair[0]) !== -1));
+        });
+      }
+      fillSelect(opts.options || []);
+      select.addEventListener('change', function () {
+        selected = select.value ? [select.value] : [];
+        onChange(selected);
+      });
+      return { node: select, fill: fillSelect };
+    }
+
+    var box = el('details', 'agend-jobs-choices');
+    var summary = el('summary', 'agend-jobs-choices__summary');
+    var list = el('div', 'agend-jobs-choices__list');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', opts.label);
+    box.appendChild(summary);
+    box.appendChild(list);
+
+    function updateSummary() {
+      summary.textContent = selected.length ? opts.label + ' (' + selected.length + ')' : opts.allLabel;
+    }
+
+    function fillList(pairs) {
+      list.innerHTML = '';
+      pairs.forEach(function (pair) {
+        var id = 'agend-jobs-choice-' + (++choiceSeq);
+        var row = el('label', 'agend-jobs-choices__option');
+        row.setAttribute('for', id);
+        var input = el('input');
+        input.type = 'checkbox';
+        input.id = id;
+        input.value = pair[0];
+        input.checked = selected.indexOf(pair[0]) !== -1;
+        input.addEventListener('change', function () {
+          selected = Array.prototype.map.call(
+            list.querySelectorAll('input:checked'),
+            function (node) { return node.value; }
+          );
+          updateSummary();
+          onChange(selected);
+        });
+        row.appendChild(input);
+        row.appendChild(document.createTextNode(' ' + pair[1]));
+        list.appendChild(row);
+      });
+      updateSummary();
+    }
+    fillList(opts.options || []);
+
+    // One list open at a time, and a click outside closes it.
+    box.addEventListener('toggle', function () {
+      if (!box.open) {
+        return;
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.agend-jobs-choices[open]'), function (other) {
+        if (other !== box) {
+          other.open = false;
+        }
+      });
+    });
+    document.addEventListener('click', function (event) {
+      if (box.open && !box.contains(event.target)) {
+        box.open = false;
+      }
+    });
+
+    return { node: box, fill: fillList };
+  }
+
+  // Wording matches the directory's Location filter (assets/js/filters.js),
+  // so a visitor meets the same messages on either.
+  var GEO_MESSAGES = {
+    empty: 'Enter a suburb, postcode or address.',
+    notFound: 'We could not find that place. Try a suburb or postcode.',
+    busy: 'Place search is busy. Please try again in a moment.',
+    failed: 'Place search failed. Please try again in a moment.',
+    unsupported: 'Your browser does not support finding your location.',
+    denied: 'Location permission was denied. Update your browser settings to use this feature.',
+    timeout: 'Could not get your location. Please try again.',
+    unavailable: 'Your location is unavailable. Check that Location Services are turned on, then try again.',
+    degraded: 'Distance search is not available right now, so every job is shown.',
+  };
+
+  // Nominatim, behind the gateway, allows about one lookup a second; the
+  // directory's filter spaces lookups the same way.
+  var GEOCODE_MIN_INTERVAL_MS = 1500;
+
+  // The directory's map defaults, fetched once per page and shared with the
+  // directory's Location filter and map (they read window.agendDirectory),
+  // so they say whether the account's place search is on.
+  function mapSettings() {
+    var shared = (window.agendDirectory = window.agendDirectory || {});
+    if (!shared.mapSettings) {
+      shared.mapSettings = apiGet('/directory/map-settings', {})
+        .then(function (body) {
+          return (body && body.data && typeof body.data === 'object') ? body.data : null;
+        })
+        .catch(function () {
+          return null;
+        });
+    }
+    return shared.mapSettings;
+  }
+
+  var PLACE_QUERY_MAX = 200;
+
+  // A typed place with the board's region added, so a bare postcode such as
+  // "5000" is looked up in that country rather than wherever the geocoder's
+  // first match happens to be. Text that already names the region as a whole
+  // word is left as typed: "Adelaide, Australia" stays as it is, but a region
+  // of "US" is still added to "Houston". The visitor's text is cut to leave
+  // room for the region, so the 200 character limit never clips it. The chip
+  // and messages keep the visitor's own words.
+  function placeQuery(text, region) {
+    text = String(text || '');
+    region = String(region || '').trim();
+    if (!region) {
+      return text.slice(0, PLACE_QUERY_MAX);
+    }
+    var escaped = region.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var named = new RegExp('(^|[^\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'iu');
+    if (named.test(text)) {
+      return text.slice(0, PLACE_QUERY_MAX);
+    }
+    var suffix = ', ' + region;
+    return text.slice(0, Math.max(0, PLACE_QUERY_MAX - suffix.length)) + suffix;
+  }
+
+  // Whether a distance search came back unmeasured: a gateway that does not
+  // know the distance parameters ignores them and returns jobs with no
+  // distance. Remote jobs never carry one, so when they were asked for they
+  // are left out of the test; when they were not, every job counts, as before.
+  function isUnmeasured(items, remoteAsked) {
+    var located = remoteAsked ? items.filter(function (job) {
+      return job.location_type !== 'remote';
+    }) : items;
+    return located.length > 0 && located.every(function (job) {
+      return typeof job.distance_km !== 'number';
+    });
+  }
+
+  // Exposed for the script's own tests; not an API.
+  window.agendJobsBoard = { placeQuery: placeQuery, isUnmeasured: isUnmeasured };
+
+  function radiusText(km) {
+    return 'Within ' + km + ' km';
+  }
+
+  // The "near a place" control: a typed suburb or postcode (resolved to a
+  // point by the directory's geocode route), or the device's position, plus a
+  // radius. Sets state.near to {lat, lng, radius, label} or null. Returns the
+  // node and a `say` function for messages.
+  // `changed` is called when the location itself changes (the layouts also
+  // move the sort to Nearest then); `filterChanged`, when only a qualifier of
+  // it does, such as "Exclude remote jobs", which must leave the sort alone.
+  function buildNearControl(cfg, state, changed, panel, filterChanged) {
+    var f = cfg.filters;
+    var radii = Array.isArray(f.distanceRadii) && f.distanceRadii.length ? f.distanceRadii : [50];
+    var wrap = el('div', 'agend-jobs-near');
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', 'Search near a place');
+
+    var row = el('div', 'agend-jobs-near__row');
+    var searchRow = el('div', 'agend-jobs-near__search');
+    var input = el('input', 'agend-jobs-input agend-jobs-input--near');
+    input.type = 'search';
+    input.placeholder = 'Suburb or postcode';
+    input.setAttribute('aria-label', 'Suburb or postcode to search near');
+    input.maxLength = 200;
+    // In the sidebar layout's search panel the board's one Search button sits
+    // beside the fields, so the place box has none of its own.
+    var searchBtn = null;
+    if (!panel) {
+      searchBtn = el('button', 'agend-jobs-button agend-jobs-button--ghost', 'Search');
+      searchBtn.type = 'button';
+    }
+    searchRow.appendChild(input);
+    if (searchBtn) {
+      searchRow.appendChild(searchBtn);
+    }
+    var locateBtn = el('button', panel ? 'agend-jobs-sb-link agend-jobs-near__locate' : 'agend-jobs-button agend-jobs-button--ghost agend-jobs-near__locate', 'Use my location');
+    locateBtn.type = 'button';
+
+    var radiusSel = null;
+    if (radii.length > 1) {
+      radiusSel = el('select', 'agend-jobs-select agend-jobs-near__radius');
+      radiusSel.setAttribute('aria-label', 'Distance');
+      radii.forEach(function (km) {
+        radiusSel.appendChild(new Option(radiusText(km), String(km), false, km === f.distanceRadius));
+      });
+    }
+
+    row.appendChild(searchRow);
+    row.appendChild(locateBtn);
+    if (radiusSel) {
+      row.appendChild(radiusSel);
+    }
+    wrap.appendChild(row);
+
+    var status = el('p', 'agend-jobs-near__status');
+    status.setAttribute('role', 'status');
+    status.hidden = true;
+    wrap.appendChild(status);
+
+    // With remote jobs added to a distance search, the visitor can leave them
+    // out. Shown only while a location is set, since only then are they added.
+    var remoteWrap = null;
+    var remoteBox = null;
+    if (f.distanceRemote) {
+      remoteWrap = el('label', 'agend-jobs-near__remote');
+      remoteBox = el('input', 'agend-jobs-near__remote-box');
+      remoteBox.type = 'checkbox';
+      remoteBox.checked = !!state.excludeRemote;
+      remoteWrap.appendChild(remoteBox);
+      remoteWrap.appendChild(el('span', 'agend-jobs-near__remote-text', 'Exclude remote jobs'));
+      remoteWrap.hidden = true;
+      remoteBox.addEventListener('change', function () {
+        state.excludeRemote = remoteBox.checked;
+        if (state.near) {
+          (filterChanged || changed)();
+        }
+      });
+      wrap.appendChild(remoteWrap);
+    }
+
+    var chip = el('p', 'agend-jobs-near__chip');
+    chip.hidden = true;
+    var chipText = el('span', 'agend-jobs-near__chip-text');
+    var clearBtn = el('button', 'agend-jobs-near__clear', 'Clear');
+    clearBtn.type = 'button';
+    chip.appendChild(chipText);
+    chip.appendChild(clearBtn);
+    if (!panel) {
+      wrap.appendChild(chip);
+    }
+
+    var lastLookup = 0;
+
+    function currentRadius() {
+      var value = radiusSel ? Number(radiusSel.value) : Number(f.distanceRadius);
+      return isFinite(value) && value > 0 ? value : radii[0];
+    }
+
+    function say(message) {
+      status.textContent = message || '';
+      status.hidden = !message;
+    }
+
+    function paintChip() {
+      if (remoteWrap) {
+        remoteWrap.hidden = !state.near;
+      }
+      if (!state.near) {
+        chip.hidden = true;
+        chipText.textContent = '';
+        return;
+      }
+      chipText.textContent = radiusText(state.near.radius) + ' of ' + state.near.label;
+      chip.hidden = false;
+    }
+
+    function busy(on) {
+      [input, searchBtn, locateBtn].forEach(function (node) {
+        if (node) {
+          node.disabled = on;
+        }
+      });
+      wrap.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+
+    function apply(lat, lng, label) {
+      state.near = { lat: lat, lng: lng, radius: currentRadius(), label: label };
+      say('');
+      paintChip();
+      changed();
+    }
+
+    function lookup() {
+      var text = input.value.trim();
+      if (!text) {
+        say(GEO_MESSAGES.empty);
+        return;
+      }
+      var now = Date.now();
+      if (now - lastLookup < GEOCODE_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastLookup = now;
+      busy(true);
+      apiGet('/directory/geocode', { q: placeQuery(text, cfg.filters.placeCountry) })
+        .then(function (body) {
+          busy(false);
+          var point = body && body.data;
+          if (point && isFinite(Number(point.latitude)) && isFinite(Number(point.longitude))) {
+            apply(Number(point.latitude), Number(point.longitude), text);
+            return;
+          }
+          var code = body && body.data && body.data.status_code;
+          if (code === 404) {
+            say(GEO_MESSAGES.notFound);
+          } else if (code === 403) {
+            // The account does not include place search after all; the
+            // button still works.
+            searchRow.hidden = true;
+            say('');
+          } else if (code === 429 || code === 503) {
+            say(GEO_MESSAGES.busy);
+          } else {
+            say(GEO_MESSAGES.failed);
+          }
+        })
+        .catch(function () {
+          busy(false);
+          say(GEO_MESSAGES.failed);
+        });
+    }
+
+    function locate() {
+      if (!navigator.geolocation) {
+        say(GEO_MESSAGES.unsupported);
+        return;
+      }
+      busy(true);
+      var onSuccess = function (position) {
+        busy(false);
+        input.value = '';
+        apply(position.coords.latitude, position.coords.longitude, 'your location');
+      };
+      var onError = function (error, retried) {
+        // A quick, low-accuracy fix fails on some desktops; one precise
+        // attempt is worth making before giving up.
+        if (error && error.code === 2 && !retried) {
+          navigator.geolocation.getCurrentPosition(onSuccess, function (again) {
+            onError(again, true);
+          }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+          return;
+        }
+        busy(false);
+        if (error && error.code === 1) {
+          say(GEO_MESSAGES.denied);
+        } else if (error && error.code === 3) {
+          say(GEO_MESSAGES.timeout);
+        } else {
+          say(GEO_MESSAGES.unavailable);
+        }
+      };
+      navigator.geolocation.getCurrentPosition(onSuccess, function (error) {
+        onError(error, false);
+      }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+    }
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        lookup();
+      }
+    });
+    if (searchBtn) {
+      searchBtn.addEventListener('click', lookup);
+    }
+    locateBtn.addEventListener('click', locate);
+    if (radiusSel) {
+      radiusSel.addEventListener('change', function () {
+        if (state.near) {
+          state.near.radius = currentRadius();
+          paintChip();
+          changed();
+        }
+      });
+    }
+    function clear() {
+      state.near = null;
+      state.excludeRemote = false;
+      if (remoteBox) {
+        remoteBox.checked = false;
+      }
+      input.value = '';
+      say('');
+      paintChip();
+    }
+    clearBtn.addEventListener('click', function () {
+      clear();
+      changed();
+    });
+
+    // An account without place search cannot answer a typed place, so the
+    // box is hidden rather than left to fail; "Use my location" remains.
+    mapSettings().then(function (settings) {
+      if (settings && settings.geocoding_available === false) {
+        searchRow.hidden = true;
+      }
+    });
+
+    return { node: wrap, say: say, input: input, lookup: lookup, clear: clear };
+  }
+
+  // The visitor's sort dropdown, or null when the board has none. "Nearest"
+  // is offered only while a location is set: the gateway refuses it without
+  // one. Setting a location opens on it, as the question just asked was "what
+  // is close to me". `sync(true)` is called when the location changes.
+  function buildSort(cfg, state, changed) {
+    var f = cfg.filters;
+    if (!f.sort || !Array.isArray(f.sortOptions) || !f.sortOptions.length) {
+      return null;
+    }
+    var sortSel = el('select', 'agend-jobs-select agend-jobs-select--sort');
+    sortSel.setAttribute('aria-label', 'Sort jobs');
+    f.sortOptions.forEach(function (option) {
+      sortSel.appendChild(new Option(option.label, option.value, false, option.value === state.sort));
+    });
+    sortSel.addEventListener('change', function () {
+      state.sort = sortSel.value;
+      changed();
+    });
+
+    function sync(locationChanged) {
+      var hasNearest = !!sortSel.querySelector('option[value="distance:asc"]');
+      if (state.near && !hasNearest) {
+        sortSel.appendChild(new Option('Nearest', 'distance:asc'));
+      } else if (!state.near && hasNearest) {
+        sortSel.removeChild(sortSel.querySelector('option[value="distance:asc"]'));
+      }
+      if (locationChanged) {
+        if (state.near) {
+          state.sort = 'distance:asc';
+        } else if (state.sort === 'distance:asc') {
+          state.sort = cfg.listing.sort;
+        }
+      }
+      sortSel.value = state.sort;
+    }
+
+    return { node: sortSel, sync: sync };
+  }
+
   function buildFilterBar(target, cfg, state, reload) {
     var f = cfg.filters;
-    if (!f.search && !f.category && !f.type && !f.experience && !f.location) {
+    var tagFilters = Array.isArray(f.tags) ? f.tags : [];
+    if (!f.search && !f.category && !f.type && !f.experience && !f.location && !f.workArrangement && !f.state && !f.posted && !tagFilters.length && !f.distance && !f.sort) {
       return;
     }
     var bar = el('div', 'agend-jobs-filterbar');
     bar.setAttribute('role', 'search');
+
+    function changed() {
+      state.page = 1;
+      // A filter changed while "Load more" was still loading starts a fresh
+      // list; without this the new first page was added after the old cards.
+      state.append = false;
+      reload();
+    }
 
     function debounced(input, key) {
       var timer;
@@ -703,10 +2101,25 @@
         window.clearTimeout(timer);
         timer = window.setTimeout(function () {
           state[key] = input.value.trim();
-          state.page = 1;
-          reload();
+          changed();
         }, 300);
       });
+    }
+
+    function listFilter(key, label, allLabel, options) {
+      var filter = choiceFilter({
+        label: label,
+        allLabel: allLabel,
+        options: options,
+        multiple: !!f.multiple,
+        selected: state[key],
+        onChange: function (values) {
+          state[key] = values;
+          changed();
+        },
+      });
+      bar.appendChild(filter.node);
+      return filter;
     }
 
     if (f.search) {
@@ -729,66 +2142,582 @@
       bar.appendChild(location);
     }
 
-    if (f.category) {
-      var category = el('select', 'agend-jobs-select');
-      category.setAttribute('aria-label', 'Category');
-      category.appendChild(new Option('All categories', ''));
-      // No public categories endpoint: derive the distinct set from a wide
-      // fetch of the published jobs.
-      apiGet('/jobs', { limit: 100 }).then(function (body) {
-        var seen = {};
-        unwrapList(body).items.forEach(function (job) {
-          (job.categories || []).forEach(function (cat) {
-            if (cat && cat.slug && !seen[cat.slug]) {
-              seen[cat.slug] = cat.name || cat.slug;
-            }
-          });
-        });
-        Object.keys(seen)
-          .sort(function (a, b) { return seen[a].localeCompare(seen[b]); })
-          .forEach(function (slug) {
-            category.appendChild(new Option(seen[slug], slug, false, slug === state.category));
-          });
-      }).catch(function () {});
-      category.addEventListener('change', function () {
-        state.category = category.value;
-        state.page = 1;
-        reload();
+    var sorter = null;
+
+    if (f.distance) {
+      var near = buildNearControl(cfg, state, function () {
+        if (sorter) {
+          sorter.sync(true);
+        }
+        changed();
+      }, false, changed);
+      state.say = near.say;
+      bar.appendChild(near.node);
+    }
+
+    if (f.state && Array.isArray(f.states) && f.states.length) {
+      var stateSelect = el('select', 'agend-jobs-select');
+      stateSelect.setAttribute('aria-label', 'State');
+      stateSelect.appendChild(new Option('All states', ''));
+      f.states.forEach(function (name) {
+        stateSelect.appendChild(new Option(name, name, false, name === state.state));
       });
-      bar.appendChild(category);
+      stateSelect.addEventListener('change', function () {
+        state.state = stateSelect.value;
+        changed();
+      });
+      bar.appendChild(stateSelect);
+    }
+
+    if (f.category) {
+      var category = listFilter('category', 'Category', 'All categories', []);
+      loadTerms('categories').then(category.fill);
     }
 
     if (f.type) {
-      var type = el('select', 'agend-jobs-select');
-      type.setAttribute('aria-label', 'Employment type');
-      type.appendChild(new Option('All job types', ''));
-      Object.keys(EMPLOYMENT_TYPE_LABELS).forEach(function (key) {
-        type.appendChild(new Option(EMPLOYMENT_TYPE_LABELS[key], key, false, key === state.type));
-      });
-      type.addEventListener('change', function () {
-        state.type = type.value;
-        state.page = 1;
-        reload();
-      });
-      bar.appendChild(type);
+      listFilter('type', 'Job type', 'All job types', labelPairs(EMPLOYMENT_TYPE_LABELS));
+    }
+
+    if (f.workArrangement) {
+      listFilter('workArrangement', 'Work arrangement', 'All work arrangements', labelPairs(WORK_ARRANGEMENT_LABELS));
     }
 
     if (f.experience) {
-      var experience = el('select', 'agend-jobs-select');
-      experience.setAttribute('aria-label', 'Experience level');
-      experience.appendChild(new Option('All experience levels', ''));
-      Object.keys(EXPERIENCE_LABELS).forEach(function (key) {
-        experience.appendChild(new Option(EXPERIENCE_LABELS[key], key, false, key === state.experience));
+      listFilter('experience', 'Experience level', 'All experience levels', labelPairs(EXPERIENCE_LABELS));
+    }
+
+    if (f.posted) {
+      var posted = el('select', 'agend-jobs-select');
+      posted.setAttribute('aria-label', 'Date posted');
+      posted.appendChild(new Option('Any time', ''));
+      POSTED_WITHIN_LABELS.forEach(function (pair) {
+        posted.appendChild(new Option(pair[1], pair[0], false, pair[0] === state.postedWithin));
       });
-      experience.addEventListener('change', function () {
-        state.experience = experience.value;
-        state.page = 1;
-        reload();
+      posted.addEventListener('change', function () {
+        state.postedWithin = posted.value;
+        changed();
       });
-      bar.appendChild(experience);
+      bar.appendChild(posted);
+    }
+
+    // Each tag filter sets its own tags; the gateway keeps a job only when it
+    // carries every tag set across all of them.
+    if (tagFilters.length) {
+      var fills = [];
+      tagFilters.forEach(function (row, index) {
+        var pairs = row.tags.map(function (slug) { return [slug, slugLabel(slug)]; });
+        state.tagChoices[index] = state.tagChoices[index] || [];
+
+        if (row.style === 'checkboxes') {
+          // A labelled group rather than a fieldset: themes restyle legends
+          // onto their own line, which breaks the filter row.
+          var group = el('div', 'agend-jobs-tagchecks');
+          var legendId = 'agend-jobs-choice-' + (++choiceSeq);
+          var legend = el('span', 'agend-jobs-tagchecks__legend', row.label);
+          legend.id = legendId;
+          group.setAttribute('role', 'group');
+          group.setAttribute('aria-labelledby', legendId);
+          group.appendChild(legend);
+          var inner = el('div', 'agend-jobs-tagchecks__list');
+          group.appendChild(inner);
+          var fillChecks = function (labelled) {
+            inner.innerHTML = '';
+            labelled.forEach(function (pair) {
+              var id = 'agend-jobs-choice-' + (++choiceSeq);
+              var item = el('label', 'agend-jobs-tagchecks__option');
+              item.setAttribute('for', id);
+              var input = el('input');
+              input.type = 'checkbox';
+              input.id = id;
+              input.value = pair[0];
+              input.checked = state.tagChoices[index].indexOf(pair[0]) !== -1;
+              input.addEventListener('change', function () {
+                state.tagChoices[index] = Array.prototype.map.call(
+                  inner.querySelectorAll('input:checked'),
+                  function (node) { return node.value; }
+                );
+                changed();
+              });
+              item.appendChild(input);
+              item.appendChild(document.createTextNode(' ' + pair[1]));
+              inner.appendChild(item);
+            });
+          };
+          fillChecks(pairs);
+          bar.appendChild(group);
+          fills.push({ tags: row.tags, fill: fillChecks });
+          return;
+        }
+
+        var filter = choiceFilter({
+          label: row.label,
+          allLabel: row.label + ': any',
+          options: pairs,
+          multiple: false,
+          selected: state.tagChoices[index],
+          onChange: function (values) {
+            state.tagChoices[index] = values;
+            changed();
+          },
+        });
+        bar.appendChild(filter.node);
+        fills.push({ tags: row.tags, fill: filter.fill });
+      });
+
+      // Swap the slugs for the tags' own names once they load, keeping the
+      // order the row lists them in.
+      loadTerms('tags').then(function (terms) {
+        var names = {};
+        terms.forEach(function (pair) { names[pair[0]] = pair[1]; });
+        fills.forEach(function (entry) {
+          entry.fill(entry.tags.map(function (slug) { return [slug, names[slug] || slugLabel(slug)]; }));
+        });
+      });
+    }
+
+    sorter = buildSort(cfg, state, changed);
+    if (sorter) {
+      bar.appendChild(sorter.node);
     }
 
     target.appendChild(bar);
+  }
+
+  // -- Filter sidebar layout ---------------------------------------------------
+
+  // How many options a group shows before "Show N more".
+  var SIDEBAR_SHOW = 5;
+  var sidebarSeq = 0;
+
+  // Runs `onValue` with the input's trimmed text, 300ms after typing stops.
+  function onTypingStops(input, onValue) {
+    var timer;
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        onValue(input.value.trim());
+      }, 300);
+    });
+  }
+
+  // One group of the sidebar: a small heading over tick boxes (any number of
+  // values) or a radio list with an "Any" first (one value). `read` and
+  // `write` map the group to the board's state; `onChange` runs after a
+  // visitor's change. Long lists show their first few options, and always any
+  // chosen option, until "Show N more" is used.
+  function sidebarGroup(opts) {
+    var uid = ++sidebarSeq;
+    var node = el('div', 'agend-jobs-sb-group');
+    node.setAttribute('role', 'group');
+    var heading = el('h4', 'agend-jobs-sb-group__title', opts.title);
+    heading.id = 'agend-jobs-sb-title-' + uid;
+    node.setAttribute('aria-labelledby', heading.id);
+    var list = el('div', 'agend-jobs-sb-group__list');
+    var more = el('button', 'agend-jobs-sb-more');
+    more.type = 'button';
+    more.setAttribute('aria-expanded', 'false');
+    more.hidden = true;
+    node.appendChild(heading);
+    node.appendChild(list);
+    node.appendChild(more);
+
+    var pairs = opts.pairs || [];
+    var expanded = false;
+    var radio = opts.kind === 'radio';
+
+    function option(value, label, checked) {
+      var id = 'agend-jobs-sb-opt-' + uid + '-' + (++sidebarSeq);
+      var row = el('label', 'agend-jobs-sb-opt');
+      row.setAttribute('for', id);
+      var input = el('input');
+      input.type = radio ? 'radio' : 'checkbox';
+      input.id = id;
+      input.value = value;
+      if (radio) {
+        input.name = 'agend-jobs-sb-' + uid;
+      }
+      input.checked = checked;
+      input.addEventListener('change', function () {
+        if (radio) {
+          opts.write(input.value ? [input.value] : []);
+        } else {
+          opts.write(Array.prototype.map.call(
+            list.querySelectorAll('input:checked'),
+            function (box) { return box.value; }
+          ));
+        }
+        opts.onChange();
+      });
+      row.appendChild(input);
+      row.appendChild(el('span', 'agend-jobs-sb-opt__label', label));
+      return row;
+    }
+
+    function render() {
+      var chosen = opts.read();
+      list.innerHTML = '';
+      if (radio) {
+        list.appendChild(option('', opts.anyLabel || 'Any', chosen.length === 0));
+      }
+      var collapsible = pairs.length > SIDEBAR_SHOW;
+      var shown = 0;
+      pairs.forEach(function (pair, index) {
+        var picked = chosen.indexOf(pair[0]) !== -1;
+        if (collapsible && !expanded && index >= SIDEBAR_SHOW && !picked) {
+          return;
+        }
+        shown++;
+        list.appendChild(option(pair[0], pair[1], picked));
+      });
+      more.hidden = !collapsible || (!expanded && shown === pairs.length);
+      if (collapsible) {
+        more.textContent = expanded ? 'Show fewer' : 'Show ' + (pairs.length - shown) + ' more';
+        more.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      }
+      // Nothing to choose from (categories still loading, or none).
+      node.hidden = pairs.length === 0;
+    }
+
+    more.addEventListener('click', function () {
+      expanded = !expanded;
+      render();
+      more.focus();
+    });
+
+    render();
+
+    return {
+      node: node,
+      title: opts.title,
+      read: opts.read,
+      write: opts.write,
+      pairs: function () { return pairs; },
+      fill: function (next) {
+        pairs = next;
+        render();
+      },
+      sync: render,
+    };
+  }
+
+  // Builds the sidebar layout into `board`: the search panel, then the filter
+  // groups beside the results (count and sort, applied-filter chips, the
+  // cards). `parts` are the board's count, status, grid and pager nodes.
+  function buildSidebarBoard(board, cfg, state, reload, parts) {
+    var f = cfg.filters;
+    var tagFilters = Array.isArray(f.tags) ? f.tags : [];
+    var groups = [];
+    var sorter = null;
+    var near = null;
+    var chipsBox;
+    var toggle;
+    var aside;
+
+    function changed() {
+      state.page = 1;
+      // See the bar layout's changed(): a fresh list, not an appended page.
+      state.append = false;
+      refresh();
+      reload();
+    }
+
+    // -- Search panel: keyword, place and radius, one Search button.
+    var searchInput = null;
+    var placeInput = null;
+    if (f.search || f.distance || f.location) {
+      var panel = el('div', 'agend-jobs-sb-search');
+      panel.setAttribute('role', 'search');
+
+      if (f.search) {
+        searchInput = el('input', 'agend-jobs-input agend-jobs-input--search');
+        searchInput.type = 'search';
+        searchInput.placeholder = 'Job title, keyword or employer';
+        searchInput.setAttribute('aria-label', 'Search jobs');
+        searchInput.value = state.search;
+        onTypingStops(searchInput, function (value) {
+          state.search = value;
+          changed();
+        });
+        panel.appendChild(searchInput);
+      }
+
+      if (f.distance) {
+        near = buildNearControl(cfg, state, function () {
+          if (sorter) {
+            sorter.sync(true);
+          }
+          changed();
+        }, true, changed);
+        state.say = near.say;
+        panel.appendChild(near.node);
+      } else if (f.location) {
+        placeInput = el('input', 'agend-jobs-input agend-jobs-input--location');
+        placeInput.type = 'search';
+        placeInput.placeholder = 'Suburb, city or state';
+        placeInput.setAttribute('aria-label', 'Location');
+        placeInput.value = state.location;
+        onTypingStops(placeInput, function (value) {
+          state.location = value;
+          changed();
+        });
+        panel.appendChild(placeInput);
+      }
+
+      var go = el('button', 'agend-jobs-button agend-jobs-sb-search__go', 'Search');
+      go.type = 'button';
+      var submit = function () {
+        if (searchInput) {
+          state.search = searchInput.value.trim();
+        }
+        if (placeInput) {
+          state.location = placeInput.value.trim();
+        }
+        changed();
+        // A place typed but not yet looked up is resolved now.
+        if (near && near.input.value.trim() && (!state.near || state.near.label !== near.input.value.trim())) {
+          near.lookup();
+        }
+      };
+      go.addEventListener('click', submit);
+      [searchInput, placeInput].forEach(function (input) {
+        if (input) {
+          input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            }
+          });
+        }
+      });
+      panel.appendChild(go);
+      board.appendChild(panel);
+    }
+
+    // -- Filter groups.
+    aside = el('aside', 'agend-jobs-sb-filters');
+    aside.id = 'agend-jobs-sb-filters-' + (++sidebarSeq);
+    aside.setAttribute('aria-label', 'Filters');
+    // The jobs board design titles the panel.
+    if (cfg.card && cfg.card.style === 'board') {
+      aside.appendChild(el('h3', 'agend-jobs-sb-filters__title', 'Filters'));
+    }
+
+    function addGroup(title, kind, anyLabel, pairs, read, write) {
+      var group = sidebarGroup({
+        title: title,
+        kind: kind,
+        anyLabel: anyLabel,
+        pairs: pairs,
+        read: read,
+        write: write,
+        onChange: changed,
+      });
+      groups.push(group);
+      aside.appendChild(group.node);
+      return group;
+    }
+
+    function listGroup(key, title, pairs) {
+      return addGroup(title, 'check', '', pairs, function () {
+        return state[key];
+      }, function (values) {
+        state[key] = values;
+      });
+    }
+
+    if (f.category) {
+      var category = listGroup('category', 'Category', []);
+      loadTerms('categories').then(category.fill);
+    }
+    if (f.type) {
+      listGroup('type', 'Job type', labelPairs(EMPLOYMENT_TYPE_LABELS));
+    }
+    // The gateway takes one state, so the states are a radio list.
+    if (f.state && Array.isArray(f.states) && f.states.length) {
+      addGroup('State', 'radio', 'Any', f.states.map(function (name) { return [name, name]; }), function () {
+        return state.state ? [state.state] : [];
+      }, function (values) {
+        state.state = values[0] || '';
+      });
+    }
+    if (f.workArrangement) {
+      listGroup('workArrangement', 'Work arrangement', labelPairs(WORK_ARRANGEMENT_LABELS));
+    }
+    if (f.experience) {
+      listGroup('experience', 'Experience level', labelPairs(EXPERIENCE_LABELS));
+    }
+
+    var tagFills = [];
+    tagFilters.forEach(function (row, index) {
+      state.tagChoices[index] = state.tagChoices[index] || [];
+      var pairs = row.tags.map(function (slug) { return [slug, slugLabel(slug)]; });
+      var group = addGroup(row.label, row.style === 'checkboxes' ? 'check' : 'radio', 'Any', pairs, function () {
+        return state.tagChoices[index];
+      }, function (values) {
+        state.tagChoices[index] = values;
+      });
+      tagFills.push({ tags: row.tags, fill: group.fill });
+    });
+    if (tagFills.length) {
+      loadTerms('tags').then(function (terms) {
+        var names = {};
+        terms.forEach(function (pair) { names[pair[0]] = pair[1]; });
+        tagFills.forEach(function (entry) {
+          entry.fill(entry.tags.map(function (slug) { return [slug, names[slug] || slugLabel(slug)]; }));
+        });
+      });
+    }
+
+    if (f.posted) {
+      addGroup('Date posted', 'radio', 'Any time', POSTED_WITHIN_LABELS, function () {
+        return state.postedWithin ? [state.postedWithin] : [];
+      }, function (values) {
+        state.postedWithin = values[0] || '';
+      });
+    }
+
+    // -- Results: count and sort, chips, then the cards.
+    var results = el('div', 'agend-jobs-sb-results');
+    var bar = el('div', 'agend-jobs-sb-bar');
+    bar.appendChild(parts.count);
+    var tools = el('div', 'agend-jobs-sb-tools');
+
+    toggle = el('button', 'agend-jobs-button agend-jobs-button--ghost agend-jobs-sb-toggle', 'Filters');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', aside.id);
+    toggle.addEventListener('click', function () {
+      var open = !aside.classList.contains('is-open');
+      aside.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // The panel sits before the results in the markup, so take keyboard
+      // and screen reader users straight into it when it opens.
+      if (open) {
+        var first = aside.querySelector('input, button, select');
+        if (first) {
+          first.focus({ preventScroll: true });
+        }
+      }
+    });
+    tools.appendChild(toggle);
+
+    sorter = buildSort(cfg, state, changed);
+    if (sorter) {
+      var sortWrap = el('label', 'agend-jobs-sb-sort');
+      sortWrap.appendChild(el('span', 'agend-jobs-sb-sort__label', 'Sort'));
+      sortWrap.appendChild(sorter.node);
+      tools.appendChild(sortWrap);
+    }
+    bar.appendChild(tools);
+    results.appendChild(bar);
+
+    chipsBox = el('div', 'agend-jobs-sb-chips');
+    chipsBox.hidden = true;
+    results.appendChild(chipsBox);
+    results.appendChild(parts.status);
+    results.appendChild(parts.grid);
+    results.appendChild(parts.pager);
+
+    var layout = el('div', 'agend-jobs-sb-layout');
+    if (groups.length) {
+      layout.appendChild(aside);
+    } else {
+      layout.classList.add('agend-jobs-sb-layout--single');
+      toggle.hidden = true;
+    }
+    layout.appendChild(results);
+    board.appendChild(layout);
+
+    // -- Applied filters as removable chips.
+    function appliedChips() {
+      var chips = [];
+      groups.forEach(function (group) {
+        var names = {};
+        group.pairs().forEach(function (pair) { names[pair[0]] = pair[1]; });
+        group.read().forEach(function (value) {
+          chips.push({
+            label: names[value] || slugLabel(value),
+            remove: function () {
+              group.write(group.read().filter(function (other) { return other !== value; }));
+              group.sync();
+            },
+          });
+        });
+      });
+      if (state.near && near) {
+        chips.push({
+          label: radiusText(state.near.radius) + ' of ' + state.near.label,
+          remove: function () {
+            near.clear();
+            if (sorter) {
+              sorter.sync(true);
+            }
+          },
+        });
+      }
+      return chips;
+    }
+
+    function clearAll() {
+      groups.forEach(function (group) {
+        group.write([]);
+        group.sync();
+      });
+      if (state.near && near) {
+        near.clear();
+        if (sorter) {
+          sorter.sync(true);
+        }
+      }
+      changed();
+    }
+
+    function refresh() {
+      var chips = appliedChips();
+      chipsBox.innerHTML = '';
+      chips.forEach(function (chip, index) {
+        var button = el('button', 'agend-jobs-sb-chip');
+        button.type = 'button';
+        button.setAttribute('aria-label', 'Remove filter: ' + chip.label);
+        button.appendChild(el('span', 'agend-jobs-sb-chip__text', chip.label));
+        var cross = el('span', 'agend-jobs-sb-chip__x', '×');
+        cross.setAttribute('aria-hidden', 'true');
+        button.appendChild(cross);
+        button.addEventListener('click', function () {
+          chip.remove();
+          changed();
+          // Keep keyboard focus in the row: the next chip, else Clear all's
+          // place, else the control that opens the filters.
+          var next = chipsBox.querySelectorAll('.agend-jobs-sb-chip')[Math.min(index, chips.length - 2)];
+          if (next) {
+            next.focus();
+          } else if (toggle.offsetParent !== null) {
+            toggle.focus();
+          } else {
+            var first = aside.querySelector('input');
+            if (first) {
+              first.focus();
+            }
+          }
+        });
+        chipsBox.appendChild(button);
+      });
+      if (chips.length) {
+        var clear = el('button', 'agend-jobs-sb-clear', 'Clear all');
+        clear.type = 'button';
+        clear.addEventListener('click', function () {
+          clearAll();
+          if (toggle.offsetParent !== null) {
+            toggle.focus();
+          }
+        });
+        chipsBox.appendChild(clear);
+      }
+      chipsBox.hidden = chips.length === 0;
+      toggle.textContent = chips.length ? 'Filters (' + chips.length + ')' : 'Filters';
+    }
+
+    refresh();
   }
 
   function renderPagination(target, cfg, state, pagination, reload) {
@@ -828,6 +2757,19 @@
     target.appendChild(nav);
   }
 
+  // Every tag the visitor has set, across the tag filters, once each.
+  function selectedTags(state) {
+    var tags = [];
+    Object.keys(state.tagChoices).forEach(function (index) {
+      state.tagChoices[index].forEach(function (slug) {
+        if (tags.indexOf(slug) === -1) {
+          tags.push(slug);
+        }
+      });
+    });
+    return tags;
+  }
+
   // -- Orchestration -----------------------------------------------------------
 
   // bindsUrl: only the first board in document order reads and writes the
@@ -840,7 +2782,23 @@
       return;
     }
 
-    var state = { search: '', location: '', category: '', type: '', experience: '', page: 1, append: false };
+    var state = {
+      search: '',
+      location: '',
+      state: '',
+      postedWithin: '',
+      category: [],
+      type: [],
+      workArrangement: [],
+      experience: [],
+      tagChoices: {},
+      near: null,
+      excludeRemote: false,
+      sort: cfg.listing.sort || '',
+      say: null,
+      page: 1,
+      append: false,
+    };
     var pageTitle = document.title;
 
     applySiteTheme(root, cfg);
@@ -856,7 +2814,10 @@
       }
       board.appendChild(head);
     }
-    buildFilterBar(board, cfg, state, reloadBoard);
+    var sidebar = cfg.filters.layout === 'sidebar';
+    if (!sidebar) {
+      buildFilterBar(board, cfg, state, reloadBoard);
+    }
     var status = el('div', 'agend-jobs-status');
     status.setAttribute('role', 'status');
     status.style.display = 'none';
@@ -864,10 +2825,14 @@
     count.setAttribute('aria-live', 'polite');
     var grid = el('div', 'agend-jobs-grid');
     var pager = el('div', 'agend-jobs-pager');
-    board.appendChild(count);
-    board.appendChild(status);
-    board.appendChild(grid);
-    board.appendChild(pager);
+    if (sidebar) {
+      buildSidebarBoard(board, cfg, state, reloadBoard, { count: count, status: status, grid: grid, pager: pager });
+    } else {
+      board.appendChild(count);
+      board.appendChild(status);
+      board.appendChild(grid);
+      board.appendChild(pager);
+    }
 
     function withSlash(path) {
       return path.charAt(path.length - 1) === '/' ? path : path + '/';
@@ -950,7 +2915,7 @@
           root.appendChild(renderNotFound(function () { showBoard(true); }));
           return;
         }
-        root.appendChild(renderDetail(job, cfg, function () { showBoard(true); }));
+        root.appendChild(renderDetail(job, cfg, function () { showBoard(true); }, { href: detailUrl, open: openInPlace }));
         if (bindsUrl && job.title) {
           document.title = job.title + (job.company_name ? ' at ' + job.company_name : '') + ' | ' + pageTitle;
         }
@@ -971,19 +2936,97 @@
         grid.innerHTML = '';
         appendSkeletons(grid, cfg);
       }
+      // The visitor's sort, when the dropdown is on; otherwise the board's.
+      // "Nearest" has no meaning without a point to measure from.
+      var sort = String(cfg.filters.sort ? state.sort : cfg.listing.sort || '').split(':');
+      if (sort[0] === 'distance' && !state.near) {
+        sort = String(cfg.listing.sort || '').split(':');
+      }
       var params = {
         page: state.page,
         limit: cfg.pagination.perPage,
-        sortBy: cfg.listing.sortBy,
-        sortOrder: cfg.listing.sortOrder,
+        sortBy: sort[0] || cfg.listing.sortBy,
+        sortOrder: sort[1] || cfg.listing.sortOrder,
         featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
-        category: cfg.listing.category || state.category,
+        featuredFirst: cfg.listing.featuredFirst ? 'true' : '',
+        category: cfg.listing.category ? [cfg.listing.category] : state.category,
         type: state.type,
+        locationType: state.workArrangement,
         experienceLevel: state.experience,
+        state: state.state,
+        postedWithin: state.postedWithin,
+        tag: selectedTags(state),
         search: state.search.length >= 2 ? state.search : '',
         location: state.location.length >= 2 ? state.location : '',
       };
-      apiGet('/jobs', params).then(function (body) {
+      if (state.near) {
+        params.lat = state.near.lat;
+        params.lng = state.near.lng;
+        params.radius = state.near.radius;
+        if (cfg.filters.distanceRemote && !state.excludeRemote) {
+          params.includeRemote = true;
+        }
+      }
+
+      // A distance search that the gateway refuses (a release that does not
+      // know the parameters yet) must not blank the board: ask again without
+      // it and say so.
+      var degraded = false;
+      // The proxy's own refusal or the gateway's. A WordPress error body has a
+      // string `code` and no list; a gateway refusal it passes on carries the
+      // HTTP status as `data.status_code`, not `data.status`, so the shape is
+      // the test rather than either number.
+      function failed(body) {
+        return !body || body.success === false || (typeof body.code === 'string' && !Array.isArray(body.data));
+      }
+      function load(query) {
+        return apiGet('/jobs', query).catch(function () {
+          return { success: false };
+        });
+      }
+      function withoutNear(query) {
+        var plain = {};
+        Object.keys(query).forEach(function (key) {
+          plain[key] = query[key];
+        });
+        delete plain.lat;
+        delete plain.lng;
+        delete plain.radius;
+        delete plain.includeRemote;
+        if (plain.sortBy === 'distance') {
+          plain.sortBy = cfg.listing.sortBy;
+          plain.sortOrder = cfg.listing.sortOrder;
+        }
+        return plain;
+      }
+
+      // A gateway that refuses includeRemote (rather than ignoring it) costs
+      // only the remote jobs: the distance search is asked again on its own
+      // before it is given up.
+      function withoutRemote(query) {
+        var plain = {};
+        Object.keys(query).forEach(function (key) {
+          plain[key] = query[key];
+        });
+        delete plain.includeRemote;
+        return plain;
+      }
+      function giveUpNear() {
+        degraded = true;
+        return load(withoutNear(params));
+      }
+
+      load(params).then(function (body) {
+        if (!state.near || !failed(body) || body.code === 'agend_apps_sign_in_required') {
+          return body;
+        }
+        if (params.includeRemote) {
+          return load(withoutRemote(params)).then(function (retry) {
+            return failed(retry) && retry.code !== 'agend_apps_sign_in_required' ? giveUpNear() : retry;
+          });
+        }
+        return giveUpNear();
+      }).then(function (body) {
         if (seq !== requestSeq) {
           return;
         }
@@ -1009,12 +3052,19 @@
         // A result count answers a search; a strip with no filters (featured
         // jobs on the home page) has nothing to count against.
         var f = cfg.filters;
-        var searchable = f.search || f.category || f.type || f.experience || f.location;
+        var searchable = f.search || f.category || f.type || f.experience || f.location || f.distance;
         var total = result.pagination ? result.pagination.total : result.items.length;
         count.textContent = searchable && total ? total + (total === 1 ? ' job' : ' jobs') : '';
+        // A gateway that does not know the distance parameters ignores them
+        // and answers with every job, none carrying a distance: say so rather
+        // than let the list pass for a search within the radius.
+        if (state.near && state.say) {
+          var unmeasured = isUnmeasured(result.items, !!params.includeRemote);
+          state.say(degraded || unmeasured ? GEO_MESSAGES.degraded : '');
+        }
         if (!result.items.length && !grid.childNodes.length) {
           status.style.display = '';
-          status.textContent = cfg.listing.featuredOnly ? 'There are no featured jobs right now.' : 'No jobs match your search.';
+          status.textContent = cfg.listing.featuredOnly ? 'There are no featured jobs right now.' : (state.near && !degraded ? 'No jobs within ' + state.near.radius + ' km of ' + state.near.label + '.' : 'No jobs match your search.');
           renderPagination(pager, cfg, state, null, reloadBoard);
           return;
         }

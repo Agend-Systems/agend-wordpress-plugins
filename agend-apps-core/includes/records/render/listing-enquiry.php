@@ -316,6 +316,8 @@ function agend_apps_records_listing_enquiry_terms( string $id, array $settings, 
  *
  * @param array $settings Surface settings: the text keys of
  *                        {@see agend_apps_records_listing_enquiry_defaults()}.
+ *                        `{listing_name}` in any of them becomes the listing's
+ *                        name; the terms label has its own `{terms_link}`.
  * @param array $opts     'preview' / 'preview_type' as for the state; 'id'
  *                        (string): a caller-supplied element id so several
  *                        forms on one page never collide; and 'state': a state
@@ -334,12 +336,15 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 	$uid     = 'agend-enquiry-' . preg_replace( '/[^A-Za-z0-9_-]/', '', (string) ( $opts['id'] ?? '' ) );
 	$preview = ! empty( $opts['preview'] );
 	$name    = '' !== $state['name'] ? $state['name'] : __( 'this listing', 'agend-apps-core' );
+	$text    = static function ( string $key ) use ( $settings, $name ): string {
+		return str_replace( '{listing_name}', $name, agend_apps_records_listing_enquiry_text( $settings, $key ) );
+	};
 
-	$heading = str_replace( '{listing_name}', $name, agend_apps_records_listing_enquiry_text( $settings, 'heading' ) );
+	$heading = $text( 'heading' );
 
 	$config = array(
 		'endpoint'       => esc_url_raw( rest_url( 'agend-apps/v1/directory/listings/' . rawurlencode( $state['identifier'] ) . '/enquiries' ) ),
-		'successMessage' => agend_apps_records_listing_enquiry_text( $settings, 'success_message' ),
+		'successMessage' => $text( 'success_message' ),
 		'captcha'        => Agend_Apps_Captcha::client_config(),
 		'hasTerms'       => '' !== $state['terms_url'],
 		'messages'       => array(
@@ -370,9 +375,9 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 		. ( $folded ? ' data-agend-enquiry-folded="1"' : '' ) . '>';
 
 	if ( $folded ) {
-		$intro = agend_apps_records_listing_enquiry_text( $settings, 'folded_intro' );
+		$intro = $text( 'folded_intro' );
 		if ( '' === $heading_html ) {
-			$heading_html = '<span class="agend-enquiry__heading">' . esc_html( agend_apps_records_listing_enquiry_text( $settings, 'folded_label' ) ) . '</span>';
+			$heading_html = '<span class="agend-enquiry__heading">' . esc_html( $text( 'folded_label' ) ) . '</span>';
 		}
 		// The editor shows the form open so it can be styled.
 		$html .= '<details class="agend-enquiry__details"' . ( $preview ? ' open' : '' ) . '>'
@@ -387,17 +392,17 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 	$html .= '<form class="agend-enquiry__form" id="' . esc_attr( $uid ) . '" novalidate>';
 
 	$html .= '<div class="agend-enquiry__row">'
-		. agend_apps_records_listing_enquiry_field( $uid . '-first', 'first_name', 'text', agend_apps_records_listing_enquiry_text( $settings, 'first_label' ), agend_apps_records_listing_enquiry_text( $settings, 'first_placeholder' ), true, 'given-name' )
-		. agend_apps_records_listing_enquiry_field( $uid . '-last', 'last_name', 'text', agend_apps_records_listing_enquiry_text( $settings, 'last_label' ), agend_apps_records_listing_enquiry_text( $settings, 'last_placeholder' ), true, 'family-name' )
+		. agend_apps_records_listing_enquiry_field( $uid . '-first', 'first_name', 'text', $text( 'first_label' ), $text( 'first_placeholder' ), true, 'given-name' )
+		. agend_apps_records_listing_enquiry_field( $uid . '-last', 'last_name', 'text', $text( 'last_label' ), $text( 'last_placeholder' ), true, 'family-name' )
 		. '</div>';
 
 	$html .= '<div class="agend-enquiry__row">'
-		. agend_apps_records_listing_enquiry_field( $uid . '-email', 'email', 'email', agend_apps_records_listing_enquiry_text( $settings, 'email_label' ), agend_apps_records_listing_enquiry_text( $settings, 'email_placeholder' ), true, 'email' )
-		. agend_apps_records_listing_enquiry_field( $uid . '-phone', 'phone', 'tel', agend_apps_records_listing_enquiry_text( $settings, 'phone_label' ), agend_apps_records_listing_enquiry_text( $settings, 'phone_placeholder' ), false, 'tel' )
+		. agend_apps_records_listing_enquiry_field( $uid . '-email', 'email', 'email', $text( 'email_label' ), $text( 'email_placeholder' ), true, 'email' )
+		. agend_apps_records_listing_enquiry_field( $uid . '-phone', 'phone', 'tel', $text( 'phone_label' ), $text( 'phone_placeholder' ), false, 'tel' )
 		. '</div>';
 
 	$html .= '<div class="agend-enquiry__row agend-enquiry__row--full">'
-		. agend_apps_records_listing_enquiry_field( $uid . '-message', 'message', 'textarea', agend_apps_records_listing_enquiry_text( $settings, 'message_label' ), agend_apps_records_listing_enquiry_text( $settings, 'message_placeholder' ), true )
+		. agend_apps_records_listing_enquiry_field( $uid . '-message', 'message', 'textarea', $text( 'message_label' ), $text( 'message_placeholder' ), true )
 		. '</div>';
 
 	if ( '' !== $state['terms_url'] ) {
@@ -426,7 +431,7 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 
 	$html .= '<div class="agend-enquiry__actions">'
 		. $notice
-		. '<button type="submit" class="agend-enquiry__submit" data-agend-enquiry-submit>' . esc_html( agend_apps_records_listing_enquiry_text( $settings, 'button_text' ) ) . '</button>'
+		. '<button type="submit" class="agend-enquiry__submit" data-agend-enquiry-submit>' . esc_html( $text( 'button_text' ) ) . '</button>'
 		. '</div>';
 
 	$html .= '</form>';

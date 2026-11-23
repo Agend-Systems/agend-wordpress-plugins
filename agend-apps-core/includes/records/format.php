@@ -116,7 +116,8 @@ function agend_apps_records_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = 
 	$str    = wp_date( 'l, j F Y', $start_ts, $tz ) . ', ' . wp_date( 'g:i a', $start_ts, $tz );
 	$end_ts = strtotime( (string) $end );
 	if ( $end_ts ) {
-		$str .= ' – ' . wp_date( 'g:i a', $end_ts, $tz );
+		$end_date = wp_date( 'l, j F Y', $end_ts, $tz );
+		$str     .= ( $end_date !== wp_date( 'l, j F Y', $start_ts, $tz ) ? ' - ' . $end_date . ', ' : ' – ' ) . wp_date( 'g:i a', $end_ts, $tz );
 	}
 	$zone_label = wp_date( 'T', $start_ts, $tz );
 	if ( '' !== (string) $zone_label ) {

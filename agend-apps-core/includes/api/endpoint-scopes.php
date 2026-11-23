@@ -17,6 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 return array(
+	'DELETE /cart/discount' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
+	),
 	'DELETE /crm/companies/{id}' => array(
 		'app'    => 'crm',
 		'scopes' => array( array( 'crm.companies.delete' ) ),
@@ -172,6 +176,10 @@ return array(
 	'GET /cart' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.items.browse' ) ),
+	),
+	'GET /cart/add-ons' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
 	),
 	'GET /cart/checkout-options' => array(
 		'app'    => 'cart',
@@ -457,6 +465,26 @@ return array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.listings.browse' ) ),
 	),
+	'GET /jobs/categories' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.listings.browse' ) ),
+	),
+	'GET /jobs/credits' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
+	),
+	'GET /jobs/submissions' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
+	),
+	'GET /jobs/submissions/{id}' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
+	),
+	'GET /jobs/tags' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.listings.browse' ) ),
+	),
 	'GET /jobs/{slugOrId}' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.listings.browse' ) ),
@@ -572,6 +600,10 @@ return array(
 	'GET /loop/integration/committees/{uniqueId}/members' => array(
 		'app'    => 'loop',
 		'scopes' => array( array( 'loop.committees.update' ) ),
+	),
+	'GET /loop/integration/members/channels' => array(
+		'app'    => 'loop',
+		'scopes' => array( array( 'loop.memberships.read' ) ),
 	),
 	'GET /loop/me/channels' => array(
 		'app'    => 'loop',
@@ -725,6 +757,10 @@ return array(
 		'app'    => 'events',
 		'scopes' => array( array( 'events.tickets.update' ) ),
 	),
+	'PATCH /jobs/submissions/{id}' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
+	),
 	'PATCH /lms/courses/{id}' => array(
 		'app'    => 'lms',
 		'scopes' => array( array( 'lms.courses.update' ) ),
@@ -864,6 +900,10 @@ return array(
 	'POST /cart/delete' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.sessions.delete' ) ),
+	),
+	'POST /cart/discount' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
 	),
 	'POST /cart/items' => array(
 		'app'    => 'cart',
@@ -1069,6 +1109,18 @@ return array(
 		'app'    => 'events',
 		'scopes' => array( array( 'events.waitlist.create' ) ),
 	),
+	'POST /jobs/submissions' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.create' ) ),
+	),
+	'POST /jobs/submissions/{id}/close' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
+	),
+	'POST /jobs/submissions/{id}/withdraw' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
+	),
 	'POST /lms/certificates/{id}/generate' => array(
 		'app'    => 'lms',
 		'scopes' => array( array( 'lms.certificates.generate' ) ),
@@ -1192,6 +1244,10 @@ return array(
 	'POST /webhooks/subscriptions/{id}/test' => array(
 		'app'    => 'webhooks',
 		'scopes' => array( array( 'webhooks.subscriptions.manage' ) ),
+	),
+	'POST /workflows/upbeat/record-refreshes' => array(
+		'app'    => 'workflows',
+		'scopes' => array( array( 'workflows.records.refresh' ) ),
 	),
 	'PUT /directory/listings/{slugOrId}' => array(
 		'app'    => 'directory',

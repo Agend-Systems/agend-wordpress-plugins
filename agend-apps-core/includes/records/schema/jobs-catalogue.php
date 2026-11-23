@@ -83,6 +83,13 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 							'salary_max:desc'   => __( 'Highest salary', 'agend-apps-core' ),
 						),
 					),
+					array(
+						'name'        => 'featured_first',
+						'label'       => __( 'Featured jobs first', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Puts sponsored and featured listings ahead of the order above.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(
@@ -136,6 +143,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'id'     => 'section_card_fields',
 				'label'  => __( 'Card Fields', 'agend-apps-core' ),
 				'fields' => array(
+					array(
+						'name'        => 'card_style',
+						'label'       => __( 'Card design', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'standard',
+						'options'     => array(
+							'standard' => __( 'Standard', 'agend-apps-core' ),
+							'board'    => __( 'Jobs board: initials tile, icon details and a category footer', 'agend-apps-core' ),
+						),
+						'description' => __( 'The jobs board design matches the hosted Agend jobs board: each card shows the employer\'s initials, the location, job type and salary on icon rows, the summary, then the category and how long ago the job was posted. The filter sidebar becomes a "Filters" panel to match.', 'agend-apps-core' ),
+					),
 					array(
 						'name'    => 'show_logo',
 						'label'   => __( 'Show employer logo', 'agend-apps-core' ),
@@ -219,6 +237,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'label'  => __( 'Visitor Filter Bar', 'agend-apps-core' ),
 				'fields' => array(
 					array(
+						'name'        => 'filter_layout',
+						'label'       => __( 'Filter layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'bar',
+						'options'     => array(
+							'bar'     => __( 'Filter bar: a row of dropdowns above the results', 'agend-apps-core' ),
+							'sidebar' => __( 'Filter sidebar: groups of tick boxes beside the results', 'agend-apps-core' ),
+						),
+						'description' => __( 'The sidebar shows each filter you switch on below as a group on the left, with removable chips for what is applied and a Filters button on a phone. Category, employment type, work arrangement and experience level become tick boxes. Results show as a list of cards.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'show_search',
 						'label'   => __( 'Show keyword search', 'agend-apps-core' ),
 						'type'    => 'toggle',
@@ -243,11 +272,128 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'default' => true,
 					),
 					array(
+						'name'    => 'show_work_arrangement_filter',
+						'label'   => __( 'Show work arrangement filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => true,
+					),
+					array(
+						'name'        => 'allow_multiple',
+						'label'       => __( 'Let visitors pick several', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'The category, employment type, work arrangement and experience level filters become checkbox lists. A job matching any ticked option shows.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'show_state_filter',
+						'label'   => __( 'Show state filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
+					array(
+						'name'        => 'state_options',
+						'label'       => __( 'States offered', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => 'ACT, NSW, NT, QLD, SA, TAS, VIC, WA',
+						'label_block' => true,
+						'description' => __( 'Separate with commas. Each must match the state as written on the listings.', 'agend-apps-core' ),
+						'condition'   => array( 'show_state_filter' => 'yes' ),
+					),
+					array(
+						'name'    => 'show_posted_filter',
+						'label'   => __( 'Show date posted filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
+					array(
 						'name'        => 'show_location_filter',
 						'label'       => __( 'Show location search', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
-						'description' => __( 'Matches the typed text against a listing\'s city, state or country.', 'agend-apps-core' ),
+						'description' => __( 'Matches the typed text against a listing\'s city, state, country or postcode.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'show_distance_filter',
+						'label'       => __( 'Show distance search', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Lets a visitor type a suburb or postcode, or use their current location, and choose a radius. Only jobs within it show, each with its distance. Typed places need place search on the Agend account; "Use my location" does not. Needs the gateway release that adds lat, lng and radius to the jobs list.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'distance_radius_choices',
+						'label'       => __( 'Radius choices (km)', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '10, 25, 50, 100, 250',
+						'label_block' => true,
+						'description' => __( 'Separate with commas, up to 1000. A single value fixes the radius and hides the dropdown.', 'agend-apps-core' ),
+						'condition'   => array( 'show_distance_filter' => 'yes' ),
+					),
+					array(
+						'name'      => 'distance_radius_default',
+						'label'     => __( 'Default radius (km)', 'agend-apps-core' ),
+						'type'      => 'number',
+						'default'   => 50,
+						'min'       => 1,
+						'max'       => 1000,
+						'step'      => 1,
+						'condition' => array( 'show_distance_filter' => 'yes' ),
+					),
+					array(
+						'name'        => 'distance_place_country',
+						'label'       => __( 'Region', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'label_block' => true,
+						'description' => __( 'Added to every typed place before it is looked up, like the Directory location filter\'s Region, so a bare postcode such as "5000" finds the place in this country rather than somewhere abroad. For example: Australia. Unlike the Directory, text that already names the region is sent as typed. Up to 60 characters; leave blank to look the text up as typed.', 'agend-apps-core' ),
+						'condition'   => array( 'show_distance_filter' => 'yes' ),
+					),
+					array(
+						'name'        => 'distance_include_remote',
+						'label'       => __( 'Include remote jobs', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Remote jobs have no location, so a distance search leaves them out. With this on they are listed after the nearby jobs, and the visitor gets an "Exclude remote jobs" checkbox. Needs the gateway release that adds includeRemote to the jobs list: switch it on only once that is live, since before it remote jobs are not added and the checkbox does nothing.', 'agend-apps-core' ),
+						'condition'   => array( 'show_distance_filter' => 'yes' ),
+					),
+					array(
+						'name'        => 'show_sort',
+						'label'       => __( 'Show sort dropdown', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Lets a visitor reorder the board: newest, closing soonest, title, and nearest once a location is set. The Order setting under Listings is the order the board opens in.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'tag_filters',
+						'label'       => __( 'Tag filters', 'agend-apps-core' ),
+						'type'        => 'repeater',
+						'row_label'   => 'label',
+						'default'     => array(),
+						'description' => __( 'Each row is its own filter built from tags, for example a "Salary band" dropdown or an "Accreditation required" checkbox. A job must match every filter the visitor sets.', 'agend-apps-core' ),
+						'fields'      => array(
+							array(
+								'name'    => 'label',
+								'label'   => __( 'Label', 'agend-apps-core' ),
+								'type'    => 'text',
+								'default' => '',
+							),
+							array(
+								'name'        => 'tags',
+								'label'       => __( 'Tags', 'agend-apps-core' ),
+								'type'        => 'multiselect',
+								'label_block' => true,
+								'options'     => 'agend_apps_records_jobs_catalogue_tag_options',
+							),
+							array(
+								'name'        => 'style',
+								'label'       => __( 'Shown as', 'agend-apps-core' ),
+								'type'        => 'select',
+								'default'     => 'select',
+								'options'     => array(
+									'select'     => __( 'Dropdown: pick one of the tags', 'agend-apps-core' ),
+									'checkboxes' => __( 'Checkboxes: each ticked tag must match', 'agend-apps-core' ),
+								),
+							),
+						),
 					),
 				),
 			),
@@ -255,6 +401,26 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'id'     => 'section_detail',
 				'label'  => __( 'Job Detail', 'agend-apps-core' ),
 				'fields' => array(
+					array(
+						'name'        => 'detail_layout',
+						'label'       => __( 'Job page layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'standard',
+						'options'     => array(
+							'standard' => __( 'Standard', 'agend-apps-core' ),
+							'header'   => __( 'Header panel: coloured title panel, facts strip and an apply box', 'agend-apps-core' ),
+							'cards'    => __( 'Jobs board: title card, role card and a sidebar of apply, job details and employer', 'agend-apps-core' ),
+						),
+						'description' => __( 'The header layout puts the job title in a coloured panel (set its colour under Style, Colours), with location, salary, job type and closing date in a strip beneath it. The jobs board layout matches the hosted Agend jobs board, with similar jobs underneath.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'show_similar_jobs',
+						'label'       => __( 'Show similar jobs', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Up to three other open jobs under the job: ones in the same category first, then the newest.', 'agend-apps-core' ),
+						'condition'   => array( 'detail_layout' => 'cards' ),
+					),
 					array(
 						'name'    => 'apply_label',
 						'label'   => __( 'Apply button text', 'agend-apps-core' ),
@@ -367,6 +533,14 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'default'   => '#FFFFFF',
 						'condition' => array( 'inherit_colours!' => 'yes' ),
 					),
+					array(
+						'name'        => 'job_header_colour',
+						'label'       => __( 'Job page header colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'The panel behind the job title in the header job page layout. Blank uses the heading colour.', 'agend-apps-core' ),
+						'condition'   => array( 'detail_layout' => 'header' ),
+					),
 				),
 			),
 		),
@@ -374,33 +548,48 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 }
 
 /**
- * Category options for the jobs catalogue's "Only this category" picker.
- *
- * The gateway has no public job categories endpoint, so the distinct set is
- * derived from a wide, cached list fetch, keyed by category slug (what the
- * list endpoint filters on). Empty outside an editor
+ * Category options for the jobs catalogue's "Only this category" picker,
+ * keyed by category slug (what the list endpoint filters on), in the board's
+ * display order. Empty outside an editor
  * {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by category slug, with an "all" entry first.
  */
 function agend_apps_records_jobs_catalogue_category_options(): array {
-	$options = array( '' => __( 'All categories', 'agend-apps-core' ) );
+	return array( '' => __( 'All categories', 'agend-apps-core' ) ) + agend_apps_records_jobs_catalogue_term_options( 'categories' );
+}
 
-	if ( ! function_exists( 'agend_apps_jobs_get_jobs' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'jobs-catalogue' ) ) {
-		return $options;
+/**
+ * Tag options for the jobs catalogue's tag filters, keyed by tag slug.
+ * Empty outside an editor.
+ *
+ * @return array Options keyed by tag slug.
+ */
+function agend_apps_records_jobs_catalogue_tag_options(): array {
+	return agend_apps_records_jobs_catalogue_term_options( 'tags' );
+}
+
+/**
+ * A board's active categories or tags as editor options, slug to name.
+ *
+ * @param string $kind `categories` or `tags`.
+ * @return array<string, string>
+ */
+function agend_apps_records_jobs_catalogue_term_options( string $kind ): array {
+	if ( ! function_exists( 'agend_apps_jobs_get_terms' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'jobs-catalogue' ) ) {
+		return array();
 	}
 
-	$response = agend_apps_jobs_get_jobs( array( 'limit' => 100 ) );
+	$response = agend_apps_jobs_get_terms( $kind );
 
 	if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
-		return $options;
+		return array();
 	}
 
-	foreach ( $response['data'] as $job ) {
-		foreach ( (array) ( $job['categories'] ?? array() ) as $category ) {
-			if ( ! empty( $category['slug'] ) ) {
-				$options[ (string) $category['slug'] ] = (string) ( $category['name'] ?? $category['slug'] );
-			}
+	$options = array();
+	foreach ( $response['data'] as $term ) {
+		if ( is_array( $term ) && ! empty( $term['slug'] ) ) {
+			$options[ (string) $term['slug'] ] = (string) ( $term['name'] ?? $term['slug'] );
 		}
 	}
 

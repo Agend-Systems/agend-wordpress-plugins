@@ -239,10 +239,11 @@ if ( ! function_exists( 'agend_apps_crm_get_tiers' ) ) {
 	 * Returns whatever the test placed in Agend_Test_WP::$tiers_response,
 	 * including a WP_Error when the test is exercising an outage.
 	 *
-	 * @param array $query Ignored.
+	 * @param array $query Recorded in Agend_Test_WP::$tiers_queries.
 	 * @return mixed
 	 */
 	function agend_apps_crm_get_tiers( array $query = array() ) {
+		Agend_Test_WP::$tiers_queries[] = $query;
 		return Agend_Test_WP::$tiers_response;
 	}
 }

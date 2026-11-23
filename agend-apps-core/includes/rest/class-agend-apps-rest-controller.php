@@ -25,6 +25,42 @@ abstract class Agend_Apps_REST_Controller extends WP_REST_Controller {
 	protected $namespace = 'agend-apps/v1';
 
 	/**
+	 * Whether a visitor without a member session may check out as a guest.
+	 *
+	 * Reads the Agend Apps Shop "Guest checkout" setting. Anything other than
+	 * an explicit `allow` requires sign-in, so a site that never saved the
+	 * setting keeps checkout for signed-in members only.
+	 *
+	 * @return bool
+	 */
+	public static function guest_checkout_allowed(): bool {
+		$allowed = 'allow' === get_option( 'agend_apps_shop_guest_checkout', 'require' );
+
+		/**
+		 * Filters whether guests may check out or register.
+		 *
+		 * @param bool $allowed True when the shop setting allows guest checkout.
+		 */
+		return (bool) apply_filters( 'agend_apps_cart_guest_checkout_allowed', $allowed );
+	}
+
+	/**
+	 * The refusal sent when a route needs a signed-in member.
+	 *
+	 * @return WP_REST_Response 401 response.
+	 */
+	protected function checkout_sign_in_required(): WP_REST_Response {
+		return new WP_REST_Response(
+			array(
+				'code'    => 'agend_apps_sign_in_required',
+				'message' => __( 'Sign in to check out.', 'agend-apps-core' ),
+				'data'    => array( 'status_code' => 401 ),
+			),
+			401
+		);
+	}
+
+	/**
 	 * Converts a WP_Error or decoded API array into a WP_REST_Response.
 	 *
 	 * When the value is a WP_Error the HTTP status code is derived from

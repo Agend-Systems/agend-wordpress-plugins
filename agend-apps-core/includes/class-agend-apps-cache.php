@@ -157,6 +157,35 @@ class Agend_Apps_Cache {
 			'label'       => 'Single CMS Content',
 			'default_ttl' => 300,
 		),
+		// The Community surfaces. Loop sends nothing when a post is removed, so
+		// these stay short; the Community settings also have a Clear button.
+		'loop_channels'            => array(
+			'label'       => 'Community Channels',
+			'default_ttl' => 300,
+		),
+		'loop_public_announcements' => array(
+			'label'       => 'Community Announcements',
+			'default_ttl' => 120,
+		),
+		'loop_public_activity'     => array(
+			'label'       => 'Community Posts',
+			'default_ttl' => 120,
+		),
+		// Resources (Atlas). The collection list is only read for an editor's
+		// picker and for the titles an editor has chosen; searches are stored
+		// per query for visitors only, never for a signed-in member.
+		'atlas_collections'        => array(
+			'label'       => 'Resource Collections',
+			'default_ttl' => 600,
+		),
+		'atlas_search'             => array(
+			'label'       => 'Resource Search (Visitors)',
+			'default_ttl' => 600,
+		),
+		'atlas_ask_budget'         => array(
+			'label'       => 'Resource Ask Allowance',
+			'default_ttl' => 60,
+		),
 		'jobs_list'                => array(
 			'label'       => 'Jobs List',
 			'default_ttl' => 300,
@@ -164,6 +193,11 @@ class Agend_Apps_Cache {
 		'jobs_single'              => array(
 			'label'       => 'Single Job',
 			'default_ttl' => 300,
+		),
+		// The board's category and tag filters; terms change rarely.
+		'jobs_terms'               => array(
+			'label'       => 'Job Categories and Tags',
+			'default_ttl' => 900,
 		),
 		// Every catalogue page load fetches this, and brand and theme config rarely changes.
 		'sites_config'             => array(

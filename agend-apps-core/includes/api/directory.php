@@ -35,11 +35,15 @@ function agend_apps_directory_get_listings( array $query = array() ) {
 		$query
 	);
 
+	if ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() ) {
+		$args['anonymous'] = true;
+	}
+
 	// A member bearer makes list responses IDENTITY-SPECIFIC
 	// (SPEC-CORE-20260722 US-2.2: the viewer's own listing is flagged
 	// is_mine). Never let an identity-specific response into the shared
 	// transient cache — bypass when a bearer is attached.
-	if ( '' !== agend_apps_get_bearer_token() ) {
+	if ( empty( $args['anonymous'] ) && '' !== agend_apps_get_bearer_token() ) {
 		$response = agend_apps_api()->request( 'GET', '/directory/listings', $args );
 
 		if ( is_wp_error( $response ) ) {
@@ -94,6 +98,10 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
 
 	// A member bearer makes the response identity-specific (the viewer's own
 	// listing is flagged is_mine), so get_cached() never stores it.
+	if ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() ) {
+		$args['anonymous'] = true;
+	}
+
 	$cache_key = Agend_Apps_Cache::build_key(
 		'directory_listing_single',
 		array_merge( array( 'id' => $listing_id ), $query )
@@ -188,6 +196,10 @@ function agend_apps_directory_search_read( string $search_query, array $filters 
 		$search_query,
 		$filters
 	);
+
+	if ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() ) {
+		$args['anonymous'] = true;
+	}
 
 	return array(
 		'path'      => '/directory/search',

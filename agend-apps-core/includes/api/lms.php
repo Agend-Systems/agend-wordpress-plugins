@@ -550,10 +550,14 @@ function agend_apps_lms_get_my_course_enrollment( string $course_id ) {
  *
  * Scope: `lms.paths.browse`. Cached.
  *
- * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`. Default empty.
+ * @param array $query     Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`. Default empty.
+ * @param bool  $anonymous Optional. Read as an anonymous visitor would: no member token is resolved or sent, and the
+ *                         shared cache entry is used for signed-in visitors too. A path is the same for every
+ *                         viewer, so a public display (the Learning paths surface) reads it this way; without it a
+ *                         signed-in member's read is held for the request only and never shared. Default false.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
-function agend_apps_lms_get_paths( array $query = array() ) {
+function agend_apps_lms_get_paths( array $query = array(), bool $anonymous = false ) {
 	/**
 	 * Filters the paths list request args before the request is sent.
 	 *
@@ -565,6 +569,11 @@ function agend_apps_lms_get_paths( array $query = array() ) {
 		array( 'query' => $query ),
 		$query
 	);
+
+	// Set after the filter so a filter that rebuilds the args cannot drop it.
+	if ( $anonymous ) {
+		$args['anonymous'] = true;
+	}
 
 	$cache_key = Agend_Apps_Cache::build_key( 'lms_paths', $query );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'lms_paths' );
@@ -590,9 +599,63 @@ function agend_apps_lms_get_paths( array $query = array() ) {
  * Scope: `lms.paths.browse`. Cached.
  *
  * @param string $id_or_slug Path ID or slug.
+ * @param bool   $anonymous  Optional. Read as an anonymous visitor would; see {@see agend_apps_lms_get_paths()}. Default false.
  * @return array|WP_Error Decoded path on success, or WP_Error on failure.
  */
-function agend_apps_lms_get_path( string $id_or_slug ) {
+function agend_apps_lms_get_path( string $id_or_slug, bool $anonymous = false ) {
+	$read = agend_apps_lms_get_path_read( $id_or_slug, $anonymous );
+
+	return agend_apps_lms_get_path_response(
+		agend_apps_api()->get_cached( $read['path'], $read['args'], $read['cache_key'], $read['ttl'] ),
+		$id_or_slug
+	);
+}
+
+/**
+ * Retrieves several learning paths at once, each exactly as
+ * agend_apps_lms_get_path() would alone, so a page showing a handful of paths
+ * with their courses waits for the slowest one rather than the sum.
+ *
+ * Scope: `lms.paths.browse`. Cached per path, under the same entries a single
+ * read uses.
+ *
+ * @param string[] $ids       Path IDs. Duplicates and blanks are dropped.
+ * @param bool     $anonymous Optional. Read as an anonymous visitor would; see {@see agend_apps_lms_get_paths()}. Default false.
+ * @return array<string, array|WP_Error> Keyed by path ID, in the order given.
+ */
+function agend_apps_lms_get_paths_by_id( array $ids, bool $anonymous = false ): array {
+	$reads = array();
+
+	foreach ( $ids as $id ) {
+		$id = (string) $id;
+
+		if ( '' !== $id && ! isset( $reads[ $id ] ) ) {
+			$reads[ $id ] = agend_apps_lms_get_path_read( $id, $anonymous );
+		}
+	}
+
+	if ( array() === $reads ) {
+		return array();
+	}
+
+	$results = array();
+
+	foreach ( agend_apps_api()->get_cached_many( $reads ) as $id => $response ) {
+		$results[ (string) $id ] = agend_apps_lms_get_path_response( $response, (string) $id );
+	}
+
+	return $results;
+}
+
+/**
+ * The single-path request, as get_cached() and get_cached_many() take it, so a
+ * single and a batched read send the same.
+ *
+ * @param string $id_or_slug Path ID or slug.
+ * @param bool   $anonymous  Whether to read as an anonymous visitor would.
+ * @return array{path: string, args: array, cache_key: string, ttl: int}
+ */
+function agend_apps_lms_get_path_read( string $id_or_slug, bool $anonymous = false ): array {
 	/**
 	 * Filters the single-path request args before the request is sent.
 	 *
@@ -601,11 +664,27 @@ function agend_apps_lms_get_path( string $id_or_slug ) {
 	 */
 	$args = (array) apply_filters( 'agend_apps_lms_get_path_args', array(), $id_or_slug );
 
-	$cache_key = Agend_Apps_Cache::build_key( 'lms_path_single', array( 'id_or_slug' => $id_or_slug ) );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'lms_path_single' );
+	// Set after the filter so a filter that rebuilds the args cannot drop it.
+	if ( $anonymous ) {
+		$args['anonymous'] = true;
+	}
 
-	$response = agend_apps_api()->get_cached( '/lms/paths/' . rawurlencode( $id_or_slug ), $args, $cache_key, $ttl );
+	return array(
+		'path'      => '/lms/paths/' . rawurlencode( $id_or_slug ),
+		'args'      => $args,
+		'cache_key' => Agend_Apps_Cache::build_key( 'lms_path_single', array( 'id_or_slug' => $id_or_slug ) ),
+		'ttl'       => Agend_Apps_Settings::get_cache_ttl( 'lms_path_single' ),
+	);
+}
 
+/**
+ * A single-path read's result as agend_apps_lms_get_path() returns it.
+ *
+ * @param array|WP_Error $response   The read's response.
+ * @param string         $id_or_slug Path ID or slug.
+ * @return array|WP_Error
+ */
+function agend_apps_lms_get_path_response( $response, string $id_or_slug ) {
 	if ( is_wp_error( $response ) ) {
 		return $response;
 	}
@@ -955,17 +1034,33 @@ function agend_apps_lms_get_user_progress( string $user_id, array $query = array
  *
  * Scope: `lms.badges.verify`. Public verification endpoint.
  *
+ * Safe to call for a visitor nobody has vetted. The token must be a 32
+ * character badge share token ({@see agend_apps_credential_parse_code()}):
+ * anything else is refused here without a call. The call is made with the site
+ * key alone, never the signed-in member's token, and a gateway refusal for the
+ * rate limit does not stop the site's other calls. Throttling is the caller's
+ * job, because only a request knows the visitor.
+ *
  * @param string $token Badge share token.
  * @return array|WP_Error Decoded verification result on success, or WP_Error on failure.
  */
 function agend_apps_lms_verify_badge( string $token ) {
+	$parsed = agend_apps_credential_parse_code( $token, 'badge' );
+
+	if ( null === $parsed ) {
+		return agend_apps_credential_invalid_code_error();
+	}
+
+	$token = $parsed['code'];
+
 	/**
 	 * Filters the badge-verify request args before the request is sent.
 	 *
-	 * @param array  $args  Request args.
+	 * @param array  $args  Request args. `unattended` and `isolated_rate_limit`
+	 *                      are set: this is a visitor's lookup, not a member's.
 	 * @param string $token Badge share token.
 	 */
-	$args = (array) apply_filters( 'agend_apps_lms_verify_badge_args', array(), $token );
+	$args = (array) apply_filters( 'agend_apps_lms_verify_badge_args', agend_apps_credential_lookup_args(), $token );
 
 	$response = agend_apps_api()->request( 'GET', '/lms/badges/verify/' . rawurlencode( $token ), $args );
 
@@ -987,17 +1082,35 @@ function agend_apps_lms_verify_badge( string $token ) {
  *
  * Scope: `lms.certificates.verify`. Public verification endpoint.
  *
+ * Safe to call for a visitor nobody has vetted. The code must be a `VER-`
+ * verification code or a legacy 8 to 12 character code
+ * ({@see agend_apps_credential_parse_code()}): a certificate number such as
+ * `CERT-2026-000123` is refused here without a call, because the gateway
+ * would look it up and the numbers run in one global sequence. The call is
+ * made with the site key alone, never the signed-in member's token, and a
+ * gateway refusal for the rate limit does not stop the site's other calls.
+ * Throttling is the caller's job, because only a request knows the visitor.
+ *
  * @param string $code Certificate verification code.
  * @return array|WP_Error Decoded verification result on success, or WP_Error on failure.
  */
 function agend_apps_lms_verify_certificate( string $code ) {
+	$parsed = agend_apps_credential_parse_code( $code, 'certificate' );
+
+	if ( null === $parsed ) {
+		return agend_apps_credential_invalid_code_error();
+	}
+
+	$code = $parsed['code'];
+
 	/**
 	 * Filters the certificate-verify request args before the request is sent.
 	 *
-	 * @param array  $args Request args.
+	 * @param array  $args Request args. `unattended` and `isolated_rate_limit`
+	 *                     are set: this is a visitor's lookup, not a member's.
 	 * @param string $code Certificate verification code.
 	 */
-	$args = (array) apply_filters( 'agend_apps_lms_verify_certificate_args', array(), $code );
+	$args = (array) apply_filters( 'agend_apps_lms_verify_certificate_args', agend_apps_credential_lookup_args(), $code );
 
 	$response = agend_apps_api()->request( 'GET', '/lms/certificates/verify/' . rawurlencode( $code ), $args );
 

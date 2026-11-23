@@ -110,6 +110,7 @@ final class Agend_Apps_Log_Redactor {
 		// Member and external identifiers. Hashed rather than dropped: they
 		// are what a support query correlates on.
 		'membershipnumber'    => 'ref',
+		'lookupvalue'         => 'ref',
 		'membernumber'        => 'ref',
 		'externalid'          => 'ref',
 		'externaluserid'      => 'ref',

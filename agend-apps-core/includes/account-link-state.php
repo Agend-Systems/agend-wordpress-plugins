@@ -83,6 +83,13 @@ function agend_apps_account_link_directory_url(): string {
  * without a gateway round trip. Only in `sso` mode is the SSO identity
  * lookup performed.
  *
+ * Not the source of truth for "can this member's own data be read". It says
+ * `linked` for every signed-in user in `credentials` mode, with no check that a
+ * session is stored, and in `wordpress` mode it ignores the recorded link state
+ * and makes a gateway call on every render. A surface that shows a member their
+ * own data asks {@see agend_apps_member_access_state()} instead, which tests for
+ * a bearer first and only then works out why there is none.
+ *
  * @param int    $user_id    WordPress user id (0 = not logged in).
  * @param string $return_url Absolute URL to return the visitor to after SSO,
  *                            used to build `initiate_url` for the `unlinked`

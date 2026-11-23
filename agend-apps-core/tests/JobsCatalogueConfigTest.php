@@ -147,4 +147,371 @@ final class JobsCatalogueConfigTest extends TestCase {
 		self::assertFalse( $config['card']['salary'] );
 		self::assertFalse( $config['detail']['emailApply'] );
 	}
+
+	#[Test]
+	public function should_put_featured_jobs_first_and_offer_work_arrangement_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertTrue( $config['listing']['featuredFirst'] );
+		self::assertTrue( $config['filters']['workArrangement'] );
+		self::assertFalse( $config['filters']['multiple'] );
+		self::assertFalse( $config['filters']['state'] );
+		self::assertFalse( $config['filters']['posted'] );
+		self::assertSame( array(), $config['filters']['tags'] );
+	}
+
+	#[Test]
+	public function should_offer_the_australian_states_by_default_when_the_state_filter_is_on(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'show_state_filter' => 'yes' ) );
+
+		self::assertTrue( $config['filters']['state'] );
+		self::assertSame( array( 'ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA' ), $config['filters']['states'] );
+	}
+
+	#[Test]
+	public function should_read_the_states_offered_dropping_blanks_and_repeats(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_state_filter' => 'yes',
+				'state_options'     => ' NSW, ,Victoria, nsw ,<b>QLD</b>',
+			)
+		);
+
+		self::assertSame( array( 'NSW', 'Victoria', 'QLD' ), $config['filters']['states'] );
+	}
+
+	#[Test]
+	public function should_hide_the_state_filter_when_no_state_is_offered(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_state_filter' => 'yes',
+				'state_options'     => ' , ',
+			)
+		);
+
+		self::assertFalse( $config['filters']['state'] );
+	}
+
+	#[Test]
+	public function should_build_one_tag_filter_per_row_that_names_a_tag(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'tag_filters' => array(
+					array(
+						'label' => 'Salary band',
+						'tags'  => array( 'salary-under-80k', 'salary-80k-120k', 'salary-120k-plus' ),
+						'style' => 'select',
+					),
+					array(
+						'label' => '',
+						'tags'  => array( 'Accreditation Required' ),
+						'style' => 'checkboxes',
+					),
+					array(
+						'label' => 'Nothing picked',
+						'tags'  => array(),
+					),
+					array(
+						'label' => 'Odd style',
+						'tags'  => array( 'remote-friendly' ),
+						'style' => 'radio',
+					),
+				),
+			)
+		);
+
+		self::assertSame(
+			array(
+				array(
+					'label' => 'Salary band',
+					'style' => 'select',
+					'tags'  => array( 'salary-under-80k', 'salary-80k-120k', 'salary-120k-plus' ),
+				),
+				array(
+					'label' => 'Tags',
+					'style' => 'checkboxes',
+					'tags'  => array( 'accreditation-required' ),
+				),
+				array(
+					'label' => 'Odd style',
+					'style' => 'select',
+					'tags'  => array( 'remote-friendly' ),
+				),
+			),
+			$config['filters']['tags']
+		);
+	}
+
+	#[Test]
+	public function should_let_visitors_pick_several_only_when_switched_on(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'allow_multiple' => 'yes' ) );
+
+		self::assertTrue( $config['filters']['multiple'] );
+	}
+	#[Test]
+	public function should_leave_the_distance_search_and_sort_off_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertFalse( $config['filters']['distance'] );
+		self::assertFalse( $config['filters']['sort'] );
+		self::assertSame( array( 10.0, 25.0, 50.0, 100.0, 250.0 ), $config['filters']['distanceRadii'] );
+		self::assertSame( 50.0, $config['filters']['distanceRadius'] );
+		self::assertSame( 'published_at:desc', $config['listing']['sort'] );
+	}
+
+	#[Test]
+	public function should_switch_the_distance_search_and_sort_on_from_the_toggles(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter' => 'yes',
+				'show_sort'            => 'yes',
+			)
+		);
+
+		self::assertTrue( $config['filters']['distance'] );
+		self::assertTrue( $config['filters']['sort'] );
+	}
+
+	#[Test]
+	public function should_read_the_radius_choices_the_way_the_directory_location_filter_does(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter'    => 'yes',
+				'distance_radius_choices' => '100, 5, abc, 5, 2000, -3, 25',
+				'distance_radius_default' => '20',
+			)
+		);
+
+		// Sorted, de-duplicated, positive and within the gateway's 1000 km.
+		self::assertSame( array( 5.0, 25.0, 100.0 ), $config['filters']['distanceRadii'] );
+		// A default that is not a choice snaps to the nearest one.
+		self::assertSame( 25.0, $config['filters']['distanceRadius'] );
+	}
+
+	#[Test]
+	public function should_pass_the_country_for_typed_places_only_when_it_is_set(): void {
+		self::assertSame( '', agend_apps_records_jobs_catalogue_build_config( array() )['filters']['placeCountry'] );
+
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter'   => 'yes',
+				'distance_place_country' => '  Australia <b>',
+			)
+		);
+		self::assertSame( 'Australia', $config['filters']['placeCountry'] );
+
+		// Longer than any country name: ignored rather than cut short.
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => str_repeat( 'x', 61 ) ) );
+		self::assertSame( '', $config['filters']['placeCountry'] );
+
+		// Whitespace only is the same as blank.
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => "   \t " ) );
+		self::assertSame( '', $config['filters']['placeCountry'] );
+
+		// The limit counts characters, not bytes: 40 three-byte characters fit.
+		$name   = str_repeat( 'ニ', 40 );
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => $name ) );
+		self::assertSame( $name, $config['filters']['placeCountry'] );
+	}
+
+	#[Test]
+	public function should_include_remote_jobs_only_when_distance_search_is_on_too(): void {
+		self::assertFalse( agend_apps_records_jobs_catalogue_build_config( array() )['filters']['distanceRemote'] );
+
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_include_remote' => 'yes' ) );
+		self::assertFalse( $config['filters']['distanceRemote'] );
+
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter'    => 'yes',
+				'distance_include_remote' => 'yes',
+			)
+		);
+		self::assertTrue( $config['filters']['distanceRemote'] );
+	}
+
+	#[Test]
+	public function should_fall_back_to_the_directory_radius_choices_when_none_are_usable(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_radius_choices' => 'nope' ) );
+
+		self::assertSame( array( 5.0, 10.0, 15.0, 20.0, 25.0, 50.0, 100.0 ), $config['filters']['distanceRadii'] );
+	}
+
+	#[Test]
+	public function should_offer_the_visitor_sorts_but_not_nearest_which_needs_a_location(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes' ) );
+		$values = array_column( $config['filters']['sortOptions'], 'value' );
+
+		self::assertSame( array( 'published_at:desc', 'expires_at:asc', 'title:asc' ), $values );
+		self::assertNotContains( 'distance:asc', $values );
+	}
+
+	#[Test]
+	public function should_open_the_sort_dropdown_on_the_boards_own_order(): void {
+		$config  = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes', 'sort' => 'salary_max:desc' ) );
+		$options = $config['filters']['sortOptions'];
+
+		self::assertSame( 'salary_max:desc', $options[0]['value'] );
+		self::assertSame( 'Highest salary', $options[0]['label'] );
+		self::assertCount( 4, $options );
+		self::assertSame( 'salary_max:desc', $config['listing']['sort'] );
+
+		$closing = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes', 'sort' => 'expires_at:asc' ) );
+		self::assertSame( array( 'expires_at:asc', 'published_at:desc', 'title:asc' ), array_column( $closing['filters']['sortOptions'], 'value' ) );
+	}
+
+	#[Test]
+	public function should_declare_the_new_settings_off_by_default_in_the_schema(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+
+		$fields = array();
+		foreach ( agend_apps_records_schema_jobs_catalogue()['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		self::assertFalse( $fields['show_distance_filter']['default'] );
+		self::assertFalse( $fields['show_sort']['default'] );
+		self::assertSame( '10, 25, 50, 100, 250', $fields['distance_radius_choices']['default'] );
+		self::assertSame( 50, $fields['distance_radius_default']['default'] );
+		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_radius_choices']['condition'] );
+		self::assertSame( '', $fields['distance_place_country']['default'] );
+		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_place_country']['condition'] );
+		self::assertFalse( $fields['distance_include_remote']['default'] );
+		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_include_remote']['condition'] );
+		// The board's existing order setting stays the default order.
+		self::assertSame( 'published_at:desc', $fields['sort']['default'] );
+	}
+
+	#[Test]
+	public function should_keep_the_filter_bar_and_standard_job_page_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertSame( 'bar', $config['filters']['layout'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+		self::assertSame( '', $config['colours']['jobHeader'] );
+		self::assertSame( '', agend_apps_records_jobs_catalogue_layout_classes( $config ) );
+		self::assertStringNotContainsString( '--agend-jobs-header', agend_apps_records_jobs_catalogue_inline_style( $config ) );
+	}
+
+	#[Test]
+	public function should_switch_the_sidebar_and_header_layouts_on_from_their_settings(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'filter_layout' => 'sidebar',
+				'detail_layout' => 'header',
+			)
+		);
+
+		self::assertSame( 'sidebar', $config['filters']['layout'] );
+		self::assertSame( 'header', $config['detail']['layout'] );
+		self::assertSame(
+			' agend-jobs-catalogue--filters-sidebar agend-jobs-catalogue--detail-header',
+			agend_apps_records_jobs_catalogue_layout_classes( $config )
+		);
+	}
+
+	#[Test]
+	public function should_switch_the_jobs_board_designs_on_from_their_settings(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'card_style'    => 'board',
+				'detail_layout' => 'cards',
+			)
+		);
+
+		self::assertSame( 'board', $config['card']['style'] );
+		self::assertSame( 'cards', $config['detail']['layout'] );
+		self::assertTrue( $config['detail']['similar'] );
+		self::assertSame( '', $config['colours']['jobHeader'] );
+		self::assertSame(
+			' agend-jobs-catalogue--detail-cards agend-jobs-catalogue--cards-board',
+			agend_apps_records_jobs_catalogue_layout_classes( $config )
+		);
+
+		$no_similar = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'cards',
+				'show_similar_jobs' => '',
+			)
+		);
+		self::assertFalse( $no_similar['detail']['similar'] );
+	}
+
+	#[Test]
+	public function should_keep_the_standard_designs_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'card_style' => 'tiles' ) );
+
+		self::assertSame( 'standard', $config['card']['style'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+		self::assertFalse( $config['detail']['similar'] );
+		self::assertSame( '', agend_apps_records_jobs_catalogue_layout_classes( $config ) );
+	}
+
+	#[Test]
+	public function should_ignore_a_layout_value_it_does_not_know(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'filter_layout' => 'columns',
+				'detail_layout' => 'sidebar',
+			)
+		);
+
+		self::assertSame( 'bar', $config['filters']['layout'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+	}
+
+	#[Test]
+	public function should_use_the_header_colour_only_with_the_header_layout(): void {
+		$header = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'header',
+				'job_header_colour' => '#0C5998',
+			)
+		);
+		self::assertSame( '#0C5998', $header['colours']['jobHeader'] );
+		self::assertStringContainsString( '--agend-jobs-header:#0C5998;', agend_apps_records_jobs_catalogue_inline_style( $header ) );
+
+		// Blank follows the heading colour: nothing is set, so the stylesheet falls back.
+		$blank = agend_apps_records_jobs_catalogue_build_config( array( 'detail_layout' => 'header' ) );
+		self::assertSame( '', $blank['colours']['jobHeader'] );
+		self::assertStringNotContainsString( '--agend-jobs-header', agend_apps_records_jobs_catalogue_inline_style( $blank ) );
+
+		// A colour left over from the header layout does nothing on the standard one.
+		$standard = agend_apps_records_jobs_catalogue_build_config( array( 'job_header_colour' => '#0C5998' ) );
+		self::assertSame( '', $standard['colours']['jobHeader'] );
+
+		// An unsafe value is dropped.
+		$unsafe = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'header',
+				'job_header_colour' => 'red;background:url(x)',
+			)
+		);
+		self::assertSame( '', $unsafe['colours']['jobHeader'] );
+	}
+
+	#[Test]
+	public function should_declare_the_layout_settings_opt_in_in_the_schema(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+
+		$fields = array();
+		foreach ( agend_apps_records_schema_jobs_catalogue()['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		self::assertSame( 'bar', $fields['filter_layout']['default'] );
+		self::assertSame( array( 'bar', 'sidebar' ), array_keys( $fields['filter_layout']['options'] ) );
+		self::assertSame( 'standard', $fields['detail_layout']['default'] );
+		self::assertSame( array( 'standard', 'header', 'cards' ), array_keys( $fields['detail_layout']['options'] ) );
+		self::assertSame( 'standard', $fields['card_style']['default'] );
+		self::assertSame( array( 'standard', 'board' ), array_keys( $fields['card_style']['options'] ) );
+		self::assertSame( array( 'detail_layout' => 'cards' ), $fields['show_similar_jobs']['condition'] );
+		self::assertSame( '', $fields['job_header_colour']['default'] );
+		self::assertSame( 'colour', $fields['job_header_colour']['type'] );
+		self::assertSame( array( 'detail_layout' => 'header' ), $fields['job_header_colour']['condition'] );
+	}
 }

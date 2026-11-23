@@ -119,6 +119,9 @@ final class Agend_Test_WP {
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
 
+	/** @var array<int, array> Query each agend_apps_crm_get_tiers() call received, in call order. */
+	public static array $tiers_queries = array();
+
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
@@ -251,6 +254,7 @@ final class Agend_Test_WP {
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
+		self::$tiers_queries     = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
 		self::$redirects         = array();
@@ -919,6 +923,21 @@ function sanitize_text_field( $value ): string {
 	return trim( (string) $value );
 }
 
+if ( ! function_exists( 'sanitize_textarea_field' ) ) {
+	/** Minimal `sanitize_textarea_field()` stand-in: strips tags, keeps line breaks. */
+	function sanitize_textarea_field( $value ): string {
+		return trim( strip_tags( (string) $value ) );
+	}
+}
+
+if ( ! function_exists( 'sanitize_email' ) ) {
+	/** Minimal `sanitize_email()` stand-in: removes invalid characters and requires an @. */
+	function sanitize_email( $email ): string {
+		$email = filter_var( (string) $email, FILTER_SANITIZE_EMAIL );
+		return false === strpos( $email, '@' ) ? '' : $email;
+	}
+}
+
 function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }
@@ -980,13 +999,33 @@ function add_query_arg( ...$args ) {
 	return $url . $sep . implode( '&', $query );
 }
 
+if ( ! function_exists( 'remove_query_arg' ) ) {
+	/** Removes one query key from a URL; enough for the single-key calls under test. */
+	function remove_query_arg( $key, $url = '' ) {
+		$stripped = (string) preg_replace( '/([?&])' . preg_quote( (string) $key, '/' ) . '=[^&#]*(&|$)/', '$1', (string) $url );
+		return rtrim( $stripped, '?&' );
+	}
+}
+
+if ( ! function_exists( 'wp_lostpassword_url' ) ) {
+	function wp_lostpassword_url( string $redirect = '' ): string {
+		return home_url( '/wp-login.php?action=lostpassword' );
+	}
+}
+
+if ( ! function_exists( 'wp_specialchars_decode' ) ) {
+	function wp_specialchars_decode( $text, $quote_style = ENT_NOQUOTES ): string {
+		return htmlspecialchars_decode( (string) $text, $quote_style );
+	}
+}
+
 function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 
 if ( ! function_exists( 'site_url' ) ) {
-	function site_url( $path = '' ): string {
-		return 'https://example.test' . $path;
+	function site_url( $path = '', $scheme = null ): string {
+		return 'https://example.test' . ( '' !== $path && '/' !== $path[0] ? '/' : '' ) . $path;
 	}
 }
 
@@ -1145,6 +1184,8 @@ function wp_remote_request( string $url, array $args = array() ) {
 	// builder returned it is not the same as proving it reached the wire.
 	Agend_Test_WP::$requests[] = array(
 		'url'     => $url,
+		'method'  => $args['method'] ?? null,
+		'timeout' => $args['timeout'] ?? null,
 		'headers' => $args['headers'] ?? array(),
 		'body'    => $args['body'] ?? null,
 	);
@@ -1229,6 +1270,17 @@ if ( ! class_exists( 'WP_Error' ) ) {
 			return $this->code;
 		}
 
+		/** @var string[] */
+		private array $extra_codes = array();
+
+		public function add( string $code, string $message = '', $data = '' ): void {
+			$this->extra_codes[] = $code;
+		}
+
+		public function get_error_codes(): array {
+			return array_merge( '' === $this->code ? array() : array( $this->code ), $this->extra_codes );
+		}
+
 		public function get_error_message(): string {
 			return $this->message;
 		}
@@ -1258,6 +1310,9 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 if ( ! function_exists( 'get_bloginfo' ) ) {
 	/** Fixed 'version' value; the updater's tests only assert the User-Agent is well-formed. */
 	function get_bloginfo( string $show = '' ): string {
+		if ( 'name' === $show ) {
+			return (string) ( $GLOBALS['agend_test_blogname'] ?? 'Example Site' );
+		}
 		return 'version' === $show ? '6.8' : '';
 	}
 }
@@ -1586,6 +1641,18 @@ if ( ! class_exists( 'WP_User' ) ) {
 
 if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
 	$GLOBALS['agend_test_users'] = array();
+}
+
+if ( ! function_exists( 'get_userdata' ) ) {
+	/** `get_userdata()` stand-in over the `agend_test_users` registry of WP_User instances. */
+	function get_userdata( $user_id ) {
+		foreach ( (array) $GLOBALS['agend_test_users'] as $user ) {
+			if ( $user instanceof WP_User && (int) $user_id === $user->ID ) {
+				return $user;
+			}
+		}
+		return false;
+	}
 }
 
 if ( ! function_exists( 'get_users' ) ) {
@@ -1945,6 +2012,12 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 		public function get_body(): string {
 			return $this->body;
 		}
+
+		/** The JSON body decoded, or null, as core returns for a non-JSON body. */
+		public function get_json_params() {
+			$decoded = json_decode( $this->body, true );
+			return is_array( $decoded ) ? $decoded : null;
+		}
 	}
 }
 
@@ -2248,6 +2321,22 @@ if ( ! class_exists( 'WP_Query' ) ) {
 	}
 }
 
+if ( ! function_exists( 'rest_sanitize_request_arg' ) ) {
+	/**
+	 * Matches WordPress for a `number` argument, the only type the routes
+	 * under test sanitise this way: the value as a float. WordPress calls it
+	 * as ( $value, $request, $param ).
+	 *
+	 * @param mixed  $value   Raw value.
+	 * @param object $request The request.
+	 * @param string $param   The argument name.
+	 * @return float
+	 */
+	function rest_sanitize_request_arg( $value, $request = null, $param = '' ): float { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return (float) $value;
+	}
+}
+
 if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 	/**
 	 * Matches WordPress: the strings 'false', '0' and '' are false, anything
@@ -2264,6 +2353,22 @@ if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 			}
 		}
 		return (bool) $value;
+	}
+}
+
+if ( ! function_exists( 'wp_parse_list' ) ) {
+	/**
+	 * Matches WordPress: a string splits on commas and whitespace, an array
+	 * keeps its scalar entries.
+	 *
+	 * @param array|string $input_list List of values.
+	 * @return array
+	 */
+	function wp_parse_list( $input_list ): array {
+		if ( ! is_array( $input_list ) ) {
+			return preg_split( '/[\s,]+/', (string) $input_list, -1, PREG_SPLIT_NO_EMPTY );
+		}
+		return array_filter( $input_list, 'is_scalar' );
 	}
 }
 
@@ -2415,6 +2520,24 @@ if ( ! function_exists( 'wp_kses_post' ) ) {
 	 */
 	function wp_kses_post( $content ): string {
 		return strip_tags( (string) $content, '<p><a><strong><em><b><i><ul><ol><li><br><h1><h2><h3><h4><h5><h6><blockquote><span><div><img>' );
+	}
+}
+
+if ( ! function_exists( 'wp_kses' ) ) {
+	/**
+	 * Minimal stand-in: keeps only the tags the allow list names. Attributes
+	 * are not filtered, so a test that cares about an attribute asserts on the
+	 * allow list itself.
+	 *
+	 * @param string $content Markup.
+	 * @param array  $allowed Allowed tags as WordPress takes them: tag => attributes.
+	 */
+	function wp_kses( $content, $allowed = array() ): string {
+		$tags = '';
+		foreach ( array_keys( (array) $allowed ) as $tag ) {
+			$tags .= '<' . $tag . '>';
+		}
+		return strip_tags( (string) $content, $tags );
 	}
 }
 

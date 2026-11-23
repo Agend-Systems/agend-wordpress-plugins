@@ -19,22 +19,119 @@ Jobs follow the same rules at `{page}/job/{slug}/` (`?agend_job=` without pretty
 
 With no page set, behaviour is unchanged: the page hosting the widget acts as its own detail page.
 
+## Agend Learning Pathways
+
+The **Agend Learning Pathways** widget (block: **Agend Learning Pathways**) is the `learning-paths` core surface: the connected account's published learning pathways as cards, each with its courses numbered in order. It is drawn on the server and ships no script. See "Learning pathways" in `agend-apps-core/README.md` for how it reads, caches and fails.
+
+- **Which pathways**: all published pathways (newest first, "Number of pathways", 1 to 24) or only the ones you pick, shown in the order you pick them. The picker lists the first hundred published pathways and is only filled while an editor has the widget open.
+- **Course links** go to the Courses page set under Catalogue Pages (`{page}/course/{slug}/`). With no Courses page set the courses are listed without links. "Open course links in a new tab" is optional.
+- **Card**: image, difficulty level, estimated hours, course count, description excerpt, a "complete in order" note for sequential pathways (with a connector between the numbered steps), and an "Optional" label on optional courses (every step marker looks the same). Each can be switched off; switching off the course list also spares one request per pathway.
+- **Layout**: Columns (Desktop, Tablet, Mobile) is the most columns across; one pathway, or fewer pathways than columns, uses the full width. A wide card puts the pathway summary beside its courses; "Card layout: Always stacked" keeps the summary above them.
+- **Empty state**: your own message, or hide the widget. A failed load always says so.
+- Needs the `lms.paths.browse` scope; without it the widget draws nothing for visitors. It needs no sign-in, in any member sign-in mode.
+- Needs Agend Apps Core 1.70.0 or newer; with an older core the widget is not registered.
+
+## Agend Credential Check
+
+The **Agend Credential Check** widget (block: **Agend Credential Check**) is the `credential-check` core surface: a form where a visitor checks a certificate code or a badge link against the Agend learning record. It runs from a script that calls Agend Apps Core's own route. See "Credential check" and "Public certificate and badge lookups" in `agend-apps-core/README.md` for how it reads, throttles and fails.
+
+- **Needs a security check.** Every check passes the captcha set up under Settings > Agend Apps > Form Captcha, and visitors see nothing until one is set up. In the editor the form is still drawn so it can be styled, with a notice saying why visitors would not see it.
+- **Result details**: certificate number, issue date, the course a badge was earned in, CPD points, instructor, topics, badge picture and when it was checked can each be switched off. A certificate never shows a holder name and no result shows an expiry date. A badge earner's name is off by default; turn it on only if learners have agreed to it.
+- **Links with a code.** A printed link or QR code can open the page with `?code=` (the name is a setting; `?agend_code=` also works). "Check straight away" runs the check on load; where the visitor has to tick a box first, the code is filled in and they press the button.
+- **Wording**: every message is editable, including what a found credential does and does not confirm, the tips when nothing matches, and an optional help link.
+- **Scopes**: needs `lms.certificates.verify`; badge codes also need `lms.badges.verify`, and a certificate-only key shows the editor a notice and refuses badge codes with a clear message. It needs no sign-in, in any member sign-in mode.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered.
+
+## Agend Community
+
+Three widgets (blocks of the same names) show the association's Agend Loop community: **Agend Community Announcements**, **Agend Community Channels** and **Agend Community Popular Posts**. They are the `community-announcements`, `community-channels` and `community-feed` core surfaces, drawn on the server with no script. See "Community (Agend Loop)" in `agend-apps-core/README.md` for how they read, cache, link and fail.
+
+- **Nothing shows until an administrator allows channels** under Settings > Agend Apps > Community. "Channels to show" can only pick from that list, and empty means all of it. Anyone on the internet can read an allowed channel, so the settings page says so.
+- **Announcements**: announcements only, or every post with a title; optional pinned only and featured only; pinned first; date tile, channel name, Pinned label, excerpt.
+- **Channels**: a card for each channel with its first letter, description, number of members and a link in ("Open channel", or your own words). Feed channels or chat channels; by name or by most members.
+- **Popular posts**: featured posts and posts with at least the number of replies you set, featured first and then most replies, or newest first. It shows fewer posts rather than padding the list.
+- **Authors** are off. Choose initials, first name, first name and last initial, or full name; profile photos are a separate switch, off.
+- **Links** open the post's channel (never the post itself), through the sign-in link when the site signs members in with WordPress. Or one page you choose, or none. A "Open the community" link closes each list.
+- **Empty state**: your own message, or hide the widget. A failed load always says so.
+- Needs the Loop scopes `loop.activity.read` and `loop.channels.browse` (channels needs only the second); without them the widgets draw nothing for visitors.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
+
+## Agend Resources
+
+Three widgets (blocks of the same names) show the connected account's Atlas library on a page: **Agend Resources Collections**, **Agend Resources Search** and **Agend Resources Ask**. They are the `resources-collections`, `resources-search` and `resources-ask` core surfaces. A page holding them is the same for every viewer, so a full-page cache can keep it; what a signed-in member sees is added after the page loads. See "Resources" in `agend-apps-core/README.md` for how they read, what they publish and what they limit.
+
+- **Collections**: you choose the collections to show, in the order you choose them (the picker lists the first hundred and is only filled while an editor has the widget open). Visitors see each collection's title, description and topics, as small cards with no link, and a note with an optional button (such as "Become a member"). Nothing is shown until you choose at least one. Everyone who visits the page can read what you choose, so the picker says so. Signed-in members also see their own collections, with the pages in each, below your choice or instead of it.
+- **Search**: a plain form that sends visitors to your public search page. It costs nothing and works with no script. Signed-in members see results as they type. "What visitors get" can be switched to results as they type for visitors too; it is off by default, and its description warns that it uses the association's AI search allowance each time someone types. Optional suggested searches sit under the box.
+- **Ask**: a question box for signed-in members only, with an answer, the pages it came from and the small print Atlas returns. Visitors see a sign-in prompt, or nothing if you choose that. While the account is known not to include Ask, the box is hidden from everyone and an editor sees why.
+- **Colours** follow the site (or your own), as the Learning Pathways widget does. One stylesheet serves all three; each has its own script, so a page loads only the one it places.
+- Need the `atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create` scopes respectively; without one, that widget draws nothing for visitors and a disabled box for an editor.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
+
 ## Agend Jobs (Agend Careers)
 
-The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with keyword, location, category, employment type and experience level filters, and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
+The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
 
 - **Featured jobs strip**: turn on "Featured jobs only", hide the filters and set a small page size. With a Jobs page set, the strip links there.
+- **Featured jobs first** (on by default) puts sponsored and featured listings ahead of the chosen order, across every page.
 - **One category**: "Only this category" pins the board to one category and hides the visitor category filter.
-- The category options come from the categories on published jobs (a wide list fetch), since the gateway has no public job categories endpoint.
 - Needs the `jobs.listings.browse` scope; without it the widget draws nothing for visitors.
 - **Who can see it** is a site setting, Settings > Agend Widgets > Jobs visibility:
   - **Public:** everyone sees everything.
   - **Titles public:** anyone sees the list; a job's description, salary and how to apply need a signed-in visitor.
   - **Members only:** the board itself needs a signed-in visitor.
 
-  The setting is enforced by the `/agend-apps/v1/jobs` REST proxy as well as the page, so hidden data is never sent to the browser. "Signed in" is a logged-in WordPress user. A site that must tell members from other accounts narrows it with the `agend_apps_records_jobs_visitor_can_view` filter. The sign-in wording is on the widget, under Job Detail.
+  The setting is enforced by the `/agend-apps/v1/jobs` REST proxy (and its `/jobs/categories` and `/jobs/tags` lists) as well as the page, so hidden data is never sent to the browser. "Signed in" is a logged-in WordPress user. A site that must tell members from other accounts narrows it with the `agend_apps_records_jobs_visitor_can_view` filter. The sign-in wording is on the widget, under Job Detail.
 
-The experience level filter needs the gateway's `experienceLevel` parameter on `GET /v1/jobs`; until that ships, the gateway ignores it and the filter shows every job. Not yet used by the board, although the gateway is gaining them: filtering by work arrangement, state, tag or minimum salary, featured listings first across every page, and the gateway's categories list. The board still derives its category options from a wide list fetch.
+### Visitor filter bar
+
+Each filter is switched on under Visitor Filter Bar:
+
+| Filter | Notes |
+| --- | --- |
+| Keyword search | Title, summary and employer. |
+| Location search | Typed text matched against city, state, country or postcode. |
+| Distance search | Off by default. A suburb or postcode box, a **Use my location** button and a radius dropdown. Only jobs within the radius show, each card saying "12.3 km away". See [Distance search and sort](#distance-search-and-sort). |
+| Sort | Off by default. A dropdown of Newest first, Closing soonest and Title, A to Z, plus **Nearest** once a location is set. The Order setting under Listings stays the order the board opens in, and is the first option when it is not one of these (Highest salary). |
+| State | A dropdown of the states in "States offered" (Australian states by default). Each must match the state as written on the listings. |
+| Category | The board's active categories, in their admin order. |
+| Employment type, work arrangement, experience level | Fixed lists. |
+| Date posted | Last 24 hours, 3, 7, 14 or 30 days. |
+| Tag filters | A repeater: each row is its own filter built from chosen tags. **Dropdown** lets the visitor pick one of the row's tags (for example a "Salary band"); **Checkboxes** offers each tag on its own (for example "Accreditation required"). |
+
+"Let visitors pick several" turns category, employment type, work arrangement and experience level into checkbox lists, where a job matching any ticked option shows. Different filters combine: a job must match all of them, including every tag set across the tag filters.
+
+### Distance search and sort
+
+Switch on **Show distance search** under Visitor Filter Bar. It reuses what the Directory's Location filter does, so a visitor meets the same controls and messages on either:
+
+- A typed suburb, postcode or address is turned into a point by the `/agend-apps/v1/directory/geocode` route, and a site whose account has no place search hides the box (the same `/directory/map-settings` check the Directory uses). **Use my location** asks the browser for the device's position and needs no place search. A device position never enters the page address.
+- **Radius choices (km)** (default `10, 25, 50, 100, 250`, from 1 to 1000) and **Default radius (km)** set the dropdown. A single choice fixes the radius and hides the dropdown.
+- **Region** (blank by default) is added to every typed place before it is looked up, like the Directory location filter's Region setting, so a bare postcode such as `5000` resolves in that country (for example "Australia") rather than wherever the geocoder's first match is. Unlike the Directory, text that already names the region as a whole word ("Adelaide, Australia") is sent as typed; a region inside another word does not count, so "US" is still added to "Houston". The visitor's text is shortened if needed so the region always fits the 200 character lookup, and the chip keeps the visitor's own words. Up to 60 characters.
+- **Include remote jobs** (off by default). Remote jobs have no location, so a distance search leaves them out. With this on, a distance search also asks the gateway for remote jobs (`includeRemote=true`), listed after the nearby ones and without a distance, and the visitor gets an **Exclude remote jobs** checkbox under the location controls while a location is set. Clearing the location clears the checkbox. Remote jobs never count towards the "distance search is not available" check, since they never carry a distance. Ticking the checkbox keeps the visitor's sort. If a gateway refuses `includeRemote` the board asks again without it, so only the remote jobs are lost, and gives up the distance search (with the note) only if that fails too. Needs the gateway release that adds `includeRemote` to `GET /v1/jobs`: switch the setting on only once that is live, since until then the gateway ignores it, no remote jobs are added and the checkbox does nothing.
+- Setting a location sends `lat`, `lng` and `radius` together (never one or two of them) and, with the sort dropdown on, opens the board on **Nearest**. Clearing it returns to the board's own order.
+- Each job found shows its distance on the card. A job's page shows its **reference number**, the **postcode** in the location line, and the **contact name and phone** (the phone as a `tel:` link) under the apply button. A field a listing does not have is not drawn.
+
+Distance search, the Nearest sort and the postcode in text search need the gateway release that adds `lat`, `lng`, `radius`, `sortBy=distance` and the `location_postcode`, `distance_km`, `reference_number`, `contact_name` and `contact_phone` fields (the matching agend-dashboard change). Before it ships, a board with the controls on stays usable: a gateway that refuses the distance parameters is asked again without them and every job is shown with a note, and one that ignores them shows every job with the same note. Both settings are off by default, so a board that has not opted in changes only in showing the new job fields once the gateway sends them.
+
+### Filter sidebar and job page header layouts
+
+Two opt-in presentations of the same board. Both are off by default, and a board that has not chosen them renders exactly as before.
+
+- **Filter layout** (Visitor Filter Bar): `Filter bar` (default) or `Filter sidebar`. The sidebar puts the keyword, place and radius in a tinted search panel with one Search button (place and radius only while Show distance search is on), and each filter you have switched on becomes a group on the left: tick boxes for category, employment type, work arrangement, experience level and tag groups in checkbox style, and radio lists with an Any option for state, date posted and tag groups in select style. A long list shows its first five options with a **Show N more** toggle. The results bar has the count, the sort dropdown (when Show sort is on) and, in a narrow container, a **Filters (n)** button that opens the groups as a panel. What is applied shows as removable chips above the results with **Clear all**. Filters apply as soon as they change, the same as the bar. Cards gain a right-hand column with the closing date and how long ago the job was posted, and the salary is emphasised.
+- **Job page layout** (Job Detail): `Standard` (default) or `Header panel`. The header layout draws a rounded panel in the content area (not a full width band) with a back link, the title, the employer and "Reference X, posted date", and a facts strip overlapping its bottom edge with location, salary, job type and closing date. Below, the description and its pills sit on the left; an apply box (with "or email" when Offer apply by email is on), a "Questions about the role" box (contact name and phone as a `tel:` link) and the employer panel sit on the right. Any box or cell with no data is not drawn. Both columns stack in a narrow container.
+- **Job page header colour** (Style, Colours) sets the panel's colour. Blank uses the heading colour. It applies to the header layout only.
+
+The layouts use the board's existing colours (heading, body, accent, button), so a category pill is a pale tint of the accent colour with darker text and titles take the heading colour, inside these two layouts only.
+
+Several values per filter, tags, state, date posted, featured first and the categories and tags lists need the gateway release that adds them to `GET /v1/jobs` (agend-dashboard #6826 and #7037). Against an older gateway those filters are ignored and show every job, and the category options fall back to the categories on published jobs.
+
+### Agend Member Jobs
+
+A separate widget for the page where members manage their own jobs: their job credits, their submissions with status (checking credit, no credit, awaiting review, live, expired, not approved with the reason, withdrawn, closed, filled), and a **Post a job** button that opens the job form. After a post the widget waits up to 30 seconds while Agend checks for a credit, then says whether the job was submitted for review or no credit was available. A pending job can be edited or withdrawn (Agend returns the credit); a live one can be marked filled or closed. A visitor who is not signed in sees a sign-in link. In the editor it shows sample jobs and calls nothing.
+
+- **Content**: heading, introduction, post button label, the page where members buy credits and its link text, and the no-credits, submitted and signed-out messages.
+- **Job Form**: required fields and hidden fields (title, employment type and work arrangement are always required), the State dropdown's options, and **Tag questions**: each row a dropdown or tick boxes over chosen board tags, for example "Salary band" (dropdown, required) and "Accreditation" (tick box). Match these to the board's tag filters.
+- Needs an API key with `jobs.submissions.browse`, `jobs.submissions.create` and `jobs.submissions.manage`, set up in Agend for member job submissions and job credits; see "Member job credits" and "Member job submissions" in the Agend Apps Core README.
 
 ## Card and detail templates
 
@@ -96,6 +193,18 @@ Deferred deliberately, in rough order:
    file is ever produced. Isolated to the gateway route: the underlying RPC returns rows when
    called directly as the anon role with the same arguments, grants are correct and the column
    tokens are valid. Reported to the API side.
+
+## Agend Member Summary
+
+The **Agend Member Summary** widget (block: **Agend Member Summary**) is the `member-summary` core surface: a signed-in member's own membership band (standing, tier and renewal), CPD points against their target, upcoming events, certificates and badges, and directory listing. See "Member summary" and "Member access state" in `agend-apps-core/README.md` for how it reads, protects the site key and fails.
+
+- **Place it on a page members sign in to.** A visitor who is not signed in sees a sign-in card (or nothing, with "Hide the widget when no one is signed in"). The page itself holds only a heading and a loading state; the member's cards load after the page does and are never stored, so a page cache cannot show one member's details to another.
+- **What to show**: Membership, CPD points, Upcoming events, Certificates and badges, Directory listing, each on its own. A part that is switched off is not loaded at all. "Greet the member by first name" and the list sizes (events and certificates, 1 to 6) are optional.
+- **Links**: Membership page (empty uses the member portal), Join page, Credential check page (each certificate links there with its code), Manage listing page and Contact page. Empty means no link, never a dead button.
+- **Messages**: your wording for no upcoming events, no certificates, no membership found, and details that cannot be loaded. Members are never told why something failed; an administrator sees the reason in a note that says only they see it.
+- **In the editor** the widget draws a labelled example of an imaginary member and calls nothing. It follows the parts you switch on.
+- Needs the `crm.contacts.browse` scope; each part also needs its own (`crm.memberships.browse` for the membership). A part the key lacks is left out for members and listed to administrators. In the `wordpress` and `sso` sign-in modes the key also needs `sso.identities.read` and `sso.tokens.create`, or members cannot be connected.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
 
 ## Directory map and location search
 

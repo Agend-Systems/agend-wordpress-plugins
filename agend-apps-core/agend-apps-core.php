@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.56.0
+ * Version:           1.86.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.56.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.86.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -222,7 +222,14 @@ function agend_apps_core_bootstrap() {
 	// Server renders of the record surfaces, shared by every editor adapter.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/learning-paths.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/credential-check.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-collections.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-search.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-ask.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-jobs.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-summary.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
@@ -239,7 +246,14 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-search.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter-shortcuts.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-count.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/listing-enquiry.php';
+	// The Community surfaces (announcements, channels, popular posts).
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-announcements.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-channels.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-feed.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
@@ -282,6 +296,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/account-link-state.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-access-state.php';
 
 	// Member sign-in mode (SPEC-CORE-20260907 US-4.1): in `sso` mode the
 	// credential login surface does not exist, not merely stand down per
@@ -311,16 +326,30 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-enquiries.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/upbeat-record-refresh.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-public.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-memberships.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/loop-channel-membership.php';
+	Agend_Apps_Loop_Channel_Membership::register();
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/crm.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/events.php';
+	// Throttle and code allow-list for the public certificate and badge
+	// lookups; the two LMS verify wrappers and their REST proxies call them.
+	require_once AGEND_APPS_CORE_DIR . 'includes/public-throttle.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/credential-guard.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/credential-check.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/lms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/jobs-credits.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/jobs-submissions.php';
+	Agend_Apps_Jobs_Credits::register();
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/atlas.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 
 	// "Connect this site" (the IdP SP registration + gateway connection
@@ -363,12 +392,15 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/directory-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-me-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/member-summary-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/events-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/resources-routes.php';
 
 	// Identity-link routes only exist in `wordpress` sign-in mode: the
 	// callback they register (agend_apps_saml_link_issue_url()) lives in
@@ -382,6 +414,7 @@ function agend_apps_core_bootstrap() {
 	// the routes above; every hook it registers checks
 	// class_exists( 'WooCommerce' ) itself (see agend_apps_my_account_directory_enabled()).
 	require_once AGEND_APPS_CORE_DIR . 'includes/my-account-directory.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/my-account-jobs.php';
 
 	if ( $agend_apps_credential_login_enabled ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
@@ -399,6 +432,13 @@ function agend_apps_core_bootstrap() {
 		// this filter directly (rather than checking credential_login_enabled())
 		// also stands down in `sso` mode.
 		add_filter( 'agend_apps_wp_login_bridge_enabled', '__return_false' );
+	}
+
+	// `wordpress` mode: the member login surface's inline sign-in form posts
+	// to wp-login.php, which needs its failure return and branding hooks.
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-inline-form.php';
+		agend_apps_wp_login_inline_register();
 	}
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
@@ -424,6 +464,11 @@ function agend_apps_core_bootstrap() {
 
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-log-admin.php';
 		new Agend_Apps_Log_Admin();
+
+		// The Community section of the Agend Apps settings page: which Loop
+		// channels the website may show.
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-community-admin.php';
+		new Agend_Apps_Community_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
@@ -445,6 +490,8 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+	agend_apps_register_member_summary_routes();
+	agend_apps_register_resources_routes();
 
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		agend_apps_register_identity_link_routes();
@@ -462,13 +509,25 @@ add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
  * Outputs the REST URL and WP nonce as a JS global for frontend consumers.
  *
  * Exposes `window.agendApps.restUrl` and `window.agendApps.nonce` so that
- * JS/Gutenberg blocks in sibling plugins can authenticate REST requests.
+ * JS/Gutenberg blocks in sibling plugins can authenticate REST requests, and
+ * `window.agendApps.signedIn` for a widget that shows a signed-in member
+ * something after the page has loaded.
+ *
+ * Like the nonce, this is written for whoever the page is built for, so a page
+ * a signed-in user receives is not one a shared cache may serve to others.
  */
 function agend_apps_output_config_js() {
 	$config = array(
 		'restUrl'        => rest_url( 'agend-apps/v1/' ),
 		'nonce'          => wp_create_nonce( 'wp_rest' ),
 		'loggedIn'       => false,
+		// Whether a WordPress user is signed in, in every member sign-in mode.
+		// `loggedIn` above is the narrower "a stored credential session exists"
+		// and is false for every `wordpress` and `sso` member, so a widget that
+		// only needs to know whether to ask the site for a member's own details
+		// reads this one. It says nothing about whether the user is linked to a
+		// member: the route that serves the details answers that.
+		'signedIn'       => get_current_user_id() > 0,
 		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
 	);
 

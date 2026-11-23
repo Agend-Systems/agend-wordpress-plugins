@@ -19,6 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
 require_once __DIR__ . '/../jobs-visibility.php';
+require_once __DIR__ . '/../filters.php';
 
 /**
  * The sort orders the jobs catalogue offers, as gateway `sortBy`/`sortOrder`.
@@ -32,6 +33,144 @@ function agend_apps_records_jobs_catalogue_sorts(): array {
 		'title:asc'         => array( 'title', 'asc' ),
 		'salary_max:desc'   => array( 'salary_max', 'desc' ),
 	);
+}
+
+/**
+ * The orders a visitor's sort dropdown offers, as value to label. `distance`
+ * is not listed: the script adds "Nearest" once the visitor has set a
+ * location, since the gateway refuses it without one.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_jobs_catalogue_visitor_sorts(): array {
+	return array(
+		'published_at:desc' => __( 'Newest first', 'agend-apps-core' ),
+		'expires_at:asc'    => __( 'Closing soonest', 'agend-apps-core' ),
+		'title:asc'         => __( 'Title, A to Z', 'agend-apps-core' ),
+	);
+}
+
+/**
+ * The sort dropdown's options. The board's own order setting always leads,
+ * even when it is one a visitor could not otherwise pick (highest salary), so
+ * the dropdown opens on the order the board is actually in.
+ *
+ * @param string $default The board's `sort` setting, as `sortBy:sortOrder`.
+ * @return array<int, array{value: string, label: string}>
+ */
+function agend_apps_records_jobs_catalogue_sort_options( string $default ): array {
+	$labels = agend_apps_records_jobs_catalogue_visitor_sorts() + array( 'salary_max:desc' => __( 'Highest salary', 'agend-apps-core' ) );
+	$values = array_unique( array_merge( array( $default ), array_keys( agend_apps_records_jobs_catalogue_visitor_sorts() ) ) );
+
+	$options = array();
+	foreach ( $values as $value ) {
+		if ( isset( $labels[ $value ] ) ) {
+			$options[] = array(
+				'value' => $value,
+				'label' => $labels[ $value ],
+			);
+		}
+	}
+	return $options;
+}
+
+/**
+ * The distance search's runtime settings: the radius choices (what the
+ * directory's Location filter accepts, from 1 up to the gateway's 1000 km,
+ * ascending) and the choice the control opens on, the nearest to the default
+ * the author set.
+ *
+ * @param array $s Surface settings.
+ * @return array{radii: float[], radius: float}
+ */
+function agend_apps_records_jobs_catalogue_distance_config( array $s ): array {
+	// The jobs list takes a radius of 1 km or more; the directory's helper
+	// also lets a fraction through, which the route would refuse.
+	$radii = array_values(
+		array_filter(
+			agend_apps_records_filter_radius_choices( $s['distance_radius_choices'] ?? '10, 25, 50, 100, 250' ),
+			static function ( $km ) {
+				return $km >= 1;
+			}
+		)
+	);
+	if ( array() === $radii ) {
+		$radii = array( 10.0, 25.0, 50.0, 100.0, 250.0 );
+	}
+	$default = is_numeric( $s['distance_radius_default'] ?? null ) ? (float) $s['distance_radius_default'] : 50.0;
+
+	$radius = $radii[0];
+	foreach ( $radii as $choice ) {
+		if ( abs( $choice - $default ) < abs( $radius - $default ) ) {
+			$radius = $choice;
+		}
+	}
+
+	return array(
+		'radii'  => $radii,
+		'radius' => $radius,
+	);
+}
+
+/**
+ * The country added to a typed place before it is looked up, from the
+ * Region setting: plain text, at most 60 characters (not bytes, so a
+ * name in another script is not cut short),
+ * blank when unset.
+ *
+ * @param string $setting The setting as saved.
+ * @return string
+ */
+function agend_apps_records_jobs_catalogue_place_country( string $setting ): string {
+	$country = trim( sanitize_text_field( $setting ) );
+	$length  = function_exists( 'mb_strlen' ) ? mb_strlen( $country, 'UTF-8' ) : strlen( $country );
+	return $length <= 60 ? $country : '';
+}
+
+/**
+ * The states a board's state filter offers, from the comma-separated setting.
+ *
+ * @param string $setting The "States offered" setting.
+ * @return string[]
+ */
+function agend_apps_records_jobs_catalogue_states( string $setting ): array {
+	$states = array();
+	foreach ( explode( ',', $setting ) as $state ) {
+		$state = trim( sanitize_text_field( $state ) );
+		if ( '' !== $state && strlen( $state ) <= 60 && ! isset( $states[ strtolower( $state ) ] ) ) {
+			$states[ strtolower( $state ) ] = $state;
+		}
+	}
+	return array_values( $states );
+}
+
+/**
+ * The board's tag filters: one per repeater row that names at least one tag.
+ * A dropdown row lets the visitor pick one of its tags; a checkboxes row
+ * offers each tag on its own. The gateway keeps a job only when it carries
+ * every tag the visitor sets, across all rows.
+ *
+ * @param mixed $rows The `tag_filters` repeater value.
+ * @return array<int, array{label: string, style: string, tags: string[]}>
+ */
+function agend_apps_records_jobs_catalogue_tag_filters( $rows ): array {
+	$filters = array();
+	foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+		if ( ! is_array( $row ) ) {
+			continue;
+		}
+		$tags = array_values( array_unique( array_filter( array_map( 'sanitize_title', array_map( 'strval', (array) ( $row['tags'] ?? array() ) ) ) ) ) );
+		if ( array() === $tags ) {
+			continue;
+		}
+		$label     = trim( (string) ( $row['label'] ?? '' ) );
+		$filters[] = array(
+			'label' => '' !== $label ? $label : __( 'Tags', 'agend-apps-core' ),
+			'style' => 'checkboxes' === ( $row['style'] ?? '' ) ? 'checkboxes' : 'select',
+			'tags'  => $tags,
+		);
+	}
+	return $filters;
 }
 
 /**
@@ -57,8 +196,23 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 	};
 
 	$category = sanitize_title( (string) ( $s['category'] ?? '' ) );
+	$states   = agend_apps_records_jobs_catalogue_states( (string) ( $s['state_options'] ?? 'ACT, NSW, NT, QLD, SA, TAS, VIC, WA' ) );
 	$layout   = 'grid' === ( $s['layout_style'] ?? 'list' ) ? 'grid' : 'list';
 	$apply    = trim( (string) ( $s['apply_label'] ?? '' ) );
+	$distance = agend_apps_records_jobs_catalogue_distance_config( $s );
+
+	// The two opt-in presentations. Anything but the exact opt-in value keeps
+	// the board's long-standing look.
+	$filter_layout = 'sidebar' === ( $s['filter_layout'] ?? 'bar' ) ? 'sidebar' : 'bar';
+	$detail_layout = in_array( $s['detail_layout'] ?? 'standard', array( 'header', 'cards' ), true ) ? (string) $s['detail_layout'] : 'standard';
+	$card_style    = 'board' === ( $s['card_style'] ?? 'standard' ) ? 'board' : 'standard';
+
+	// The job page header panel's colour: its own setting, else the heading
+	// colour (left blank here so the stylesheet follows the live heading
+	// colour, which a connected account's theme may still set client-side).
+	$header_colour = (string) ( $s['job_header_colour'] ?? '' );
+	$header_colour = agend_apps_records_colour_is_safe( $header_colour ) ? $header_colour : '';
+	$colours['colours']['jobHeader'] = 'header' === $detail_layout ? $header_colour : '';
 
 	return array(
 		'heading'    => array(
@@ -67,10 +221,12 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'subtitle' => (string) ( $s['subheading_text'] ?? '' ),
 		),
 		'listing'    => array(
-			'featuredOnly' => $on( 'featured_only', '' ),
+			'featuredOnly'  => $on( 'featured_only', '' ),
+			'featuredFirst' => $on( 'featured_first' ),
 			'category'     => $category,
 			'sortBy'       => $sorts[ $sort ][0],
 			'sortOrder'    => $sorts[ $sort ][1],
+			'sort'         => $sort,
 		),
 		'layout'     => array(
 			'style'      => $layout,
@@ -80,6 +236,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'cardRadius' => (int) ( $s['card_radius'] ?? 10 ),
 		),
 		'card'       => array(
+			'style'           => $card_style,
 			'logo'            => $on( 'show_logo' ),
 			'company'         => $on( 'show_company' ),
 			'location'        => $on( 'show_location' ),
@@ -94,17 +251,33 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'closingDate'     => $on( 'show_closing_date' ),
 		),
 		'filters'    => array(
-			'search'   => $on( 'show_search' ),
+			'search'          => $on( 'show_search' ),
 			// A board pinned to one category has nothing to choose between.
-			'category' => '' === $category && $on( 'show_category_filter' ),
-			'type'     => $on( 'show_type_filter' ),
-			'experience' => $on( 'show_experience_filter' ),
-			'location' => $on( 'show_location_filter' ),
+			'category'        => '' === $category && $on( 'show_category_filter' ),
+			'type'            => $on( 'show_type_filter' ),
+			'experience'      => $on( 'show_experience_filter' ),
+			'workArrangement' => $on( 'show_work_arrangement_filter' ),
+			'multiple'        => $on( 'allow_multiple', '' ),
+			'state'           => $on( 'show_state_filter', '' ) && array() !== $states,
+			'states'          => $states,
+			'posted'          => $on( 'show_posted_filter', '' ),
+			'location'        => $on( 'show_location_filter' ),
+			'distance'        => $on( 'show_distance_filter', '' ),
+			'distanceRadii'   => $distance['radii'],
+			'distanceRadius'  => $distance['radius'],
+			'placeCountry'    => agend_apps_records_jobs_catalogue_place_country( (string) ( $s['distance_place_country'] ?? '' ) ),
+			'distanceRemote'  => $on( 'show_distance_filter', '' ) && $on( 'distance_include_remote', '' ),
+			'sort'            => $on( 'show_sort', '' ),
+			'sortOptions'     => agend_apps_records_jobs_catalogue_sort_options( $sort ),
+			'layout'          => $filter_layout,
+			'tags'            => agend_apps_records_jobs_catalogue_tag_filters( $s['tag_filters'] ?? array() ),
 		),
 		'detail'     => array(
 			'applyLabel'   => '' !== $apply ? $apply : __( 'Apply now', 'agend-apps-core' ),
 			'emailApply'   => $on( 'allow_email_apply' ),
 			'companyPanel' => $on( 'show_company_panel' ),
+			'layout'       => $detail_layout,
+			'similar'      => 'cards' === $detail_layout && $on( 'show_similar_jobs' ),
 		),
 		'signIn'     => array(
 			'text'   => '' !== trim( (string) ( $s['signin_text'] ?? '' ) ) ? (string) $s['signin_text'] : __( 'Sign in as a member to see the full job details.', 'agend-apps-core' ),
@@ -115,9 +288,11 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'perPage' => min( 100, max( 1, (int) ( $s['per_page'] ?? 10 ) ) ),
 		),
 		'colours'    => $colours['colours'],
-		'theme'      => array(
-			'inheritFonts' => $on( 'inherit_fonts' ),
-			'colourSource' => $colours['source'],
+		'theme'      => agend_apps_records_site_theme(
+			array(
+				'inheritFonts' => $on( 'inherit_fonts' ),
+				'colourSource' => $colours['source'],
+			)
 		),
 	);
 }
@@ -129,7 +304,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
  * @return string
  */
 function agend_apps_records_jobs_catalogue_inline_style( array $config ): string {
-	return sprintf(
+	$style = sprintf(
 		'--agend-jobs-heading:%1$s;--agend-jobs-body:%2$s;--agend-jobs-accent:%3$s;--agend-jobs-button:%4$s;--agend-jobs-button-text:%5$s;--agend-jobs-card-radius:%6$dpx;--agend-jobs-cols-desktop:%7$d;--agend-jobs-cols-tablet:%8$d;',
 		esc_attr( $config['colours']['heading'] ),
 		esc_attr( $config['colours']['body'] ),
@@ -140,6 +315,38 @@ function agend_apps_records_jobs_catalogue_inline_style( array $config ): string
 		(int) $config['layout']['desktop'],
 		(int) $config['layout']['tablet']
 	);
+
+	// Only the job page header layout reads this; a blank one leaves the
+	// stylesheet on the heading colour.
+	if ( ! empty( $config['colours']['jobHeader'] ) ) {
+		$style .= sprintf( '--agend-jobs-header:%s;', esc_attr( $config['colours']['jobHeader'] ) );
+	}
+
+	return $style;
+}
+
+/**
+ * The modifier classes the container carries for the opt-in layouts. Empty
+ * for a board on the defaults, so its markup is unchanged.
+ *
+ * @param array $config The surface config.
+ * @return string Leading space included when not empty.
+ */
+function agend_apps_records_jobs_catalogue_layout_classes( array $config ): string {
+	$classes = '';
+	if ( 'sidebar' === ( $config['filters']['layout'] ?? 'bar' ) ) {
+		$classes .= ' agend-jobs-catalogue--filters-sidebar';
+	}
+	if ( 'header' === ( $config['detail']['layout'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--detail-header';
+	}
+	if ( 'cards' === ( $config['detail']['layout'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--detail-cards';
+	}
+	if ( 'board' === ( $config['card']['style'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--cards-board';
+	}
+	return $classes;
 }
 
 /**
@@ -221,7 +428,7 @@ function agend_apps_records_render_jobs_catalogue( array $settings ): string {
 
 	ob_start();
 	?>
-		<div class="agend-jobs-catalogue agend-jobs-catalogue--<?php echo esc_attr( $config['layout']['style'] ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-jobs-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+		<div class="agend-jobs-catalogue agend-jobs-catalogue--<?php echo esc_attr( $config['layout']['style'] ); ?><?php echo esc_attr( agend_apps_records_jobs_catalogue_layout_classes( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-jobs-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading jobs…', 'agend-apps-core' ); ?></span>
 			<div class="agend-jobs-grid">
 				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>

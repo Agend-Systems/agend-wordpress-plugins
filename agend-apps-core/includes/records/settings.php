@@ -40,6 +40,13 @@ const AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achiev
 const AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION = 'agend_apps_map_carto_key';
 
 /**
+ * Option name storing the "members see the same directory" toggle ('1' or '').
+ *
+ * @var string
+ */
+const AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION = 'agend_apps_directory_shared_reads';
+
+/**
  * Option name storing the configured Events catalogue/detail page id (0 = unset).
  *
  * @var string
@@ -132,6 +139,30 @@ function agend_apps_records_ssr_detail_enabled(): bool {
 	// A site's existing add_filter() on the pre-rename hook name still applies
 	// for one release.
 	return (bool) apply_filters_deprecated( 'agend_elementor_ssr_detail_enabled', array( $enabled ), '1.8.0', 'agend_apps_records_ssr_detail_enabled' );
+}
+
+/**
+ * Whether a signed-in member's directory reads are the shared, anonymous ones.
+ *
+ * Off by default: a member's token goes with every directory read, because
+ * the account may show some fields only to members, and those responses are
+ * never shared. A site whose directory shows members nothing extra turns this
+ * on, so search, facets, map pins, the listings list and a listing's detail
+ * are sent without the token and served from the cache every visitor shares.
+ * If a field is later made members-only, members see it as hidden too; the
+ * public never sees more. Writes and `/me` reads still carry the token.
+ *
+ * @return bool True when directory reads are shared.
+ */
+function agend_apps_directory_reads_shared(): bool {
+	$enabled = '1' === get_option( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION, '' );
+
+	/**
+	 * Filters whether a signed-in member's directory reads are shared.
+	 *
+	 * @param bool $enabled Whether the toggle is on.
+	 */
+	return (bool) apply_filters( 'agend_apps_directory_reads_shared', $enabled );
 }
 
 /**
@@ -238,6 +269,32 @@ function agend_apps_records_settings_init(): void {
 		'agend_elementor_section_pages'
 	);
 
+	// Member job posting: only while My Account Jobs is loaded (it defines
+	// these options) and WooCommerce is there to sell the credits.
+	if ( defined( 'AGEND_APPS_MY_ACCOUNT_JOBS_TEMPLATE_OPTION' ) && class_exists( 'WooCommerce' ) ) {
+		register_setting(
+			'agend_elementor_settings',
+			AGEND_APPS_MY_ACCOUNT_JOBS_TEMPLATE_OPTION,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => 0,
+			)
+		);
+		add_settings_field( AGEND_APPS_MY_ACCOUNT_JOBS_TEMPLATE_OPTION, __( 'My Account Jobs template', 'agend-apps-core' ), 'agend_apps_records_settings_field_my_account_jobs_template', 'agend-elementor', 'agend_elementor_section_pages' );
+
+		register_setting(
+			'agend_elementor_settings',
+			AGEND_APPS_MEMBER_JOBS_BUY_OPTION,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => 'agend_apps_member_jobs_sanitize_buy_products',
+				'default'           => array(),
+			)
+		);
+		add_settings_field( AGEND_APPS_MEMBER_JOBS_BUY_OPTION, __( 'Job credit products', 'agend-apps-core' ), 'agend_apps_records_settings_field_member_jobs_buy', 'agend-elementor', 'agend_elementor_section_pages' );
+	}
+
 	foreach ( array(
 		AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION   => array( __( 'Event detail template', 'agend-apps-core' ), 'agend_apps_records_settings_field_event_detail_template' ),
 		AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION  => array( __( 'Course detail template', 'agend-apps-core' ), 'agend_apps_records_settings_field_course_detail_template' ),
@@ -322,6 +379,52 @@ function agend_apps_records_settings_init(): void {
 		'agend-elementor',
 		'agend_apps_section_maps'
 	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_apps_records_sanitize_checkbox',
+			'default'           => '',
+		)
+	);
+
+	add_settings_section(
+		'agend_apps_section_directory',
+		__( 'Directory', 'agend-apps-core' ),
+		'__return_null',
+		'agend-elementor'
+	);
+
+	add_settings_field(
+		AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION,
+		__( 'Members see the same directory', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_directory_shared_reads',
+		'agend-elementor',
+		'agend_apps_section_directory'
+	);
+}
+
+/**
+ * Renders the "members see the same directory" checkbox field.
+ */
+function agend_apps_records_settings_field_directory_shared_reads(): void {
+	$value = get_option( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION, '' );
+	?>
+	<label>
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<?php esc_html_e( 'Show signed-in members the same directory as everyone else', 'agend-apps-core' ); ?>
+	</label>
+	<p class="description">
+		<?php
+		esc_html_e(
+			'Turn this on only when no directory field is set to show to members alone. Search, filters, map pins and listing pages then load from the cache every visitor shares, which is much faster for signed-in members. If a field is later made members-only, members will see it hidden as well, until this is turned off.',
+			'agend-apps-core'
+		);
+		?>
+	</p>
+	<?php
 }
 add_action( 'admin_init', 'agend_apps_records_settings_init' );
 
@@ -527,6 +630,74 @@ function agend_apps_records_settings_template_select( string $option, string $pa
 		esc_html_e( 'Choose the dedicated page above first.', 'agend-apps-core' );
 	}
 	echo '</p>';
+}
+
+/**
+ * Renders the My Account Jobs template picker.
+ */
+function agend_apps_records_settings_field_my_account_jobs_template(): void {
+	$selected = absint( get_option( AGEND_APPS_MY_ACCOUNT_JOBS_TEMPLATE_OPTION, 0 ) );
+	$options  = class_exists( 'Agend_Apps_Templates' )
+		? Agend_Apps_Templates::options( __( 'Agend Member Jobs only', 'agend-apps-core' ) )
+		: array( '' => __( 'Agend Member Jobs only', 'agend-apps-core' ) );
+
+	echo '<select name="' . esc_attr( AGEND_APPS_MY_ACCOUNT_JOBS_TEMPLATE_OPTION ) . '">';
+	foreach ( $options as $value => $label ) {
+		echo '<option value="' . esc_attr( (string) $value ) . '"' . selected( $selected, (int) $value, false ) . '>' . esc_html( $label ) . '</option>';
+	}
+	echo '</select>';
+	echo '<p class="description">' . esc_html__( 'What members see under My Account > Jobs. Choose a saved template containing the Agend Member Jobs widget to add your own content around it, shown or hidden with Content Personalisation rules such as "Has an unused job credit".', 'agend-apps-core' ) . '</p>';
+}
+
+/**
+ * Renders the job credit product pickers: up to three Buy buttons.
+ */
+function agend_apps_records_settings_field_member_jobs_buy(): void {
+	$rows     = agend_apps_member_jobs_buy_settings();
+	$products = function_exists( 'wc_get_products' )
+		? wc_get_products(
+			array(
+				'limit'   => 200,
+				'status'  => 'publish',
+				'orderby' => 'title',
+				'order'   => 'ASC',
+			)
+		)
+		: array();
+
+	// A saved product outside that list (a large catalogue, or a product
+	// no longer published) is still offered, so saving never drops it.
+	$listed = array();
+	foreach ( $products as $product ) {
+		$listed[ $product->get_id() ] = true;
+	}
+	foreach ( $rows as $row ) {
+		if ( ! isset( $listed[ $row['product_id'] ] ) && function_exists( 'wc_get_product' ) ) {
+			$product = wc_get_product( $row['product_id'] );
+			if ( $product ) {
+				$products[]                     = $product;
+				$listed[ $row['product_id'] ] = true;
+			}
+		}
+	}
+
+	for ( $i = 0; $i < 3; $i++ ) {
+		$row  = $rows[ $i ] ?? array(
+			'product_id' => 0,
+			'label'      => '',
+		);
+		$name = AGEND_APPS_MEMBER_JOBS_BUY_OPTION . '[' . $i . ']';
+
+		echo '<p><select name="' . esc_attr( $name . '[product_id]' ) . '" aria-label="' . esc_attr__( 'Product', 'agend-apps-core' ) . '">';
+		echo '<option value="0">' . esc_html__( 'No product', 'agend-apps-core' ) . '</option>';
+		foreach ( $products as $product ) {
+			echo '<option value="' . esc_attr( (string) $product->get_id() ) . '"' . selected( $row['product_id'], $product->get_id(), false ) . '>' . esc_html( $product->get_name() ) . '</option>';
+		}
+		echo '</select> ';
+		echo '<input type="text" class="regular-text" name="' . esc_attr( $name . '[label]' ) . '" value="' . esc_attr( $row['label'] ) . '" placeholder="' . esc_attr__( 'Button text, e.g. Buy 1 credit', 'agend-apps-core' ) . '" aria-label="' . esc_attr__( 'Button text', 'agend-apps-core' ) . '" /></p>';
+	}
+
+	echo '<p class="description">' . esc_html__( 'The Buy buttons on My Account > Jobs, in this order. Each puts the product in the cart and opens checkout. Leave the text empty to use "Buy" and the product name.', 'agend-apps-core' ) . '</p>';
 }
 
 /**

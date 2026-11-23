@@ -163,6 +163,7 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 				'type'        => \Elementor\Controls_Manager::TEXTAREA,
 				'default'     => $defaults['success_message'],
 				'label_block' => true,
+				'description' => __( '{listing_name} becomes the listing\'s name, here and in every other text on this widget.', 'agend-elementor' ),
 			)
 		);
 

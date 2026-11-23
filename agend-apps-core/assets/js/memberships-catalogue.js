@@ -198,7 +198,8 @@
       if (!tiers || !tiers.length) {
         if (status) {
           status.style.display = '';
-          status.textContent = 'No membership tiers available.';
+          status.classList.remove('agend-visually-hidden');
+          status.textContent = 'No membership tiers are available.';
         }
         return;
       }
@@ -375,10 +376,9 @@
           success_url: urls.successUrl,
           cancel_url: urls.cancelUrl,
         }).then(function (body) {
-          if (!body || body.success === false) {
-            var msg = body && body.error && body.error.message
-              ? body.error.message
-              : 'Failed to create checkout session.';
+          if (!body || body.success === false || body.code) {
+            var apiError = body && body.data && body.data.body && body.data.body.error;
+            var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
             alert('Error: ' + msg);
             submitBtn.disabled = false;
             submitBtn.textContent = btnLabel;
@@ -690,10 +690,8 @@
 
       // Create contact.
       apiPost('/crm/contacts', contactData).then(function (body) {
-        if (!body || body.success === false) {
-          var msg = body && body.error && body.error.message
-            ? body.error.message
-            : 'Failed to submit application.';
+        if (!body || body.success === false || body.code) {
+          var msg = (body && (body.message || (body.error && body.error.message))) || 'Failed to submit application.';
           alert('Error: ' + msg);
           return;
         }
@@ -761,10 +759,9 @@
         success_url: urls.successUrl,
         cancel_url: urls.cancelUrl,
       }).then(function (body) {
-        if (!body || body.success === false) {
-          var msg = body && body.error && body.error.message
-            ? body.error.message
-            : 'Failed to create checkout session.';
+        if (!body || body.success === false || body.code) {
+          var apiError = body && body.data && body.data.body && body.data.body.error;
+          var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
           alert('Error: ' + msg);
           return;
         }
@@ -843,16 +840,26 @@
           return;
         }
 
-        var tier = tiers.filter(function (t) { return t.id === current.tier_id; })[0];
+        var listed = tiers.filter(function (t) { return t.id === current.tier_id; })[0];
+        // The grid holds only publicly listed tiers, so a member on a tier
+        // the organisation hides from the catalogue needs a single-tier read
+        // for its name.
+        var tierLookup = listed
+          ? Promise.resolve(listed)
+          : apiGet('/crm/tiers/' + encodeURIComponent(current.tier_id), {})
+            .then(function (tierBody) { return unwrapOne(tierBody); })
+            .catch(function () { return null; });
 
-        apiGet('/crm/me/transactions', {}).then(function (txBody) {
-          var transactions = unwrapList(txBody).items;
-          var unpaidOrder = transactions.filter(function (tx) {
-            return tx.membership_id === current.id && tx.payment_status && tx.payment_status !== 'paid';
-          })[0];
-          renderMembershipStatusPanel(current, tier, unpaidOrder);
-        }).catch(function () {
-          renderMembershipStatusPanel(current, tier, null);
+        tierLookup.then(function (tier) {
+          apiGet('/crm/me/transactions', {}).then(function (txBody) {
+            var transactions = unwrapList(txBody).items;
+            var unpaidOrder = transactions.filter(function (tx) {
+              return tx.membership_id === current.id && tx.payment_status && tx.payment_status !== 'paid';
+            })[0];
+            renderMembershipStatusPanel(current, tier, unpaidOrder);
+          }).catch(function () {
+            renderMembershipStatusPanel(current, tier, null);
+          });
         });
       }).catch(function () {
         // Progressive enhancement only — the tier grid below still works.
@@ -888,10 +895,9 @@
             success_url: urls.successUrl,
             cancel_url: urls.cancelUrl,
           }).then(function (body) {
-            if (!body || body.success === false) {
-              var msg = body && body.error && body.error.message
-                ? body.error.message
-                : 'Failed to start payment.';
+            if (!body || body.success === false || body.code) {
+              var apiError = body && body.data && body.data.body && body.data.body.error;
+              var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to start payment.';
               alert('Error: ' + msg);
               payBtn.disabled = false;
               payBtn.textContent = 'Pay Now';
@@ -924,35 +930,35 @@
      * Initialises the widget: fetch tiers and fields, render.
      */
     function init() {
+      // Checkout returns must be shown even if tiers or custom fields cannot load.
+      var urlState = currentState();
+      if (urlState === SUCCESS_MARKER) {
+        showCheckoutConfirmation();
+      } else if (urlState === CANCEL_MARKER) {
+        showCheckoutCancelled();
+      }
+
       // Server-side tier-type filter (SPEC-CORE-20260722): omit for both,
       // otherwise pass individual|corporate so the gateway returns only that type.
       var tiersQuery = cfg.membershipType ? { tierType: cfg.membershipType } : {};
       apiGet('/crm/tiers', tiersQuery).then(function (body) {
         var result = unwrapList(body);
-        if (!result.items.length) {
-          if (status) {
-            status.style.display = '';
-            status.textContent = 'No membership tiers are available.';
-          }
-          return;
+
+        // Runs before the empty-grid return: a member on a tier the
+        // organisation hides still needs their summary and Pay Now when no
+        // tier is listed.
+        if (window.agendApps && window.agendApps.loggedIn) {
+          renderMyMembershipStatus(result.items);
         }
 
         renderTiers(result.items);
-
-        if (window.agendApps && window.agendApps.loggedIn) {
-          renderMyMembershipStatus(result.items);
+        if (!result.items.length) {
+          return;
         }
 
         apiGet('/crm/fields', { entityType: 'contact' }).then(function (fieldsBody) {
           var fieldsResult = unwrapList(fieldsBody);
           state.fields = fieldsResult.items || [];
-
-          var urlState = currentState();
-          if (urlState === SUCCESS_MARKER) {
-            showCheckoutConfirmation();
-          } else if (urlState === CANCEL_MARKER) {
-            showCheckoutCancelled();
-          }
         }).catch(function () {
           // Fallback: no custom fields.
           state.fields = [];

@@ -111,14 +111,19 @@ function agend_apps_directory_facets_query( array $fields ): array {
 }
 
 /**
- * Whether a facet set's response is the same for every viewer: it names at
- * least one facet and no `custom.<key>` facet. Naming none returns every
- * custom facet the caller's grants cover.
+ * Whether a facet set's response is the same for every viewer: the site
+ * shares directory reads ({@see agend_apps_directory_reads_shared()}), or it
+ * names at least one facet and no `custom.<key>` facet. Naming none returns
+ * every custom facet the caller's grants cover.
  *
  * @param string[] $fields Facet names.
  * @return bool
  */
 function agend_apps_directory_facets_viewer_independent( array $fields ): bool {
+	if ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() ) {
+		return true;
+	}
+
 	$names = array_values( array_filter( array_map( 'trim', $fields ), 'strlen' ) );
 	if ( empty( $names ) ) {
 		return false;
