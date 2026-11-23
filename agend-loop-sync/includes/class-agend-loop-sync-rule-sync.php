@@ -306,6 +306,19 @@ class Agend_Loop_Sync_Rule_Sync {
 			return true;
 		}
 
+		// MySQL reports the rows an UPDATE changed, not the rows it matched, so
+		// writing the value already stored reports 0 even while the lock is
+		// ours (a renewal in the same second as the last one does exactly
+		// that). Read it instead.
+		if ( $old === $replacement ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$stored = $wpdb->get_var(
+				$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::LOCK )
+			);
+
+			return null !== $stored && (string) $stored === $old;
+		}
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- compare-and-swap; see acquire_lock().
 		$wpdb->query(
 			$wpdb->prepare(

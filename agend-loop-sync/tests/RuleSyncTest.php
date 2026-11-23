@@ -479,6 +479,12 @@ final class RuleSyncTest extends RuleTestCase {
 		$this->assertTrue( $call( 'renew_lock' ) );
 		$this->assertGreaterThan( $old_expiry - 500, (int) strtok( (string) get_option( Agend_Loop_Sync_Rule_Sync::LOCK ), ':' ) );
 
+		// Forced twice in the same second: the value written equals the value
+		// stored, which MySQL counts as no row changed. Still ours.
+		$this->assertTrue( $call( 'renew_lock', true ) );
+		$this->assertTrue( $call( 'renew_lock', true ) );
+		$this->assertTrue( $call( 'renew_lock', true ) );
+
 		// Someone else's lock: renewal fails and leaves it untouched.
 		$theirs = ( time() + 1 ) . ':theirs';
 		Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] = $theirs;
