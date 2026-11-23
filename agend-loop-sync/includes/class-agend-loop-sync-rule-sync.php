@@ -43,14 +43,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_Rule_Sync {
 
 	/**
-	 * Transient that stops two runs overlapping (a cron run and a manual one).
+	 * Option that stops two runs overlapping (a cron run and a manual one). Its
+	 * value is `<expiry timestamp>:<run token>`; see acquire_lock().
 	 */
 	const LOCK = 'agend_loop_sync_rules_lock';
 
 	/**
-	 * Seconds a run may hold the lock before it is treated as abandoned.
+	 * Seconds a run's lock lasts without being renewed. A running scan renews it
+	 * well before then; only a crashed run leaves it to expire.
 	 */
 	const LOCK_TTL = 600;
+
+	/**
+	 * The lock value this run holds (`<expiry>:<token>`), or null when it holds
+	 * none.
+	 *
+	 * @var string|null
+	 */
+	private $lock_value = null;
+
+	/**
+	 * Set when a renewal found the lock was no longer ours.
+	 *
+	 * @var bool
+	 */
+	private $lock_lost = false;
 
 	/**
 	 * Upbeat client override, used by tests. Null means the real
@@ -149,34 +166,228 @@ class Agend_Loop_Sync_Rule_Sync {
 			'errors'                  => array(),
 			'dry_run'                 => Agend_Loop_Sync_Settings::is_dry_run(),
 			'member_counts_reported'  => false,
+			// Whether the run got as far as reading members. When false, `not_run`
+			// says why: disabled, unavailable or locked.
+			'ran'                     => false,
+			'not_run'                 => '',
 		);
 
 		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_rule_sync_enabled() ) {
 			// Nothing ran, so keep the last real run's time and summary.
 			$summary['errors'][] = 'Community rule sync is disabled in settings';
+			$summary['not_run']  = 'disabled';
 			return $summary;
 		}
 
 		if ( null === $this->api() || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {
 			$summary['errors'][] = 'Required plugins (membership API / agend-apps-core) are unavailable';
+			$summary['not_run']  = 'unavailable';
 			return $this->finish( $summary );
 		}
 
-		if ( false !== get_transient( self::LOCK ) ) {
+		if ( ! $this->acquire_lock() ) {
 			// Another run is in progress; leave its result to it.
 			$summary['errors'][] = 'A community rule run is already in progress';
+			$summary['not_run']  = 'locked';
 			return $summary;
 		}
 
-		set_transient( self::LOCK, '1', self::LOCK_TTL );
+		$this->lock_lost = false;
 
 		try {
+			$summary['ran'] = true;
 			$this->run_rules( $summary );
 		} finally {
-			delete_transient( self::LOCK );
+			$this->release_lock();
 		}
 
 		return $this->finish( $summary );
+	}
+
+	/**
+	 * Takes the run lock, atomically.
+	 *
+	 * The lock is an option row whose value is `<expiry>:<token>`, the token
+	 * being random per run. The row is inserted with INSERT IGNORE directly
+	 * against the database (WordPress's own add_option() is an upsert, so two
+	 * racing callers can both be told they added it), and the affected-row count
+	 * says whether this run's row won. A lock past its expiry is taken over with
+	 * an UPDATE that only matches the exact value just read, so two runs racing
+	 * for the same takeover cannot both win. Direct SQL also bypasses any
+	 * persistent object cache. Without $wpdb it falls back to add_option().
+	 *
+	 * @return bool Whether this run now holds the lock.
+	 */
+	private function acquire_lock(): bool {
+		global $wpdb;
+
+		$value = ( time() + self::LOCK_TTL ) . ':' . bin2hex( random_bytes( 8 ) );
+
+		if ( ! ( $wpdb instanceof wpdb ) ) {
+			return $this->acquire_lock_without_wpdb( $value );
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- the lock must be atomic; see the docblock.
+		$wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				self::LOCK,
+				$value
+			)
+		);
+		wp_cache_delete( self::LOCK, 'options' );
+
+		if ( 1 === (int) $wpdb->rows_affected ) {
+			$this->lock_value = $value;
+			return true;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$existing = $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::LOCK )
+		);
+
+		if ( null === $existing || ! self::lock_expired( (string) $existing ) ) {
+			return false;
+		}
+
+		if ( $this->swap_lock( (string) $existing, $value ) ) {
+			$this->lock_value = $value;
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * The add_option() version of acquire_lock(), for a host with no $wpdb.
+	 *
+	 * @param string $value The lock value to take.
+	 * @return bool Whether this run now holds the lock.
+	 */
+	private function acquire_lock_without_wpdb( string $value ): bool {
+		$existing = get_option( self::LOCK, false );
+
+		if ( false !== $existing ) {
+			if ( ! self::lock_expired( (string) $existing ) ) {
+				return false;
+			}
+
+			delete_option( self::LOCK );
+		}
+
+		if ( add_option( self::LOCK, $value, '', false ) ) {
+			$this->lock_value = $value;
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Replaces the lock value, only if it is still `$old`.
+	 *
+	 * @param string $old The value the caller read.
+	 * @param string $new The value to write.
+	 * @return bool Whether the swap happened.
+	 */
+	private function swap_lock( string $old, string $new ): bool {
+		global $wpdb;
+
+		if ( ! ( $wpdb instanceof wpdb ) ) {
+			// Best effort: re-read, compare, write.
+			if ( (string) get_option( self::LOCK, '' ) !== $old ) {
+				return false;
+			}
+
+			update_option( self::LOCK, $new, false );
+			return true;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- compare-and-swap; see acquire_lock().
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				$new,
+				self::LOCK,
+				$old
+			)
+		);
+		wp_cache_delete( self::LOCK, 'options' );
+
+		return 1 === (int) $wpdb->rows_affected;
+	}
+
+	/**
+	 * Whether a stored lock value is past its expiry. A malformed value counts
+	 * as expired.
+	 *
+	 * @param string $value Stored value.
+	 * @return bool
+	 */
+	private static function lock_expired( string $value ): bool {
+		return (int) strtok( $value, ':' ) <= time();
+	}
+
+	/**
+	 * Pushes this run's lock expiry out by the full TTL when less than half of it
+	 * remains, but only while the stored value is still ours. Sets lock_lost when
+	 * it is not, so the run stops before it sends a roster built under a lock it
+	 * no longer holds.
+	 *
+	 * @param bool $force Renew whatever the time remaining.
+	 * @return bool Whether this run still holds the lock.
+	 */
+	private function renew_lock( bool $force = false ): bool {
+		if ( null === $this->lock_value ) {
+			return false;
+		}
+
+		$expiry = (int) strtok( $this->lock_value, ':' );
+		if ( ! $force && $expiry - time() > self::LOCK_TTL / 2 ) {
+			return true;
+		}
+
+		$token = (string) substr( $this->lock_value, (int) strpos( $this->lock_value, ':' ) + 1 );
+		$new   = ( time() + self::LOCK_TTL ) . ':' . $token;
+
+		if ( $this->swap_lock( $this->lock_value, $new ) ) {
+			$this->lock_value = $new;
+			return true;
+		}
+
+		$this->lock_lost = true;
+		return false;
+	}
+
+	/**
+	 * Releases the lock, only if the stored value is still this run's, so a run
+	 * whose lock expired never deletes the lock of the run that took over.
+	 *
+	 * @return void
+	 */
+	private function release_lock(): void {
+		global $wpdb;
+
+		if ( null === $this->lock_value ) {
+			return;
+		}
+
+		if ( $wpdb instanceof wpdb ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- compare-and-delete; see acquire_lock().
+			$wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+					self::LOCK,
+					$this->lock_value
+				)
+			);
+			wp_cache_delete( self::LOCK, 'options' );
+		} elseif ( (string) get_option( self::LOCK, '' ) === $this->lock_value ) {
+			delete_option( self::LOCK );
+		}
+
+		$this->lock_value = null;
 	}
 
 	/**
@@ -190,6 +401,12 @@ class Agend_Loop_Sync_Rule_Sync {
 		$summary['rules_total'] = count( $rules );
 
 		$rosters = $this->build_rosters( $rules, $summary );
+
+		if ( $this->lock_lost ) {
+			$summary['errors'][] = 'The run lock was lost to another run; nothing was sent';
+			Agend_Loop_Sync_Logger::warning( 'Rule sync stopped: run lock lost' );
+			return;
+		}
 
 		// Replace mode and archiving both treat the data as complete. With no
 		// enabled rule nothing was read and nothing depends on it. Otherwise, if
@@ -210,11 +427,20 @@ class Agend_Loop_Sync_Rule_Sync {
 		}
 
 		// Loop's view of the channels this site has synced: needed to archive an
-		// emptied rule's channel and the channels of removed rules.
-		$loop_committees = $complete ? Agend_Loop_Sync_Gateway::fetch_loop_committees( $summary ) : null;
+		// emptied rule's channel and the channels of removed rules. A dry run makes
+		// no gateway calls, so it does not read it and archives nothing.
+		$loop_committees = $complete && ! Agend_Loop_Sync_Settings::is_dry_run() ? Agend_Loop_Sync_Gateway::fetch_loop_committees( $summary ) : null;
 		$live            = $this->live_channels( $loop_committees );
 
 		foreach ( $rules as $rule ) {
+			// Each send can take a while; renew the lock every time, which also
+			// confirms it is still ours, and never send a roster once it is not.
+			if ( ! $this->renew_lock( true ) ) {
+				$summary['errors'][] = 'The run lock was lost to another run; remaining rules were not sent';
+				Agend_Loop_Sync_Logger::warning( 'Rule sync stopped: run lock lost' );
+				return;
+			}
+
 			$this->sync_rule( $rule, $rosters[ $rule['slug'] ]['members'] ?? array(), $rosters[ $rule['slug'] ]['matched'] ?? 0, $live, $loop_committees, $summary );
 		}
 
@@ -263,6 +489,12 @@ class Agend_Loop_Sync_Rule_Sync {
 			}
 
 			++$summary['members_scanned'];
+
+			// One Upbeat read per member can outlast the lock; renew it as the
+			// scan goes. If it was lost, stop: the roster would be stale.
+			if ( ! $this->renew_lock() ) {
+				return $rosters;
+			}
 
 			$detail = $this->api()->get_member_details_by_id( $membership_number );
 

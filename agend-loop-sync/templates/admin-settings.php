@@ -156,6 +156,15 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			?>
 			</p>
 		</div>
+	<?php elseif ( 'not_run' === $als_rules_notice ) : ?>
+		<?php
+		$als_not_run_reasons = array(
+			'disabled'    => __( 'Loop Sync is turned off (Enable plugin, above), so no rules ran.', 'agend-loop-sync' ),
+			'unavailable' => __( 'No rules ran: the membership plugin or agend-apps-core is not available.', 'agend-loop-sync' ),
+			'locked'      => __( 'No rules ran: another community rule run is already in progress. Try again shortly.', 'agend-loop-sync' ),
+		);
+		?>
+		<div class="notice notice-warning is-dismissible"><p><?php echo esc_html( $als_not_run_reasons[ $als_rules_code ] ?? __( 'No rules ran.', 'agend-loop-sync' ) ); ?></p></div>
 	<?php elseif ( 'saved' === $als_rules_notice ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Rule saved. It takes effect on the next rule run.', 'agend-loop-sync' ); ?></p></div>
 	<?php elseif ( 'deleted' === $als_rules_notice ) : ?>
@@ -1031,6 +1040,9 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			'too_large'      => __( 'too many members, not synced', 'agend-loop-sync' ),
 		);
 		?>
+		<?php if ( ! Agend_Loop_Sync_Settings::is_enabled() ) : ?>
+			<p><strong><?php esc_html_e( 'Loop Sync is turned off (Enable plugin, above), so rules will not run until it is turned on.', 'agend-loop-sync' ); ?></strong></p>
+		<?php endif; ?>
 		<p><?php esc_html_e( 'Each enabled rule keeps one private Loop channel (rule:<slug>) in step with membership: members who meet the criteria are added and members who stop meeting them are removed. A member with no Loop account yet is skipped until they have one. Honours dry run.', 'agend-loop-sync' ); ?></p>
 
 		<?php if ( $als_last_rule_sync > 0 ) : ?>

@@ -351,6 +351,28 @@ final class RuleSettingsTest extends RuleTestCase {
 	}
 
 	#[Test]
+	public function the_rules_section_warns_when_the_master_switch_is_off(): void {
+		update_option( 'agend_loop_sync_enabled', '0' );
+		$this->add_rule( 'Fellows' );
+
+		$this->assertStringContainsString( 'rules will not run until it is turned on', $this->render_page() );
+
+		update_option( 'agend_loop_sync_enabled', '1' );
+		$this->assertStringNotContainsString( 'rules will not run until it is turned on', $this->render_page() );
+	}
+
+	#[Test]
+	public function a_not_run_result_shows_its_reason_instead_of_the_success_notice(): void {
+		$_GET['rules']      = 'not_run';
+		$_GET['rules_code'] = 'disabled';
+		$html               = $this->render_page();
+		unset( $_GET['rules'], $_GET['rules_code'] );
+
+		$this->assertStringContainsString( 'Loop Sync is turned off (Enable plugin, above), so no rules ran.', $html );
+		$this->assertStringNotContainsString( 'Community rules run.', $html );
+	}
+
+	#[Test]
 	public function the_rules_section_lists_rules_escaped_with_run_delete_and_save_forms(): void {
 		$this->add_rule( 'Fellows & "Friends"', array( 'slug' => 'fellows', 'membership_types' => 'Fellow' ) );
 

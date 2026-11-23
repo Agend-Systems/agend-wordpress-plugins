@@ -368,6 +368,11 @@ class Agend_Loop_Sync_Admin {
 		check_admin_referer( 'agend_loop_sync_run_rules' );
 		$this->refuse_when_rules_off();
 
+		// The master switch stops every run, so say that rather than report a run.
+		if ( ! Agend_Loop_Sync_Settings::is_enabled() ) {
+			$this->redirect_to_rules( self::run_result_args( array( 'not_run' => 'disabled' ) ) );
+		}
+
 		if ( null === $this->rule_sync ) {
 			$this->redirect_to_rules( array( 'rules' => 'off' ) );
 		}
@@ -380,12 +385,30 @@ class Agend_Loop_Sync_Admin {
 
 		$summary = $this->rule_sync->run();
 
-		$this->redirect_to_rules(
-			array(
-				'rules'           => 'ran',
-				'rules_synced'    => (int) $summary['rules_synced'],
-				'members_scanned' => (int) $summary['members_scanned'],
-			)
+		$this->redirect_to_rules( self::run_result_args( $summary ) );
+	}
+
+	/**
+	 * The query args that report a "Run rules now" result: the run counts when it
+	 * ran, otherwise a state naming why it did not (`disabled`, `unavailable` or
+	 * `locked`), so a run that never started is not shown as a success.
+	 *
+	 * @param array<string, mixed> $summary The run summary.
+	 * @return array<string, int|string>
+	 */
+	public static function run_result_args( array $summary ): array {
+		$not_run = (string) ( $summary['not_run'] ?? '' );
+		if ( '' !== $not_run ) {
+			return array(
+				'rules'      => 'not_run',
+				'rules_code' => $not_run,
+			);
+		}
+
+		return array(
+			'rules'           => 'ran',
+			'rules_synced'    => (int) ( $summary['rules_synced'] ?? 0 ),
+			'members_scanned' => (int) ( $summary['members_scanned'] ?? 0 ),
 		);
 	}
 

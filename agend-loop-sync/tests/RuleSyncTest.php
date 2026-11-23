@@ -16,6 +16,7 @@ use Loop_Sync_Test_State;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once __DIR__ . '/RuleTestCase.php';
+require_once AGEND_LOOP_SYNC_DIR . 'admin/class-agend-loop-sync-admin.php';
 
 /**
  * The community rule runner: rosters, modes, archiving, dry run and the summary.
@@ -252,9 +253,24 @@ final class RuleSyncTest extends RuleTestCase {
 		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ) );
 		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' ) );
 		$this->assertTrue( $this->logged( 'Dry run: would sync rule' ) );
-		$this->assertTrue( $this->logged( 'Dry run: would archive rule channel' ) );
 		$this->assertTrue( $summary['dry_run'] );
 		$this->assertSame( 'dry_run', $summary['rules']['everyone']['outcome'] );
+	}
+
+	#[Test]
+	public function a_dry_run_makes_no_gateway_call_at_all(): void {
+		update_option( 'agend_loop_sync_dry_run', '1' );
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100', 'Financial' );
+		Loop_Sync_Test_State::$loop_committees = array( $this->loop_channel( 'rule:deleted' ) );
+
+		$summary = $this->rule_sync()->run();
+
+		foreach ( array( 'agend_apps_loop_sync_committee', 'agend_apps_loop_archive_committee', 'agend_apps_loop_list_committees', 'agend_apps_loop_get_committee_members', 'agend_apps_loop_sync_user', 'agend_apps_loop_bulk_sync_users' ) as $function ) {
+			$this->assertSame( array(), Loop_Sync_Test_State::calls_to( $function ), $function );
+		}
+		$this->assertSame( array(), $summary['errors'] );
+		$this->assertSame( 0, $summary['archived'] );
 	}
 
 	#[Test]
@@ -357,15 +373,150 @@ final class RuleSyncTest extends RuleTestCase {
 		$this->add_rule( 'Everyone' );
 		$this->add_member( 1, '100' );
 
-		set_transient( Agend_Loop_Sync_Rule_Sync::LOCK, '1', 600 );
+		add_option( Agend_Loop_Sync_Rule_Sync::LOCK, ( time() + 600 ) . ':someoneelse', '', false );
 		$summary = $this->rule_sync()->run();
 		$this->assertContains( 'A community rule run is already in progress', $summary['errors'] );
+		$this->assertSame( 'locked', $summary['not_run'] );
+		$this->assertFalse( $summary['ran'] );
 		$this->assertSame( array(), Loop_Sync_Test_State::$calls );
+		$this->assertStringEndsWith( ':someoneelse', (string) get_option( Agend_Loop_Sync_Rule_Sync::LOCK ), 'a refused run leaves the holder\'s lock alone' );
 
-		delete_transient( Agend_Loop_Sync_Rule_Sync::LOCK );
-		$this->rule_sync()->run();
-		$this->assertFalse( get_transient( Agend_Loop_Sync_Rule_Sync::LOCK ), 'the lock is released after a run' );
+		delete_option( Agend_Loop_Sync_Rule_Sync::LOCK );
+		$summary = $this->rule_sync()->run();
+		$this->assertTrue( $summary['ran'] );
+		$this->assertFalse( get_option( Agend_Loop_Sync_Rule_Sync::LOCK, false ), 'the lock is released after a run' );
 		$this->assertNotEmpty( $this->payloads() );
+	}
+
+	#[Test]
+	public function an_expired_lock_is_taken_over(): void {
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100' );
+
+		add_option( Agend_Loop_Sync_Rule_Sync::LOCK, ( time() - 5 ) . ':abandoned', '', false );
+		$summary = $this->rule_sync()->run();
+
+		$this->assertTrue( $summary['ran'] );
+		$this->assertNotEmpty( $this->payloads() );
+		$this->assertFalse( get_option( Agend_Loop_Sync_Rule_Sync::LOCK, false ) );
+	}
+
+	#[Test]
+	public function a_second_run_started_mid_run_is_refused(): void {
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100' );
+
+		$inner = null;
+		Loop_Sync_Test_State::$responders['agend_apps_loop_sync_committee'] = function () use ( &$inner ) {
+			$inner = $this->rule_sync()->run();
+			return array( 'success' => true, 'data' => array() );
+		};
+
+		$this->rule_sync()->run();
+
+		$this->assertSame( 'locked', $inner['not_run'] );
+		$this->assertCount( 1, Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ) );
+	}
+
+	#[Test]
+	public function a_run_never_releases_a_lock_another_run_took_over(): void {
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100' );
+
+		$taken = ( time() + 600 ) . ':second-run';
+		Loop_Sync_Test_State::$responders['agend_apps_loop_sync_committee'] = static function () use ( $taken ) {
+			// The first run's lock "expired" and a second run took it over mid-send.
+			update_option( Agend_Loop_Sync_Rule_Sync::LOCK, $taken );
+			return array( 'success' => true, 'data' => array() );
+		};
+
+		$this->rule_sync()->run();
+
+		$this->assertSame( $taken, get_option( Agend_Loop_Sync_Rule_Sync::LOCK ), 'the second run\'s lock survives the first run finishing' );
+	}
+
+	#[Test]
+	public function a_run_that_lost_its_lock_stops_before_sending_a_roster(): void {
+		$this->add_rule( 'Everyone' );
+		$this->add_rule( 'Second' );
+		$this->add_member( 1, '100' );
+
+		Loop_Sync_Test_State::$responders['agend_apps_loop_sync_committee'] = static function () {
+			// Expire it and let another run take over, after the first rule is sent.
+			update_option( Agend_Loop_Sync_Rule_Sync::LOCK, ( time() + 600 ) . ':second-run' );
+			return array( 'success' => true, 'data' => array() );
+		};
+
+		$summary = $this->rule_sync()->run();
+
+		$this->assertCount( 1, Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ), 'the second rule is not sent under a lock that is no longer ours' );
+		$this->assertContains( 'The run lock was lost to another run; remaining rules were not sent', $summary['errors'] );
+	}
+
+	#[Test]
+	public function renewal_extends_only_our_own_lock(): void {
+		$sync = $this->rule_sync();
+		$call = static function ( string $method, ...$args ) use ( $sync ) {
+			$m = new \ReflectionMethod( $sync, $method );
+			$m->setAccessible( true );
+			return $m->invoke( $sync, ...$args );
+		};
+		$value = new \ReflectionProperty( $sync, 'lock_value' );
+		$value->setAccessible( true );
+
+		$this->assertTrue( $call( 'acquire_lock' ) );
+		$mine = (string) $value->getValue( $sync );
+		$this->assertSame( $mine, get_option( Agend_Loop_Sync_Rule_Sync::LOCK ) );
+
+		// Plenty of time left: nothing to do, still ours.
+		$this->assertTrue( $call( 'renew_lock' ) );
+		$this->assertSame( $mine, get_option( Agend_Loop_Sync_Rule_Sync::LOCK ) );
+
+		// Forced: the expiry moves out, the token stays ours.
+		$old_expiry = (int) strtok( $mine, ':' );
+		Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] = ( $old_expiry - 500 ) . ':' . substr( $mine, strpos( $mine, ':' ) + 1 );
+		$value->setValue( $sync, Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] );
+		$this->assertTrue( $call( 'renew_lock' ) );
+		$this->assertGreaterThan( $old_expiry - 500, (int) strtok( (string) get_option( Agend_Loop_Sync_Rule_Sync::LOCK ), ':' ) );
+
+		// Someone else's lock: renewal fails and leaves it untouched.
+		$theirs = ( time() + 1 ) . ':theirs';
+		Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] = $theirs;
+		$this->assertFalse( $call( 'renew_lock', true ) );
+		$this->assertSame( $theirs, Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] );
+
+		// And release leaves it alone too.
+		$call( 'release_lock' );
+		$this->assertSame( $theirs, Agend_Test_WP::$options[ Agend_Loop_Sync_Rule_Sync::LOCK ] );
+	}
+
+	#[Test]
+	public function a_run_with_the_master_switch_off_reports_it_did_not_run(): void {
+		update_option( 'agend_loop_sync_enabled', '0' );
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100' );
+
+		$summary = $this->rule_sync()->run();
+
+		$this->assertSame( 'disabled', $summary['not_run'] );
+		$this->assertSame( array(), Loop_Sync_Test_State::$calls );
+		$this->assertSame(
+			array( 'rules' => 'not_run', 'rules_code' => 'disabled' ),
+			\Agend_Loop_Sync_Admin::run_result_args( $summary )
+		);
+	}
+
+	#[Test]
+	public function a_run_that_ran_reports_its_counts(): void {
+		$this->add_rule( 'Everyone' );
+		$this->add_member( 1, '100' );
+
+		$summary = $this->rule_sync()->run();
+
+		$this->assertSame(
+			array( 'rules' => 'ran', 'rules_synced' => 1, 'members_scanned' => 1 ),
+			\Agend_Loop_Sync_Admin::run_result_args( $summary )
+		);
 	}
 
 	#[Test]
