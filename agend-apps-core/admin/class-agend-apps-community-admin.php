@@ -97,7 +97,7 @@ class Agend_Apps_Community_Admin {
 			esc_attr( AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION ),
 			esc_attr( agend_apps_community_sso_connection() )
 		);
-		echo '<p class="description">' . esc_html__( 'Optional. The slug of the Agend single sign-on connection that signs members in when they choose Access community on the My Communities page. Leave empty to let Agend choose. The My Communities links also need the Agend account slug set above.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Optional. The slug of the Agend single sign-on connection that signs members in when they choose Access community on the My Communities page. Leave empty to let Agend choose. The My Communities links also need the Agend account slug, set in Settings > Identity and SSO.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**
@@ -215,7 +215,7 @@ class Agend_Apps_Community_Admin {
 		$url = wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_CLEAR ), self::ACTION_CLEAR );
 
 		echo '<p><a class="button" href="' . esc_url( $url ) . '">' . esc_html__( 'Clear community content', 'agend-apps-core' ) . '</a></p>';
-		echo '<p class="description">' . esc_html__( 'Community content is kept for a few minutes so your website stays fast. If you remove or change a post and need it gone from your website straight away, clear it here.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Community content is kept for a few minutes so your website stays fast. If you remove or change a post, or change who is in a channel, and need your website to show it straight away, clear it here.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**

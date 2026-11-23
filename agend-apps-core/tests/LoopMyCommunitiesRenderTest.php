@@ -156,6 +156,27 @@ final class LoopMyCommunitiesRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function the_sign_in_return_address_keeps_a_subdirectory_site_path_once(): void {
+		$GLOBALS['agend_test_home_url'] = 'https://example.test/portal';
+		$_SERVER['REQUEST_URI']         = '/portal/communities/?tab=mine';
+
+		try {
+			$url = agend_apps_records_my_communities_current_url();
+		} finally {
+			unset( $GLOBALS['agend_test_home_url'], $_SERVER['REQUEST_URI'] );
+		}
+
+		$this->assertSame( 'https://example.test/portal/communities/?tab=mine', $url );
+	}
+
+	#[Test]
+	public function the_sign_in_return_address_falls_back_to_the_site_root_with_no_request(): void {
+		unset( $_SERVER['REQUEST_URI'] );
+
+		$this->assertSame( 'https://example.test/', agend_apps_records_my_communities_current_url() );
+	}
+
+	#[Test]
 	public function a_visitor_sees_nothing_when_the_editor_hides_the_widget_from_them(): void {
 		$this->assertSame( '', agend_apps_records_render_loop_my_communities( $this->settings( array( 'hide_when_signed_out' => 'yes' ) ) ) );
 	}

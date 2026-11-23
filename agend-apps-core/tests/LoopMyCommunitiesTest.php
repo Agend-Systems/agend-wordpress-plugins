@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\Core;
 
+use Agend_Test_Real_Cache;
 use Agend_Apps_Key_Scopes;
 use Agend_Apps_Loop_My_Communities;
 use Agend_Apps_Settings;
@@ -16,6 +17,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.php';
+require_once __DIR__ . '/fixtures/real-cache.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-endpoint-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/identity.php';
@@ -69,6 +71,15 @@ final class LoopMyCommunitiesTest extends TestCase {
 					'channels'          => $channels,
 				),
 			)
+		);
+	}
+
+	/** The TTLs of the stored answers, without the API client's own transients. */
+	private function communities_ttls(): array {
+		return array_filter(
+			Agend_Test_WP::$transient_ttls,
+			static fn( $key ) => str_starts_with( (string) $key, Agend_Apps_Loop_My_Communities::CACHE_PREFIX ),
+			ARRAY_FILTER_USE_KEY
 		);
 	}
 
@@ -282,6 +293,39 @@ final class LoopMyCommunitiesTest extends TestCase {
 	// -----------------------------------------------------------------
 	// Caching
 	// -----------------------------------------------------------------
+
+	#[Test]
+	public function the_cache_is_registered_so_the_clear_buttons_reach_it(): void {
+		agend_test_load_real_cache();
+		$keys = Agend_Test_Real_Cache::get_all_keys();
+
+		$this->assertArrayHasKey( 'loop_communities', $keys );
+		$this->assertSame( 300, $keys['loop_communities']['default_ttl'] );
+		// Agend_Apps_Cache::clear() deletes `agend_apps_<key>%`, so the stored
+		// answers must start with exactly that.
+		$this->assertSame( 'agend_apps_loop_communities_', Agend_Apps_Loop_My_Communities::CACHE_PREFIX );
+	}
+
+	#[Test]
+	public function the_answer_is_kept_for_the_time_set_on_the_cache_tab(): void {
+		update_option( 'agend_apps_cache_loop_communities', 60 );
+		$this->answer( array( $this->channel( 'one' ) ) );
+
+		Agend_Apps_Loop_My_Communities::for_current_user();
+
+		$this->assertSame( array( 60 ), array_values( $this->communities_ttls() ) );
+	}
+
+	#[Test]
+	public function a_cache_time_of_zero_keeps_nothing_rather_than_keeping_it_forever(): void {
+		update_option( 'agend_apps_cache_loop_communities', 0 );
+		$this->answer( array( $this->channel( 'one' ) ) );
+		$this->answer( array( $this->channel( 'two' ) ) );
+
+		$this->assertSame( array( 'One' ), array_column( Agend_Apps_Loop_My_Communities::for_current_user()['communities'], 'name' ) );
+		$this->assertSame( array( 'Two' ), array_column( Agend_Apps_Loop_My_Communities::for_current_user()['communities'], 'name' ) );
+		$this->assertSame( array(), $this->communities_ttls() );
+	}
 
 	#[Test]
 	public function the_answer_is_cached_for_five_minutes_per_contact_pair(): void {

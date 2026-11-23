@@ -79,7 +79,11 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin: 0;
+  /* !important: the Agend theme gives every list item after the first a top
+     margin through an ID-level selector (`main#agendtheme-content ... li + li`),
+     which no class selector can outrank. It pushed every card after the first
+     out of line with it. */
+  margin: 0 !important;
   padding: 1.25rem;
   border: 1px solid var(--agend-mc-line);
   border-top: 3px solid var(--agend-mc-accent);
@@ -103,7 +107,11 @@
 }
 
 .agend-my-communities .agend-mc-actions {
-  margin: auto 0 0;
+  /* !important for the same reason as the card above: the theme gives a
+     paragraph after a paragraph a top margin and every paragraph a bottom
+     margin through ID-level and element selectors, which would beat the auto
+     margin that pins the button to the bottom of the card. */
+  margin: auto 0 0 !important;
   padding-top: 0.5rem;
 }
 
@@ -159,7 +167,7 @@
 }
 
 .agend-my-communities .agend-mc-notice .agend-mc-actions {
-  margin-top: 0.75rem;
+  margin: 0.75rem 0 0 !important;
 }
 
 .agend-my-communities .agend-mc-admin {

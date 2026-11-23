@@ -181,7 +181,7 @@ final class CommunityAdminTest extends TestCase {
 		$cache = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-cache.php' );
 		$wrap  = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/loop-public.php' );
 
-		foreach ( array( 'loop_channels', 'loop_public_announcements', 'loop_public_activity' ) as $key ) {
+		foreach ( array( 'loop_channels', 'loop_public_announcements', 'loop_public_activity', 'loop_communities' ) as $key ) {
 			self::assertStringContainsString( "'" . $key . "' ", $cache, $key . ' is on the Cache tab' );
 			self::assertStringContainsString( "'" . $key . "'", $wrap, $key . ' is cleared by the button' );
 		}

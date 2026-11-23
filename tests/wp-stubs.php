@@ -1020,7 +1020,8 @@ if ( ! function_exists( 'wp_specialchars_decode' ) ) {
 }
 
 function home_url( $path = '' ): string {
-	return 'https://example.test' . $path;
+	// A test may put the site in a subdirectory by setting this global.
+	return ( $GLOBALS['agend_test_home_url'] ?? 'https://example.test' ) . $path;
 }
 
 if ( ! function_exists( 'site_url' ) ) {

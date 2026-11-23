@@ -266,7 +266,7 @@ function agend_apps_records_my_communities_render_body( array $config, array $re
 	}
 
 	$note  = $admin && empty( $result['links'] )
-		? agend_apps_records_my_communities_notice( 'not-configured', '', __( 'Members can see their communities, but there is no button to open them yet.', 'agend-apps-core' ), __( 'Set the Agend account slug in Settings > Agend Apps so each community can link to Loop.', 'agend-apps-core' ) )
+		? agend_apps_records_my_communities_notice( 'not-configured', '', __( 'Members can see their communities, but there is no button to open them yet.', 'agend-apps-core' ), __( 'Set the Agend account slug in Settings > Identity and SSO so each community can link to Loop.', 'agend-apps-core' ) )
 		: '';
 	$cards = '';
 
@@ -317,10 +317,29 @@ function agend_apps_records_my_communities_render_example( array $config ): stri
 /**
  * The page's own address, for signing in and coming back to it.
  *
+ * `REQUEST_URI` already carries any subdirectory the site lives in, so it is
+ * appended to the site's origin (read from `home_url()`, never the request's
+ * `Host` header) rather than passed to `home_url()`, which would repeat it.
+ *
  * @return string
  */
 function agend_apps_records_my_communities_current_url(): string {
-	return home_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '' ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Passed to home_url() and escaped on output.
+	$parts = wp_parse_url( home_url( '/' ) );
+
+	if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+		return home_url( '/' );
+	}
+
+	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- A server-set path and query, only used as a sign-in return address and escaped on output.
+	$uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '/';
+
+	if ( '' === $uri || '/' !== $uri[0] ) {
+		$uri = '/' . $uri;
+	}
+
+	$origin = $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' );
+
+	return esc_url_raw( $origin . $uri );
 }
 
 /**
@@ -408,7 +427,7 @@ function agend_apps_records_my_communities_block_notices( array $notices, string
 	if ( ! Agend_Apps_Loop_My_Communities::links_configured() ) {
 		$notices[] = array(
 			'status' => 'warning',
-			'text'   => __( 'The Agend account slug is not set, so communities show without an Access community button. Set it under Settings > Agend Apps.', 'agend-apps-core' ),
+			'text'   => __( 'The Agend account slug is not set, so communities show without an Access community button. Set it under Settings > Identity and SSO.', 'agend-apps-core' ),
 		);
 	}
 

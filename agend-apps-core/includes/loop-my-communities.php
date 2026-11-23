@@ -11,7 +11,8 @@
  * never with the member's bearer, so a member who has never signed in through
  * this site's SSO is answered too. The answer is cached per member for a few
  * minutes; Loop sends no membership webhooks, so a member added to or removed
- * from a channel sees the list change within {@see self::CACHE_TTL}.
+ * from a channel sees the list change within the My Communities cache time
+ * (Agend Apps > Cache, {@see self::CACHE_TTL} by default).
  *
  * Only the channel facts are cached. The access links are built when the list
  * is read, from the Agend account slug and SSO connection settings, so changing
@@ -231,7 +232,7 @@ if ( ! class_exists( 'Agend_Apps_Loop_My_Communities' ) ) :
 						'state'    => self::STATE_OK,
 						'channels' => array(),
 					),
-					self::CACHE_TTL
+					self::answer_ttl()
 				);
 			}
 
@@ -257,7 +258,7 @@ if ( ! class_exists( 'Agend_Apps_Loop_My_Communities' ) ) :
 					'state'    => self::STATE_OK,
 					'channels' => $channels,
 				),
-				self::CACHE_TTL
+				self::answer_ttl()
 			);
 		}
 
@@ -325,6 +326,17 @@ if ( ! class_exists( 'Agend_Apps_Loop_My_Communities' ) ) :
 		}
 
 		/**
+		 * How long a list Agend answered is kept: the My Communities time on
+		 * the Cache tab, or {@see self::CACHE_TTL}.
+		 *
+		 * @return int Seconds.
+		 */
+		private static function answer_ttl(): int {
+			// The option Agend_Apps_Settings::get_cache_ttl() reads for this key.
+			return max( 0, (int) get_option( 'agend_apps_cache_loop_communities', self::CACHE_TTL ) );
+		}
+
+		/**
 		 * Caches an entry and returns it.
 		 *
 		 * @param string $key   Transient key.
@@ -333,7 +345,11 @@ if ( ! class_exists( 'Agend_Apps_Loop_My_Communities' ) ) :
 		 * @return array
 		 */
 		private static function remember( string $key, array $entry, int $ttl ): array {
-			set_transient( $key, $entry, $ttl );
+			// A transient stored with 0 never expires: 0 on the Cache tab means
+			// "do not keep it", so nothing is stored.
+			if ( $ttl > 0 ) {
+				set_transient( $key, $entry, $ttl );
+			}
 
 			return $entry;
 		}
