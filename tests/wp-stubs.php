@@ -747,6 +747,11 @@ if ( ! class_exists( 'wpdb' ) ) {
 				$name = stripslashes( $m[2] );
 				$old  = stripslashes( $m[3] );
 				if ( array_key_exists( $name, Agend_Test_WP::$options ) && (string) Agend_Test_WP::$options[ $name ] === $old ) {
+					// As MySQL does: a row the UPDATE matches but leaves unchanged
+					// is not counted as affected.
+					if ( $new === $old ) {
+						return 0;
+					}
 					Agend_Test_WP::$options[ $name ] = $new;
 					$this->rows_affected             = 1;
 					return 1;

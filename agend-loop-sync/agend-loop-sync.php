@@ -3,8 +3,8 @@
  * Plugin Name:       Agend Loop Sync
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-loop-sync
- * Description:       Syncs WordPress members into Agend Loop via the Agend gateway, on sign-in, profile and role changes. Optionally keeps a private Loop channel for each Upbeat committee, on a schedule or on demand.
- * Version:           1.4.0
+ * Description:       Syncs WordPress members into Agend Loop via the Agend gateway, on sign-in, profile and role changes. Optionally keeps a private Loop channel for each Upbeat committee, and criteria-based community channels from membership rules, on a schedule or on demand.
+ * Version:           1.5.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-loop-sync
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_LOOP_SYNC_VERSION', '1.4.0' );
+define( 'AGEND_LOOP_SYNC_VERSION', '1.5.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -50,6 +50,21 @@ define( 'AGEND_LOOP_SYNC_URL', plugin_dir_url( __FILE__ ) );
 define( 'AGEND_LOOP_SYNC_CRON_HOOK', 'agend_loop_sync_committee_event' );
 
 /**
+ * WP-Cron hook name for the scheduled community rule sync.
+ *
+ * @var string
+ */
+define( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK', 'agend_loop_sync_rules_event' );
+
+/**
+ * WP-Cron hook name for the single, debounced community rule run scheduled after
+ * a membership change or sign-in.
+ *
+ * @var string
+ */
+define( 'AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK', 'agend_loop_sync_rules_debounced_event' );
+
+/**
  * Loads plugin includes and boots the controller.
  *
  * Hooked on `plugins_loaded` so agend-apps-core and iugo-membership-kiosk are
@@ -61,8 +76,11 @@ function agend_loop_sync_bootstrap() {
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-settings.php';
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-role-mapper.php';
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-contact-resolver.php';
+	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-gateway.php';
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-user-sync.php';
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-committee-sync.php';
+	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-rule-matcher.php';
+	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-rule-sync.php';
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync.php';
 
 	if ( is_admin() ) {
@@ -74,7 +92,7 @@ function agend_loop_sync_bootstrap() {
 add_action( 'plugins_loaded', 'agend_loop_sync_bootstrap' );
 
 /**
- * Activation hook: seeds default options and schedules the committee cron.
+ * Activation hook: seeds default options and schedules the committee and rule crons.
  */
 function agend_loop_sync_activate() {
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-settings.php';
@@ -84,7 +102,7 @@ function agend_loop_sync_activate() {
 register_activation_hook( __FILE__, 'agend_loop_sync_activate' );
 
 /**
- * Deactivation hook: clears the scheduled committee cron.
+ * Deactivation hook: clears the scheduled committee and rule crons.
  *
  * Options persist across deactivation so reconfiguration is not required on
  * re-activation.
@@ -94,5 +112,8 @@ function agend_loop_sync_deactivate() {
 	if ( false !== $timestamp ) {
 		wp_unschedule_event( $timestamp, AGEND_LOOP_SYNC_CRON_HOOK );
 	}
+
+	wp_clear_scheduled_hook( AGEND_LOOP_SYNC_RULES_CRON_HOOK );
+	wp_clear_scheduled_hook( AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK );
 }
 register_deactivation_hook( __FILE__, 'agend_loop_sync_deactivate' );

@@ -33,6 +33,68 @@ class Agend_Loop_Sync_Settings {
 	const OPT_LAST_SUMMARY     = 'agend_loop_sync_last_sync_summary';
 	const OPT_ADOPT_QUEUE      = 'agend_loop_sync_adopt_queue';
 
+	const OPT_RULE_SYNC        = 'agend_loop_sync_rule_sync_enabled';
+	const OPT_RULES            = 'agend_loop_sync_rules';
+	const OPT_ACCESS_STATUSES  = 'agend_loop_sync_access_statuses';
+	const OPT_RULE_SCHEDULE    = 'agend_loop_sync_rule_schedule';
+	const OPT_LAST_RULE_SYNC   = 'agend_loop_sync_last_rule_sync';
+	const OPT_LAST_RULE_SUMMARY = 'agend_loop_sync_last_rule_summary';
+
+	/**
+	 * Seconds to wait after a membership change or sign-in before the single
+	 * debounced rule run fires.
+	 */
+	const RULE_DEBOUNCE_SECONDS = 300;
+
+	/**
+	 * Longest rule slug. The gateway key is `rule:<slug>`, well inside its 255.
+	 */
+	const RULE_SLUG_MAX = 64;
+
+	/**
+	 * Longest rule (channel) name.
+	 */
+	const RULE_NAME_MAX = 80;
+
+	/**
+	 * Most rules one site can define.
+	 */
+	const RULES_MAX = 50;
+
+	/**
+	 * Most always-include entries one rule can hold.
+	 */
+	const ALWAYS_INCLUDE_MAX = 200;
+
+	/**
+	 * How a rule combines its criteria: every configured one must pass, or any.
+	 *
+	 * @var string[]
+	 */
+	const RULE_MATCH_MODES = array( 'all', 'any' );
+
+	/**
+	 * Member statuses an administrator can allow to keep access, as Upbeat spells
+	 * them (the strings behind the membership kiosk's status helpers). Any other
+	 * status counts as lapsed.
+	 *
+	 * @var string[]
+	 */
+	const ACCESS_STATUS_CHOICES = array( 'Financial', 'Renewal Due', 'Overdue', 'Reinstatable', 'Lapsed' );
+
+	/**
+	 * The statuses that keep access unless an administrator changes them: access
+	 * ends at Reinstatable or any lapsed status.
+	 *
+	 * @var string[]
+	 */
+	const DEFAULT_ACCESS_STATUSES = array( 'Financial', 'Renewal Due', 'Overdue' );
+
+	/**
+	 * The status that always keeps access, whatever is saved.
+	 */
+	const ALWAYS_ALLOWED_STATUS = 'Financial';
+
 	/**
 	 * Most members one committee sync can hand over. The gateway refuses a longer
 	 * `adopt_external_ids` list, so a queue is capped here rather than failing a
@@ -111,6 +173,11 @@ class Agend_Loop_Sync_Settings {
 		add_option( self::OPT_FILTER_ALLOWLIST, array() );
 		// Dry-run defaults ON so a fresh install never writes to Loop unattended.
 		add_option( self::OPT_DRY_RUN, '1' );
+		// Community rules are opt-in, like committee channels.
+		add_option( self::OPT_RULE_SYNC, '0' );
+		add_option( self::OPT_RULE_SCHEDULE, 'hourly' );
+		add_option( self::OPT_ACCESS_STATUSES, self::DEFAULT_ACCESS_STATUSES );
+		add_option( self::OPT_RULES, array() );
 	}
 
 	/**
@@ -165,6 +232,26 @@ class Agend_Loop_Sync_Settings {
 			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_string_list' ) )
 		);
 
+		register_setting(
+			self::GROUP,
+			self::OPT_RULE_SYNC,
+			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_bool' ) )
+		);
+		register_setting(
+			self::GROUP,
+			self::OPT_RULE_SCHEDULE,
+			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_rule_schedule' ) )
+		);
+		register_setting(
+			self::GROUP,
+			self::OPT_ACCESS_STATUSES,
+			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_access_statuses' ) )
+		);
+
+		// The rules themselves are deliberately not registered here: they are
+		// changed only through the rule screen's own nonce-checked actions, which
+		// keep a saved rule's slug fixed.
+
 		// Reschedule the committee cron when the schedule setting changes, so a
 		// new interval takes effect immediately rather than after the old event
 		// next fires.
@@ -179,6 +266,13 @@ class Agend_Loop_Sync_Settings {
 			add_action( 'update_option_' . $switch, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
 			add_action( 'add_option_' . $switch, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
 		}
+
+		// The same for the community rule cron.
+		add_action( 'update_option_' . self::OPT_RULE_SCHEDULE, array( __CLASS__, 'reschedule_rules_cron' ), 10, 0 );
+		foreach ( array( self::OPT_ENABLED, self::OPT_RULE_SYNC ) as $switch ) {
+			add_action( 'update_option_' . $switch, array( __CLASS__, 'sync_rules_cron' ), 10, 0 );
+			add_action( 'add_option_' . $switch, array( __CLASS__, 'sync_rules_cron' ), 10, 0 );
+		}
 	}
 
 	/**
@@ -191,6 +285,7 @@ class Agend_Loop_Sync_Settings {
 	public static function activate() {
 		self::seed_defaults();
 		self::sync_committee_cron();
+		self::sync_rules_cron();
 	}
 
 	/**
@@ -291,6 +386,108 @@ class Agend_Loop_Sync_Settings {
 	}
 
 	/* ----------------------------------------------------------------------
+	 * Community rule cron
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Whether the rule cron should be scheduled: the plugin and rule sync are
+	 * both on.
+	 *
+	 * @return bool
+	 */
+	public static function rules_cron_wanted(): bool {
+		return self::is_enabled() && self::is_rule_sync_enabled();
+	}
+
+	/**
+	 * Clears the recurring rule event and any pending debounced run.
+	 *
+	 * @return void
+	 */
+	public static function clear_rules_cron() {
+		if ( defined( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK' ) ) {
+			wp_clear_scheduled_hook( AGEND_LOOP_SYNC_RULES_CRON_HOOK );
+		}
+
+		if ( defined( 'AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK' ) ) {
+			wp_clear_scheduled_hook( AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK );
+		}
+	}
+
+	/**
+	 * Keeps the rule cron in step with the settings: scheduled while the plugin
+	 * and rule sync are both on, cleared otherwise.
+	 *
+	 * @return void
+	 */
+	public static function sync_rules_cron() {
+		if ( self::rules_cron_wanted() ) {
+			self::ensure_rules_cron();
+			return;
+		}
+
+		self::clear_rules_cron();
+	}
+
+	/**
+	 * Clears and re-schedules the recurring rule event using the current
+	 * schedule. Hooked to the schedule option changing.
+	 *
+	 * @return void
+	 */
+	public static function reschedule_rules_cron() {
+		if ( ! defined( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK' ) ) {
+			return;
+		}
+
+		wp_clear_scheduled_hook( AGEND_LOOP_SYNC_RULES_CRON_HOOK );
+
+		if ( ! self::rules_cron_wanted() ) {
+			return;
+		}
+
+		wp_schedule_event( time() + MINUTE_IN_SECONDS, self::get_rule_schedule(), AGEND_LOOP_SYNC_RULES_CRON_HOOK );
+	}
+
+	/**
+	 * Re-creates the recurring rule event if it has gone missing.
+	 *
+	 * @return void
+	 */
+	public static function ensure_rules_cron() {
+		if ( ! defined( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK' ) || ! self::rules_cron_wanted() ) {
+			return;
+		}
+
+		if ( false === wp_next_scheduled( AGEND_LOOP_SYNC_RULES_CRON_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, self::get_rule_schedule(), AGEND_LOOP_SYNC_RULES_CRON_HOOK );
+		}
+	}
+
+	/**
+	 * Schedules one rule run a few minutes out, unless one is already waiting.
+	 *
+	 * Called when a member's Upbeat data changes or a member signs in, so a
+	 * status change or a new Loop account is picked up without waiting for the
+	 * next scheduled run. A burst of changes shares one run: nothing is
+	 * scheduled while an earlier one is pending, and nothing runs in the
+	 * triggering request.
+	 *
+	 * @return bool True when a run was scheduled by this call.
+	 */
+	public static function schedule_debounced_rule_run(): bool {
+		if ( ! defined( 'AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK' ) || ! self::rules_cron_wanted() || array() === self::get_enabled_rules() ) {
+			return false;
+		}
+
+		if ( false !== wp_next_scheduled( AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK ) ) {
+			return false;
+		}
+
+		return (bool) wp_schedule_single_event( time() + self::RULE_DEBOUNCE_SECONDS, AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK );
+	}
+
+	/* ----------------------------------------------------------------------
 	 * Getters
 	 * ------------------------------------------------------------------- */
 
@@ -328,6 +525,71 @@ class Agend_Loop_Sync_Settings {
 	public static function get_committee_schedule(): string {
 		$value = (string) get_option( self::OPT_SCHEDULE, 'daily' );
 		return in_array( $value, self::SCHEDULES, true ) ? $value : 'daily';
+	}
+
+	/**
+	 * @return bool Whether community rule sync is enabled.
+	 */
+	public static function is_rule_sync_enabled(): bool {
+		return '1' === (string) get_option( self::OPT_RULE_SYNC, '0' );
+	}
+
+	/**
+	 * @return string The configured WP-Cron schedule for the rule sync.
+	 */
+	public static function get_rule_schedule(): string {
+		$value = (string) get_option( self::OPT_RULE_SCHEDULE, 'hourly' );
+		return in_array( $value, self::SCHEDULES, true ) ? $value : 'hourly';
+	}
+
+	/**
+	 * The member statuses that keep access to rule channels. Cleaned on every
+	 * read, and always including Financial.
+	 *
+	 * @return string[]
+	 */
+	public static function get_access_statuses(): array {
+		$stored = get_option( self::OPT_ACCESS_STATUSES, self::DEFAULT_ACCESS_STATUSES );
+
+		return self::sanitize_access_statuses( is_array( $stored ) ? $stored : self::DEFAULT_ACCESS_STATUSES );
+	}
+
+	/**
+	 * Every saved rule, cleaned on every read so a damaged option can never put a
+	 * bad value into a gateway request.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_rules(): array {
+		return self::sanitize_rules( get_option( self::OPT_RULES, array() ) );
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>> The enabled rules.
+	 */
+	public static function get_enabled_rules(): array {
+		return array_values(
+			array_filter(
+				self::get_rules(),
+				static function ( $rule ) {
+					return ! empty( $rule['enabled'] );
+				}
+			)
+		);
+	}
+
+	/**
+	 * @param string $slug Rule slug.
+	 * @return array<string, mixed>|null The rule, or null when none has that slug.
+	 */
+	public static function get_rule( string $slug ): ?array {
+		foreach ( self::get_rules() as $rule ) {
+			if ( $rule['slug'] === $slug ) {
+				return $rule;
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -449,6 +711,108 @@ class Agend_Loop_Sync_Settings {
 	}
 
 	/* ----------------------------------------------------------------------
+	 * Community rule changes
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Saves one rule: adds it, or updates the saved rule named by $original_slug.
+	 *
+	 * The slug is the gateway key of the rule's channel, so it is fixed once a
+	 * rule is saved: an update keeps $original_slug whatever slug is posted. A
+	 * new rule with no slug takes one from its name. Slugs and names are unique
+	 * (names ignoring case).
+	 *
+	 * @param mixed  $raw           Raw rule fields.
+	 * @param string $original_slug Slug of the rule being edited, or '' for a new rule.
+	 * @return array<string, mixed>|WP_Error The saved rule, or an error whose code says why it was refused: invalid_name, invalid_slug, slug_taken, name_taken, too_many_rules or rule_not_found.
+	 */
+	public static function save_rule( $raw, string $original_slug = '' ) {
+		$rule     = self::sanitize_rule( $raw );
+		$original = self::sanitize_rule_slug( $original_slug );
+		$rules    = self::get_rules();
+		$index    = null;
+
+		if ( '' !== $original ) {
+			foreach ( $rules as $i => $saved ) {
+				if ( $saved['slug'] === $original ) {
+					$index = $i;
+					break;
+				}
+			}
+
+			if ( null === $index ) {
+				return new WP_Error( 'rule_not_found', 'That rule no longer exists.' );
+			}
+
+			$rule['slug'] = $original;
+		} elseif ( '' === $rule['slug'] ) {
+			$rule['slug'] = self::sanitize_rule_slug( $rule['name'] );
+		}
+
+		if ( '' === $rule['name'] ) {
+			return new WP_Error( 'invalid_name', 'A rule needs a name.' );
+		}
+
+		if ( '' === $rule['slug'] ) {
+			return new WP_Error( 'invalid_slug', 'A rule needs a slug of letters, numbers and hyphens.' );
+		}
+
+		foreach ( $rules as $i => $saved ) {
+			if ( $i === $index ) {
+				continue;
+			}
+
+			if ( $saved['slug'] === $rule['slug'] ) {
+				return new WP_Error( 'slug_taken', 'Another rule already uses that slug.' );
+			}
+
+			if ( 0 === strcasecmp( $saved['name'], $rule['name'] ) ) {
+				return new WP_Error( 'name_taken', 'Another rule already uses that name.' );
+			}
+		}
+
+		if ( null === $index ) {
+			if ( count( $rules ) >= self::RULES_MAX ) {
+				return new WP_Error( 'too_many_rules', 'The site already has the most rules allowed.' );
+			}
+
+			$rules[] = $rule;
+		} else {
+			$rules[ $index ] = $rule;
+		}
+
+		update_option( self::OPT_RULES, array_values( $rules ), false );
+
+		return $rule;
+	}
+
+	/**
+	 * Deletes a rule. Its Loop channel is archived by the next complete rule run.
+	 *
+	 * @param string $slug Rule slug.
+	 * @return bool True when a rule was deleted.
+	 */
+	public static function delete_rule( string $slug ): bool {
+		$slug  = self::sanitize_rule_slug( $slug );
+		$rules = self::get_rules();
+		$kept  = array();
+
+		foreach ( $rules as $rule ) {
+			if ( $rule['slug'] !== $slug ) {
+				$kept[] = $rule;
+			}
+		}
+
+		if ( count( $kept ) === count( $rules ) ) {
+			return false;
+		}
+
+		update_option( self::OPT_RULES, $kept, false );
+
+		return true;
+	}
+
+	/* ----------------------------------------------------------------------
 	 * Sanitizers
 	 * ------------------------------------------------------------------- */
 
@@ -482,6 +846,191 @@ class Agend_Loop_Sync_Settings {
 	public static function sanitize_filter_mode( $value ): string {
 		$value = sanitize_text_field( (string) $value );
 		return in_array( $value, array( 'all', 'groups', 'allowlist' ), true ) ? $value : 'all';
+	}
+
+	/**
+	 * Validates the rule sync schedule against the allowed set.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string A valid schedule.
+	 */
+	public static function sanitize_rule_schedule( $value ): string {
+		$value = sanitize_text_field( (string) $value );
+		return in_array( $value, self::SCHEDULES, true ) ? $value : 'hourly';
+	}
+
+	/**
+	 * Reduces the access statuses to the known ones, in their usual order, and
+	 * always includes Financial so a financial member can never lose access to a
+	 * rule channel through this setting.
+	 *
+	 * @param mixed $value Raw value: a list of status names.
+	 * @return string[] The sanitized statuses.
+	 */
+	public static function sanitize_access_statuses( $value ): array {
+		$posted = array( strtolower( self::ALWAYS_ALLOWED_STATUS ) );
+		foreach ( is_array( $value ) ? $value : array() as $status ) {
+			$posted[] = strtolower( trim( sanitize_text_field( (string) $status ) ) );
+		}
+
+		$out = array();
+		foreach ( self::ACCESS_STATUS_CHOICES as $choice ) {
+			if ( in_array( strtolower( $choice ), $posted, true ) ) {
+				$out[] = $choice;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Makes a rule slug: lower case letters, numbers and single hyphens, at most
+	 * RULE_SLUG_MAX long. '' when nothing usable is left.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string The slug.
+	 */
+	public static function sanitize_rule_slug( $value ): string {
+		$slug = strtolower( trim( (string) $value ) );
+		$slug = (string) preg_replace( '/[^a-z0-9]+/', '-', $slug );
+		$slug = trim( substr( $slug, 0, self::RULE_SLUG_MAX ), '-' );
+
+		return $slug;
+	}
+
+	/**
+	 * Cleans one rule to the shape the runner reads. Pure: does not check
+	 * uniqueness (see save_rule() and sanitize_rules()).
+	 *
+	 * @param mixed $raw Raw rule fields.
+	 * @return array<string, mixed> slug, name, enabled, match, membership_types, membership_levels, event_ids, apply_access_statuses, always_include, member_can_leave, allow_manual_members.
+	 */
+	public static function sanitize_rule( $raw ): array {
+		$raw = is_array( $raw ) ? $raw : array();
+
+		$flag = static function ( string $key, bool $default ) use ( $raw ): bool {
+			return array_key_exists( $key, $raw ) ? '1' === self::sanitize_bool( $raw[ $key ] ) : $default;
+		};
+
+		$match = strtolower( trim( sanitize_text_field( (string) ( $raw['match'] ?? 'all' ) ) ) );
+
+		return array(
+			'slug'                  => self::sanitize_rule_slug( $raw['slug'] ?? '' ),
+			'name'                  => trim( mb_substr( trim( sanitize_text_field( (string) ( $raw['name'] ?? '' ) ) ), 0, self::RULE_NAME_MAX ) ),
+			'enabled'               => $flag( 'enabled', false ),
+			'match'                 => in_array( $match, self::RULE_MATCH_MODES, true ) ? $match : 'all',
+			'membership_types'      => self::sanitize_unique_list( $raw['membership_types'] ?? array() ),
+			'membership_levels'     => self::sanitize_unique_list( $raw['membership_levels'] ?? array() ),
+			'event_ids'             => self::sanitize_unique_list( $raw['event_ids'] ?? array() ),
+			'apply_access_statuses' => $flag( 'apply_access_statuses', true ),
+			'always_include'        => self::sanitize_always_include( $raw['always_include'] ?? array() ),
+			'member_can_leave'      => $flag( 'member_can_leave', true ),
+			'allow_manual_members'  => $flag( 'allow_manual_members', true ),
+		);
+	}
+
+	/**
+	 * Cleans the saved rules: valid rules only, with unique slugs and unique
+	 * names (names ignoring case). The first of two clashing rules is kept.
+	 *
+	 * @param mixed $value Raw option value.
+	 * @return array<int, array<string, mixed>> The sanitized rules.
+	 */
+	public static function sanitize_rules( $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$rules = array();
+		$slugs = array();
+		$names = array();
+
+		foreach ( $value as $raw ) {
+			$rule = self::sanitize_rule( $raw );
+			$name = strtolower( $rule['name'] );
+
+			if ( '' === $rule['slug'] || '' === $rule['name'] || isset( $slugs[ $rule['slug'] ] ) || isset( $names[ $name ] ) ) {
+				continue;
+			}
+
+			$slugs[ $rule['slug'] ] = true;
+			$names[ $name ]         = true;
+			$rules[]                = $rule;
+
+			if ( count( $rules ) >= self::RULES_MAX ) {
+				break;
+			}
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Like sanitize_string_list(), but entries that differ only in case count as
+	 * one (the first spelling is kept), since rules match ignoring case.
+	 *
+	 * @param mixed $value Raw textarea string or array.
+	 * @return string[] The sanitized list.
+	 */
+	public static function sanitize_unique_list( $value ): array {
+		$out  = array();
+		$seen = array();
+		foreach ( self::sanitize_string_list( $value ) as $item ) {
+			$key = strtolower( $item );
+			if ( ! isset( $seen[ $key ] ) ) {
+				$seen[ $key ] = true;
+				$out[]        = $item;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Cleans a rule's always-include list: members who are in the channel
+	 * whatever the criteria say. Accepts rows of { membership_number, role }, or
+	 * a textarea with one `membership number = role` per line (a bare number
+	 * means member). Numbers must be plain digits the gateway accepts; roles
+	 * default to member. A number listed twice keeps its highest role.
+	 *
+	 * @param mixed $value Raw rows or textarea string.
+	 * @return array<int, array{membership_number: string, role: string}> The sanitized list.
+	 */
+	public static function sanitize_always_include( $value ): array {
+		$rows = array();
+		if ( is_array( $value ) ) {
+			foreach ( $value as $row ) {
+				if ( is_array( $row ) ) {
+					$rows[] = array( (string) ( $row['membership_number'] ?? '' ), (string) ( $row['role'] ?? '' ) );
+				}
+			}
+		} else {
+			foreach ( preg_split( '/\r\n|\r|\n/', (string) $value ) as $line ) {
+				$parts  = explode( '=', $line, 2 );
+				$rows[] = array( $parts[0], $parts[1] ?? '' );
+			}
+		}
+
+		$by_id = array();
+		foreach ( $rows as $row ) {
+			$number = trim( sanitize_text_field( $row[0] ) );
+			$role   = strtolower( trim( sanitize_text_field( $row[1] ) ) );
+			$id     = Agend_Loop_Sync_Contact_Resolver::to_external_id( $number );
+			if ( null === $id ) {
+				continue;
+			}
+
+			$role = in_array( $role, self::CHANNEL_ROLES, true ) ? $role : 'member';
+
+			if ( ! isset( $by_id[ $id ] ) || Agend_Loop_Sync_Role_Mapper::rank( $role ) > Agend_Loop_Sync_Role_Mapper::rank( $by_id[ $id ]['role'] ) ) {
+				$by_id[ $id ] = array(
+					'membership_number' => $number,
+					'role'              => $role,
+				);
+			}
+		}
+
+		return array_slice( array_values( $by_id ), 0, self::ALWAYS_INCLUDE_MAX );
 	}
 
 	/**

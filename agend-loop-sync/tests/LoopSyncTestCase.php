@@ -18,9 +18,17 @@ if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) ) {
 	define( 'AGEND_LOOP_SYNC_CRON_HOOK', 'agend_loop_sync_committee_event' );
 }
 
+if ( ! defined( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK' ) ) {
+	define( 'AGEND_LOOP_SYNC_RULES_CRON_HOOK', 'agend_loop_sync_rules_event' );
+}
+
+if ( ! defined( 'AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK' ) ) {
+	define( 'AGEND_LOOP_SYNC_RULES_DEBOUNCE_HOOK', 'agend_loop_sync_rules_debounced_event' );
+}
+
 require_once AGEND_TESTS_ROOT . '/agend-loop-sync/tests/doubles.php';
 
-foreach ( array( 'logger', 'settings', 'role-mapper', 'contact-resolver', 'user-sync', 'committee-sync' ) as $loop_sync_file ) {
+foreach ( array( 'logger', 'settings', 'role-mapper', 'contact-resolver', 'gateway', 'user-sync', 'committee-sync', 'rule-matcher', 'rule-sync' ) as $loop_sync_file ) {
 	require_once AGEND_TESTS_ROOT . "/agend-loop-sync/includes/class-agend-loop-sync-{$loop_sync_file}.php";
 }
 

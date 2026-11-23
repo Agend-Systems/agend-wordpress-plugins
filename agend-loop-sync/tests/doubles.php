@@ -70,6 +70,12 @@ final class Loop_Sync_Test_State {
 	 */
 	public static array $upbeat_activity_pages = array();
 
+	/** @var array<string, object|false> Upbeat member details per membership number; false (or absent) simulates failure. */
+	public static array $upbeat_members = array();
+
+	/** @var array<string, object[]|false> Upbeat registrations per membership number; false (or absent) simulates failure. */
+	public static array $upbeat_registrations = array();
+
 	/** @var array<int, array{0:string,1:array}> Upbeat calls: [ method, args exactly as passed ]. */
 	public static array $upbeat_calls = array();
 
@@ -87,6 +93,8 @@ final class Loop_Sync_Test_State {
 		self::$upbeat_activities_page_size = 0;
 		self::$upbeat_activity_pages       = array();
 		self::$upbeat_calls                = array();
+		self::$upbeat_members              = array();
+		self::$upbeat_registrations        = array();
 	}
 
 	/**
@@ -393,6 +401,26 @@ if ( ! class_exists( 'Loop_Sync_Test_Upbeat' ) ) {
 		}
 
 		/**
+		 * @return object|false The member detail set in Loop_Sync_Test_State::$upbeat_members.
+		 */
+		public function get_member_details_by_id( $membership_number ) {
+			Loop_Sync_Test_State::$upbeat_calls[] = array( __FUNCTION__, func_get_args() );
+
+			return Loop_Sync_Test_State::$upbeat_members[ (string) $membership_number ] ?? false;
+		}
+
+		/**
+		 * @return Loop_Sync_Test_Registrations|false
+		 */
+		public function get_member_registrations( $membership_number ) {
+			Loop_Sync_Test_State::$upbeat_calls[] = array( __FUNCTION__, func_get_args() );
+
+			$rows = Loop_Sync_Test_State::$upbeat_registrations[ (string) $membership_number ] ?? false;
+
+			return false === $rows ? false : new Loop_Sync_Test_Registrations( $rows );
+		}
+
+		/**
 		 * One page of $rows, as Upbeat reports it. A size of 0 means one page of everything.
 		 */
 		private function page( array $rows, int $size, int $page ): Loop_Sync_Test_Collection {
@@ -493,6 +521,71 @@ if ( ! class_exists( 'Loop_Sync_Test_Upbeat' ) ) {
 
 		public function get_groups(): array {
 			return array();
+		}
+	}
+}
+
+if ( ! class_exists( 'Loop_Sync_Test_Member' ) ) {
+	/** Member detail double: the getters the rule matcher reads. */
+	class Loop_Sync_Test_Member {
+		private string $status;
+		private string $type;
+		private string $level;
+
+		public function __construct( string $status = 'Financial', string $type = '', string $level = '' ) {
+			$this->status = $status;
+			$this->type   = $type;
+			$this->level  = $level;
+		}
+
+		public function get_member_status(): ?string {
+			return '' === $this->status ? null : $this->status;
+		}
+
+		public function get_membership_type(): ?string {
+			return '' === $this->type ? null : $this->type;
+		}
+
+		public function get_membership_level(): ?string {
+			return '' === $this->level ? null : $this->level;
+		}
+	}
+
+	/** Registration double. */
+	class Loop_Sync_Test_Registration {
+		private string $event_id;
+		private ?string $transaction_status;
+		private ?string $attendance_status;
+
+		public function __construct( string $event_id, ?string $transaction_status = null, ?string $attendance_status = null ) {
+			$this->event_id           = $event_id;
+			$this->transaction_status = $transaction_status;
+			$this->attendance_status  = $attendance_status;
+		}
+
+		public function get_event_id(): ?string {
+			return $this->event_id;
+		}
+
+		public function get_transaction_status(): ?string {
+			return $this->transaction_status;
+		}
+
+		public function get_attendance_status(): ?string {
+			return $this->attendance_status;
+		}
+	}
+
+	/** The registrations collection the kiosk returns. */
+	class Loop_Sync_Test_Registrations {
+		private array $registrations;
+
+		public function __construct( array $registrations ) {
+			$this->registrations = $registrations;
+		}
+
+		public function get_registrations(): array {
+			return $this->registrations;
 		}
 	}
 }
