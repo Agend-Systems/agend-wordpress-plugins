@@ -362,7 +362,7 @@ function agend_apps_community_read_many( array $reads ): array {
  * @return void
  */
 function agend_apps_community_clear_cache(): void {
-	foreach ( array( 'loop_channels', 'loop_public_announcements', 'loop_public_activity' ) as $key ) {
+	foreach ( array( 'loop_channels', 'loop_public_announcements', 'loop_public_activity', 'loop_communities' ) as $key ) {
 		Agend_Apps_Cache::clear( $key );
 	}
 

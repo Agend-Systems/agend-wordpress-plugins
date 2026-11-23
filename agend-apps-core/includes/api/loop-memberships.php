@@ -74,3 +74,59 @@ function agend_apps_loop_get_member_channels( array $contact ) {
 	 */
 	return apply_filters( 'agend_apps_loop_get_member_channels_response', $response, $contact );
 }
+
+/**
+ * The channels a member belongs to, asked with the site's own key and naming
+ * the member by contact pair.
+ *
+ * The same route and scope as {@see agend_apps_loop_get_member_channels()},
+ * asked with `include=channels`. `data.channels` is then the member's active
+ * (not archived, not direct message) channels in the organisation, by name:
+ * each with `id`, `name`, `slug`, `description`, `channel_type` and
+ * `unique_id`. A gateway that predates `include` ignores it and answers
+ * without a `channels` key, which callers must treat as "not available yet",
+ * not as an empty list. Always unattended: the member's bearer is never sent.
+ * Not cached here; callers cache.
+ *
+ * @param array $contact The member's contact pair, `external_source` and `external_id`.
+ * @return array|WP_Error Decoded response on success, or WP_Error on failure.
+ */
+function agend_apps_loop_get_member_channel_list( array $contact ) {
+	/**
+	 * Filters the member channel list request args before the request is sent.
+	 *
+	 * `unattended` is set again afterwards: the member's bearer never goes
+	 * to this route.
+	 *
+	 * @param array $args    Request args.
+	 * @param array $contact The member's contact pair.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_loop_get_member_channel_list_args',
+		array(
+			'unattended' => true,
+			'query'      => array(
+				'external_source' => (string) ( $contact['external_source'] ?? '' ),
+				'external_id'     => (string) ( $contact['external_id'] ?? '' ),
+				'include'         => 'channels',
+			),
+		),
+		$contact
+	);
+
+	$args['unattended'] = true;
+
+	$response = agend_apps_api()->request( 'GET', '/loop/integration/members/channels', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded member channel list response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $contact  The member's contact pair.
+	 */
+	return apply_filters( 'agend_apps_loop_get_member_channel_list_response', $response, $contact );
+}

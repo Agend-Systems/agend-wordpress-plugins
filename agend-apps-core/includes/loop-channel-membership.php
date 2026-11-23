@@ -298,7 +298,7 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		 * @param WP_Error $error Gateway error.
 		 * @return string
 		 */
-		private static function gateway_code( WP_Error $error ): string {
+		public static function gateway_code( WP_Error $error ): string {
 			if ( 'agend_apps_scope_missing' === $error->get_error_code() ) {
 				return 'INSUFFICIENT_SCOPES';
 			}

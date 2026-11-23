@@ -1,0 +1,242 @@
+/**
+ * Agend My Communities widget styles.
+ *
+ * Colour and corner tokens are set as CSS custom properties on the container by
+ * the surface's server render (heading, body and accent come from the site
+ * palette, or the manual colours). Every other colour is derived from those.
+ *
+ * Design notes:
+ * - Same family as the Member Summary: borders rather than shadows (the Agend
+ *   theme sets `box-shadow: none !important`), the heading colour as the one
+ *   deep surface (the button), the accent only ever a thin mark.
+ * - The grid answers to its own width (container query), so it holds in a
+ *   narrow column as well as a wide page.
+ * - Specificity is doubled on links: the theme styles `a:not(.btn)` and
+ *   `.elementor a` and would otherwise win over one class.
+ */
+
+.agend-my-communities {
+  --agend-mc-heading: #1e2a4a;
+  --agend-mc-body: #26304d;
+  --agend-mc-accent: #ff6b55;
+  --agend-mc-card-radius: 10px;
+  --agend-mc-muted: #474f68;
+  --agend-mc-line: #dfe2ea;
+  --agend-mc-gap: 1.25rem;
+
+  box-sizing: border-box;
+  max-width: 100%;
+  color: var(--agend-mc-body);
+  font-family: inherit;
+  container-type: inline-size;
+  container-name: agend-mc;
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .agend-my-communities {
+    --agend-mc-muted: color-mix(in srgb, var(--agend-mc-body) 85%, #fff);
+    --agend-mc-line: color-mix(in srgb, var(--agend-mc-heading) 14%, #fff);
+  }
+}
+
+.agend-my-communities *,
+.agend-my-communities *::before,
+.agend-my-communities *::after {
+  box-sizing: border-box;
+}
+
+.agend-my-communities__heading {
+  margin: 0 0 var(--agend-mc-gap);
+}
+
+.agend-my-communities .agend-my-communities__title {
+  margin: 0;
+  color: var(--agend-mc-heading);
+}
+
+.agend-my-communities .agend-mc-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--agend-mc-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@container agend-mc (min-width: 36rem) {
+  .agend-my-communities .agend-mc-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container agend-mc (min-width: 60rem) {
+  .agend-my-communities .agend-mc-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.agend-my-communities .agend-mc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* !important: the Agend theme gives every list item after the first a top
+     margin through an ID-level selector (`main#agendtheme-content ... li + li`),
+     which no class selector can outrank. It pushed every card after the first
+     out of line with it. */
+  margin: 0 !important;
+  padding: 1.25rem;
+  border: 1px solid var(--agend-mc-line);
+  border-top: 3px solid var(--agend-mc-accent);
+  border-radius: var(--agend-mc-card-radius);
+  background: #fff;
+}
+
+.agend-my-communities .agend-mc-card__title {
+  margin: 0;
+  color: var(--agend-mc-heading);
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+
+.agend-my-communities .agend-mc-card__description {
+  margin: 0;
+  color: var(--agend-mc-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agend-my-communities .agend-mc-actions {
+  /* !important for the same reason as the card above: the theme gives a
+     paragraph after a paragraph a top margin and every paragraph a bottom
+     margin through ID-level and element selectors, which would beat the auto
+     margin that pins the button to the bottom of the card. */
+  margin: auto 0 0 !important;
+  padding-top: 0.5rem;
+}
+
+.agend-my-communities .agend-mc-button,
+.agend-my-communities .agend-mc-button:visited,
+.agend-my-communities .agend-mc-button:hover,
+.agend-my-communities .agend-mc-button:focus,
+.agend-my-communities .agend-mc-button:active {
+  display: inline-block;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--agend-mc-heading);
+  border-radius: min(calc(var(--agend-mc-card-radius) * 0.6), 12px);
+  background: var(--agend-mc-heading);
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.agend-my-communities .agend-mc-button:hover,
+.agend-my-communities .agend-mc-button:focus-visible {
+  filter: brightness(1.15);
+}
+
+.agend-my-communities .agend-mc-button:focus-visible {
+  outline: 2px solid var(--agend-mc-heading);
+  outline-offset: 2px;
+}
+
+.agend-my-communities .agend-mc-button--quiet {
+  background: transparent;
+  color: var(--agend-mc-heading);
+  cursor: pointer;
+}
+
+.agend-my-communities .agend-mc-notice {
+  padding: 1.25rem;
+  border: 1px solid var(--agend-mc-line);
+  border-radius: var(--agend-mc-card-radius);
+  background: #fff;
+}
+
+.agend-my-communities .agend-mc-notice__title {
+  margin: 0 0 0.25rem;
+  color: var(--agend-mc-heading);
+  font-size: 1.125rem;
+}
+
+.agend-my-communities .agend-mc-notice__message,
+.agend-my-communities .agend-mc-quiet {
+  margin: 0;
+  color: var(--agend-mc-body);
+}
+
+.agend-my-communities .agend-mc-notice .agend-mc-actions {
+  margin: 0.75rem 0 0 !important;
+}
+
+.agend-my-communities .agend-mc-admin {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--agend-mc-accent);
+  background: #f6f7fa;
+  color: var(--agend-mc-body);
+  font-size: 0.875rem;
+}
+
+.agend-my-communities .agend-mc-list + .agend-mc-notice,
+.agend-my-communities .agend-mc-notice + .agend-mc-list {
+  margin-top: var(--agend-mc-gap);
+}
+
+.agend-my-communities .agend-mc-example-label {
+  margin: 0 0 0.75rem;
+  color: var(--agend-mc-muted);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.agend-my-communities--example .agend-mc-button {
+  pointer-events: none;
+}
+
+.agend-my-communities .agend-mc-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Loading state: two cards with the real cards' proportions, so the page does
+   not jump when the list arrives. */
+.agend-my-communities .agend-mc-loading {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--agend-mc-gap);
+}
+
+@container agend-mc (min-width: 36rem) {
+  .agend-my-communities .agend-mc-loading {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.agend-my-communities .agend-mc-loading__card {
+  display: block;
+  min-height: 7.5rem;
+  background: var(--agend-mc-line);
+  border-top-color: var(--agend-mc-line);
+  animation: agend-mc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes agend-mc-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agend-my-communities .agend-mc-loading__card {
+    animation: none;
+  }
+}

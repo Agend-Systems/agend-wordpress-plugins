@@ -171,6 +171,13 @@ class Agend_Apps_Cache {
 			'label'       => 'Community Posts',
 			'default_ttl' => 120,
 		),
+		// Each signed-in member's own list on the My Communities page. Only
+		// lists Agend answered are kept this long; a failure is retried sooner.
+		'loop_communities'         => array(
+			'label'       => 'My Communities',
+			'default_ttl' => 300,
+			'description' => 'Each signed-in member\'s own list of communities on the My Communities page.',
+		),
 		// Resources (Atlas). The collection list is only read for an editor's
 		// picker and for the titles an editor has chosen; searches are stored
 		// per query for visitors only, never for a signed-in member.

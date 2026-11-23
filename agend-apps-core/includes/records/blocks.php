@@ -55,6 +55,7 @@ const AGEND_APPS_RECORDS_BLOCK_SURFACES = array(
 	'account-link',
 	'credential-check',
 	'member-summary',
+	'loop-my-communities',
 	'export-reports',
 	'filter',
 	'record-field',
