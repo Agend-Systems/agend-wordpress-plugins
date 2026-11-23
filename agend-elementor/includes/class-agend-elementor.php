@@ -134,6 +134,12 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Member_Summary() );
 		}
 
+		// Needs a core that ships the loop-my-communities surface (1.91.0).
+		if ( function_exists( 'agend_apps_records_render_loop_my_communities' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-loop-my-communities.php';
+			$widgets_manager->register( new Agend_Elementor_My_Communities() );
+		}
+
 		// Each needs a core that ships its Community surface (1.75.0).
 		if ( function_exists( 'agend_apps_records_render_community_announcements' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-announcements.php';

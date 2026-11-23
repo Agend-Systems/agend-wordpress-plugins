@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.86.0
+ * Version:           1.91.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.86.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.91.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -230,6 +230,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-jobs.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-summary.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/loop-my-communities.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
@@ -394,6 +395,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-me-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/member-summary-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/loop-my-communities-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/events-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
@@ -491,6 +493,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
 	agend_apps_register_member_summary_routes();
+	agend_apps_register_loop_my_communities_routes();
 	agend_apps_register_resources_routes();
 
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {

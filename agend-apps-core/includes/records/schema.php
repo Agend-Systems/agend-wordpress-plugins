@@ -159,6 +159,7 @@ require_once __DIR__ . '/schema/resources-ask.php';
 require_once __DIR__ . '/schema/jobs-catalogue.php';
 require_once __DIR__ . '/schema/member-jobs.php';
 require_once __DIR__ . '/schema/member-summary.php';
+require_once __DIR__ . '/schema/loop-my-communities.php';
 require_once __DIR__ . '/schema/community-announcements.php';
 require_once __DIR__ . '/schema/community-channels.php';
 require_once __DIR__ . '/schema/community-feed.php';

@@ -246,6 +246,22 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// My Communities works the same way: the member's own list comes from the
+	// server by script and is never in a cached page.
+	wp_register_style(
+		'agend-apps-records-loop-my-communities',
+		agend_apps_records_asset_url( 'css/loop-my-communities.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-loop-my-communities',
+		agend_apps_records_asset_url( 'js/loop-my-communities.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-events-catalogue',
 		agend_apps_records_asset_url( 'css/events-catalogue.css' ),

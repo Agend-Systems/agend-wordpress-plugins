@@ -119,6 +119,11 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Member Summary', 'agend-apps-core' ),
 			'scopes' => array( 'crm.contacts.browse' ),
 		),
+		// Asked with the site's own key, naming the member by contact pair.
+		'loop-my-communities'       => array(
+			'label'  => __( 'Agend My Communities', 'agend-apps-core' ),
+			'scopes' => array( 'loop.memberships.read' ),
+		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),
 			'scopes' => array( 'crm.tiers.browse' ),
@@ -555,6 +560,7 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
 		'#^/member/summary$#'                                    => 'member-summary',
+		'#^/member/communities$#'                                => 'loop-my-communities',
 	);
 
 	foreach ( $patterns as $pattern => $surface ) {

@@ -60,14 +60,27 @@ final class CommunityAdminTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_add_a_community_section_with_one_field_to_the_agend_apps_page(): void {
+	public function should_add_a_community_section_with_its_fields_to_the_agend_apps_page(): void {
 		( new Agend_Apps_Community_Admin() )->register_settings();
 
 		$section = Agend_Test_WP::$settings_sections['agend-apps']['agend_apps_community_section'];
 
 		self::assertSame( 'Community', $section['title'] );
-		self::assertSame( array( 'agend_apps_community_channels' ), array_keys( $section['fields'] ) );
+		self::assertSame( array( 'agend_apps_community_channels', 'agend_apps_community_sso_connection' ), array_keys( $section['fields'] ) );
 		self::assertSame( 'Channels shown on the website', $section['fields']['agend_apps_community_channels']['title'] );
+		self::assertSame( 'Single sign-on connection for My Communities', $section['fields']['agend_apps_community_sso_connection']['title'] );
+	}
+
+	#[Test]
+	public function should_show_the_saved_sso_connection_slug_escaped_in_its_field(): void {
+		update_option( 'agend_apps_community_sso_connection', 'wp-saml-abc' );
+
+		ob_start();
+		( new Agend_Apps_Community_Admin() )->render_sso_connection_field();
+		$html = (string) ob_get_clean();
+
+		self::assertStringContainsString( 'name="agend_apps_community_sso_connection"', $html );
+		self::assertStringContainsString( 'value="wp-saml-abc"', $html );
 	}
 
 	#[Test]

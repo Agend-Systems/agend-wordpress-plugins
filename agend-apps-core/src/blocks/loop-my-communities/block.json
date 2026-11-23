@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/loop-my-communities",
+	"version": "1.0.0",
+	"title": "Agend My Communities",
+	"category": "agend",
+	"icon": "groups",
+	"description": "The communities a signed-in member belongs to, each with a button that signs them in to Loop and opens it.",
+	"keywords": [ "agend", "loop", "community", "communities", "channels", "my communities", "member", "sso" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-loop-my-communities" ],
+	"style": [ "agend-apps-records-loop-my-communities" ],
+	"render": "file:./render.php"
+}

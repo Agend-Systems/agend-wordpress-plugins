@@ -39,6 +39,13 @@ const AGEND_APPS_COMMUNITY_OPTION_HIDDEN = 'agend_apps_community_hidden_posts';
 const AGEND_APPS_COMMUNITY_OPTION_LOOP_URL = 'agend_apps_loop_url';
 
 /**
+ * Option holding the slug of the Agend SSO connection that signs a member in to
+ * Loop from the My Communities page. Optional: empty lets Agend choose the
+ * account's connection. Passed to the SSO link as `?idp=`.
+ */
+const AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION = 'agend_apps_community_sso_connection';
+
+/**
  * The most channels a surface reads posts from. Each channel is one request to
  * the gateway, so this is also the bound on the page's calls.
  */
@@ -74,6 +81,26 @@ function agend_apps_community_clean_ids( $value ): array {
 	}
 
 	return $ids;
+}
+
+/**
+ * A connection slug as the characters one is made of; anything else is dropped.
+ * Also the option's sanitiser.
+ *
+ * @param mixed $value Raw value.
+ * @return string
+ */
+function agend_apps_community_clean_connection_slug( $value ): string {
+	return is_scalar( $value ) ? substr( preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $value ), 0, 100 ) : '';
+}
+
+/**
+ * The slug of the SSO connection the My Communities links ask for.
+ *
+ * @return string '' when none is set, so Agend chooses.
+ */
+function agend_apps_community_sso_connection(): string {
+	return agend_apps_community_clean_connection_slug( get_option( AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION, '' ) );
 }
 
 /**
