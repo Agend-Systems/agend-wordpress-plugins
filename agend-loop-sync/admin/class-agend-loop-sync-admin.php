@@ -23,12 +23,21 @@ class Agend_Loop_Sync_Admin {
 	private $committee_sync;
 
 	/**
+	 * Community rule sync handler used by the "Run rules now" action.
+	 *
+	 * @var Agend_Loop_Sync_Rule_Sync|null
+	 */
+	private $rule_sync;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Agend_Loop_Sync_Committee_Sync $committee_sync Committee sync handler.
+	 * @param Agend_Loop_Sync_Rule_Sync|null $rule_sync      Community rule sync handler.
 	 */
-	public function __construct( Agend_Loop_Sync_Committee_Sync $committee_sync ) {
+	public function __construct( Agend_Loop_Sync_Committee_Sync $committee_sync, ?Agend_Loop_Sync_Rule_Sync $rule_sync = null ) {
 		$this->committee_sync = $committee_sync;
+		$this->rule_sync      = $rule_sync;
 	}
 
 	/**
@@ -47,6 +56,9 @@ class Agend_Loop_Sync_Admin {
 		add_action( 'admin_post_agend_loop_sync_adopt_load_members', array( $this, 'handle_adopt_load_members' ) );
 		add_action( 'admin_post_agend_loop_sync_adopt_queue', array( $this, 'handle_adopt_queue' ) );
 		add_action( 'admin_post_agend_loop_sync_adopt_clear', array( $this, 'handle_adopt_clear' ) );
+		add_action( 'admin_post_agend_loop_sync_run_rules', array( $this, 'handle_run_rules' ) );
+		add_action( 'admin_post_agend_loop_sync_save_rule', array( $this, 'handle_save_rule' ) );
+		add_action( 'admin_post_agend_loop_sync_delete_rule', array( $this, 'handle_delete_rule' ) );
 	}
 
 	/**
@@ -341,6 +353,139 @@ class Agend_Loop_Sync_Admin {
 		);
 
 		$this->redirect_to_adopt( array( 'adopt' => 'cleared' ) );
+	}
+
+	/**
+	 * Handles the "Run rules now" action.
+	 *
+	 * @return void
+	 */
+	public function handle_run_rules() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-loop-sync' ) );
+		}
+
+		check_admin_referer( 'agend_loop_sync_run_rules' );
+		$this->refuse_when_rules_off();
+
+		if ( null === $this->rule_sync ) {
+			$this->redirect_to_rules( array( 'rules' => 'off' ) );
+		}
+
+		// One Upbeat call per member: lift the time limit as the committee sync does.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		ignore_user_abort( true );
+
+		$summary = $this->rule_sync->run();
+
+		$this->redirect_to_rules(
+			array(
+				'rules'           => 'ran',
+				'rules_synced'    => (int) $summary['rules_synced'],
+				'members_scanned' => (int) $summary['members_scanned'],
+			)
+		);
+	}
+
+	/**
+	 * Handles saving a rule: adds a new one, or updates the one named by the
+	 * posted original slug (whose slug stays fixed).
+	 *
+	 * @return void
+	 */
+	public function handle_save_rule() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-loop-sync' ) );
+		}
+
+		check_admin_referer( 'agend_loop_sync_save_rule' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- Checked by check_admin_referer() above.
+		$posted = isset( $_POST['rule'] ) && is_array( $_POST['rule'] ) ? wp_unslash( $_POST['rule'] ) : array();
+		$posted = array_map(
+			static function ( $value ) {
+				return is_array( $value ) ? array_map( 'sanitize_textarea_field', $value ) : sanitize_textarea_field( $value );
+			},
+			$posted
+		);
+		$original = isset( $_POST['original_slug'] ) ? sanitize_text_field( wp_unslash( $_POST['original_slug'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		// A checkbox that is not ticked is not posted, so read each by presence.
+		foreach ( array( 'enabled', 'apply_access_statuses', 'member_can_leave', 'allow_manual_members' ) as $flag ) {
+			$posted[ $flag ] = isset( $posted[ $flag ] ) ? '1' : '0';
+		}
+
+		$saved = Agend_Loop_Sync_Settings::save_rule( $posted, $original );
+
+		if ( is_wp_error( $saved ) ) {
+			$this->redirect_to_rules(
+				array(
+					'rules'      => 'error',
+					'rules_code' => $saved->get_error_code(),
+				)
+			);
+		}
+
+		Agend_Loop_Sync_Logger::info( 'Rule saved', array( 'rule' => $saved['slug'] ) );
+
+		$this->redirect_to_rules( array( 'rules' => 'saved' ) );
+	}
+
+	/**
+	 * Handles deleting a rule. Its Loop channel is archived by the next complete
+	 * rule run.
+	 *
+	 * @return void
+	 */
+	public function handle_delete_rule() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-loop-sync' ) );
+		}
+
+		check_admin_referer( 'agend_loop_sync_delete_rule' );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Checked by check_admin_referer() above.
+		$slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+
+		if ( Agend_Loop_Sync_Settings::delete_rule( $slug ) ) {
+			Agend_Loop_Sync_Logger::info( 'Rule deleted', array( 'rule' => Agend_Loop_Sync_Settings::sanitize_rule_slug( $slug ) ) );
+		}
+
+		$this->redirect_to_rules( array( 'rules' => 'deleted' ) );
+	}
+
+	/**
+	 * Sends the administrator back with a notice, and stops, when rule sync is
+	 * off, so a settings page left open from before it was turned off cannot run
+	 * a sync.
+	 *
+	 * @return void
+	 */
+	private function refuse_when_rules_off() {
+		if ( Agend_Loop_Sync_Settings::is_rule_sync_enabled() ) {
+			return;
+		}
+
+		$this->redirect_to_rules( array( 'rules' => 'off' ) );
+	}
+
+	/**
+	 * Sends the administrator back to the community rules section.
+	 *
+	 * @param array<string, int|string> $args Query args that say what happened.
+	 * @return void
+	 */
+	private function redirect_to_rules( array $args ) {
+		wp_safe_redirect(
+			add_query_arg(
+				array_merge( array( 'page' => 'agend-loop-sync' ), $args ),
+				admin_url( 'options-general.php' )
+			) . '#als-rules'
+		);
+		exit;
 	}
 
 	/**

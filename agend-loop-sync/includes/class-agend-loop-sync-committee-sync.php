@@ -80,38 +80,6 @@ class Agend_Loop_Sync_Committee_Sync {
 	private const ADOPTION_RESULTS_LOGGED = 25;
 
 	/**
-	 * The kinds of sync hold a Loop administrator can place. Anything else is
-	 * recorded as 'unknown'.
-	 *
-	 * @var string[]
-	 */
-	private const HOLD_KINDS = array( 'removal', 'role_cap' );
-
-	/**
-	 * The channel roles a role cap can name. Anything else is dropped.
-	 *
-	 * @var string[]
-	 */
-	private const HOLD_ROLES = array( 'owner', 'admin', 'moderator', 'member' );
-
-	/**
-	 * Longest hold reason kept. The reason is free text an administrator typed in
-	 * Loop, and it lands in the stored run summary, the log and the member picker.
-	 */
-	private const HOLD_REASON_MAX = 500;
-
-	/**
-	 * Most held members kept in the stored run summary, so a committee with many
-	 * holds cannot bloat the option. The total is always kept.
-	 */
-	private const HOLD_RESULTS_KEPT = 100;
-
-	/**
-	 * Most held members written to the log for one committee.
-	 */
-	private const HOLD_RESULTS_LOGGED = 25;
-
-	/**
 	 * Upbeat client override, used by tests. Null means the real
 	 * Iugo_Membership_Kiosk_API singleton.
 	 *
@@ -254,13 +222,13 @@ class Agend_Loop_Sync_Committee_Sync {
 
 			// Activities join to the list by name, so a name shared by two
 			// committees cannot be tied to either id.
-			if ( $entry['ambiguous'] || '' === $entry['unique_id'] ) {
+			if ( $entry['ambiguous'] || '' === $entry['unique_id'] || Agend_Loop_Sync_Gateway::is_rule_channel( $entry['unique_id'] ) ) {
 				++$summary['skipped_no_id_committees'];
 				Agend_Loop_Sync_Logger::warning(
 					'Committee skipped: no usable Upbeat unique id',
 					array(
 						'committee' => $committee_name,
-						'reason'    => $entry['ambiguous'] ? 'name shared by several committees' : 'empty unique id',
+						'reason'    => $entry['ambiguous'] ? 'name shared by several committees' : ( '' === $entry['unique_id'] ? 'empty unique id' : 'unique id uses the reserved rule: prefix' ),
 					)
 				);
 				continue;
@@ -444,7 +412,7 @@ class Agend_Loop_Sync_Committee_Sync {
 		// request names members to adopt, and nothing is written. Keep the queue,
 		// say why, and send the roster again without the hand-over, so a queue
 		// the key cannot act on never stops the committee from syncing.
-		if ( array() !== $adopt_ids && is_wp_error( $response ) && 403 === self::error_status( $response ) ) {
+		if ( array() !== $adopt_ids && is_wp_error( $response ) && 403 === Agend_Loop_Sync_Gateway::error_status( $response ) ) {
 			$message = sprintf( '%s: the gateway refused the hand-over (HTTP 403); handing members to the sync needs the loop.committees.update scope on the API key. The queue was kept', $committee_name );
 
 			$summary['errors'][]          = $message;
@@ -478,30 +446,12 @@ class Agend_Loop_Sync_Committee_Sync {
 		// Read the reconciliation counts the gateway returns. The apps-core
 		// client may return the full envelope or the unwrapped data, so accept
 		// both shapes.
-		$data       = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
-		$applied    = (int) ( $data['applied'] ?? 0 );
-		$skipped    = (int) ( $data['skipped'] ?? 0 );
-		$removed    = (int) ( $data['removed'] ?? 0 );
-		$unresolved = is_array( $data['skipped_external_ids'] ?? null ) ? $data['skipped_external_ids'] : array();
-
-		// A gateway without roster replace mode ignores `mode` and returns none
-		// of these counts, so removals silently never happen. Surface it.
-		if ( 'replace' === $summary['mode'] && is_array( $data ) && ! array_key_exists( 'removed', $data ) && ! in_array( 'Gateway did not confirm replace mode; departed members are not being removed', $summary['errors'], true ) ) {
-			$summary['errors'][] = 'Gateway did not confirm replace mode; departed members are not being removed';
-		}
-
-		// Without these counts the member totals stay at zero, which would read
-		// as "nothing happened". Record whether the gateway actually reported them.
-		if ( is_array( $data ) && array_key_exists( 'applied', $data ) ) {
-			$summary['member_counts_reported'] = true;
-		}
-
-		$summary['applied_members'] += $applied;
-		$summary['skipped_members'] += $skipped;
-		$summary['removed_members'] += $removed;
-		foreach ( $unresolved as $ext_id ) {
-			$summary['unresolved_external_ids'][] = (int) $ext_id;
-		}
+		$data    = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+		$data    = is_array( $data ) ? $data : array();
+		$counts  = Agend_Loop_Sync_Gateway::apply_response( $data, $summary );
+		$applied = $counts['applied'];
+		$skipped = $counts['skipped'];
+		$removed = $counts['removed'];
 
 		Agend_Loop_Sync_Logger::info(
 			'Committee synced',
@@ -514,10 +464,10 @@ class Agend_Loop_Sync_Committee_Sync {
 			)
 		);
 
-		$this->record_holds( $committee_name, is_array( $data ) ? $data : array(), $summary );
+		$this->record_holds( $committee_name, $data, $summary );
 
 		if ( array() !== $adopt_ids ) {
-			$this->record_adoption( $unique_id, $committee_name, count( $adopt_ids ), is_array( $data ) ? $data : array(), $summary );
+			$this->record_adoption( $unique_id, $committee_name, count( $adopt_ids ), $data, $summary );
 		}
 
 		return true;
@@ -540,91 +490,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return void
 	 */
 	private function record_holds( string $committee_name, array $data, array &$summary ): void {
-		$held = is_array( $data['held'] ?? null ) ? $data['held'] : array();
-
-		$total = 0;
-		foreach ( $held as $entry ) {
-			$hold = self::normalise_hold( $entry );
-			if ( null === $hold ) {
-				continue;
-			}
-
-			++$total;
-			++$summary['held_members'];
-			$summary['held_results'][] = array( 'committee' => $committee_name ) + $hold;
-
-			if ( $total <= self::HOLD_RESULTS_LOGGED ) {
-				Agend_Loop_Sync_Logger::info(
-					'Committee member held by a Loop administrator',
-					array(
-						'committee'   => $committee_name,
-						'external_id' => $hold['external_id'],
-						'kind'        => $hold['kind'],
-						'role_cap'    => $hold['role_cap'],
-						'held_since'  => $hold['held_since'],
-					)
-				);
-			}
-		}
-
-		if ( $total > self::HOLD_RESULTS_LOGGED ) {
-			Agend_Loop_Sync_Logger::info(
-				'More held members than the log lists',
-				array(
-					'committee' => $committee_name,
-					'held'      => $total,
-					'logged'    => self::HOLD_RESULTS_LOGGED,
-				)
-			);
-		}
-	}
-
-	/**
-	 * Reads one hold as the gateway reports it: { external_id, kind, role_cap,
-	 * reason, held_since }. Pure.
-	 *
-	 * @param mixed $hold One entry of the gateway's `held` or `holds` list.
-	 * @return array<string, mixed>|null external_id (int), kind ('removal', 'role_cap' or 'unknown'), role_cap (a channel role, '' when none), reason (capped) and held_since (as sent); null when the entry names no member.
-	 */
-	private static function normalise_hold( $hold ): ?array {
-		if ( ! is_array( $hold ) ) {
-			return null;
-		}
-
-		if ( ! is_scalar( $hold['external_id'] ?? null ) ) {
-			return null;
-		}
-
-		$external_id = (int) $hold['external_id'];
-		if ( $external_id <= 0 ) {
-			return null;
-		}
-
-		$kind     = self::scalar_string( $hold['kind'] ?? '' );
-		$role_cap = self::scalar_string( $hold['role_cap'] ?? '' );
-		$reason   = trim( self::scalar_string( $hold['reason'] ?? '' ) );
-
-		if ( mb_strlen( $reason ) > self::HOLD_REASON_MAX ) {
-			$reason = mb_substr( $reason, 0, self::HOLD_REASON_MAX ) . '...';
-		}
-
-		return array(
-			'external_id' => $external_id,
-			'kind'        => in_array( $kind, self::HOLD_KINDS, true ) ? $kind : 'unknown',
-			'role_cap'    => in_array( $role_cap, self::HOLD_ROLES, true ) ? $role_cap : '',
-			'reason'      => $reason,
-			'held_since'  => self::scalar_string( $hold['held_since'] ?? '' ),
-		);
-	}
-
-	/**
-	 * A gateway value as a string, or '' when it is not a scalar.
-	 *
-	 * @param mixed $value Raw value.
-	 * @return string
-	 */
-	private static function scalar_string( $value ): string {
-		return is_scalar( $value ) ? (string) $value : '';
+		Agend_Loop_Sync_Gateway::record_holds( $committee_name, $data, $summary, 'committee' );
 	}
 
 	/**
@@ -716,22 +582,6 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
-	 * The HTTP status a gateway call failed with.
-	 *
-	 * Apps Core carries it as `status_code` in the WP_Error data, on the
-	 * gateway's own refusals and on the ones it makes locally for a key that is
-	 * known to lack a scope, so both read the same.
-	 *
-	 * @param WP_Error $error The failed call.
-	 * @return int The status, or 0 when the error carries none (a transport failure).
-	 */
-	private static function error_status( $error ): int {
-		$data = $error->get_error_data();
-
-		return is_array( $data ) && isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
-	}
-
-	/**
 	 * Reads every committee Loop holds for this site, following pagination.
 	 *
 	 * Returns null (with the reason recorded) when the list cannot be read in
@@ -742,39 +592,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return array<int, array<string, mixed>>|null
 	 */
 	private function fetch_loop_committees( array &$summary ): ?array {
-		if ( ! function_exists( 'agend_apps_loop_list_committees' ) ) {
-			return null;
-		}
-
-		$per_page = 100;
-		$items    = array();
-
-		// Hard stop so a gateway that never reports the last page cannot loop forever.
-		for ( $page = 1; $page <= 50; $page++ ) {
-			$response = agend_apps_loop_list_committees( $page, $per_page );
-			if ( is_wp_error( $response ) ) {
-				$summary['errors'][] = 'List committees failed: ' . $response->get_error_message();
-				return null;
-			}
-
-			$data = is_array( $response ) && is_array( $response['data'] ?? null ) ? $response['data'] : array();
-			foreach ( $data as $item ) {
-				if ( is_array( $item ) ) {
-					$items[] = $item;
-				}
-			}
-
-			$pagination = is_array( $response ) ? ( $response['meta']['pagination'] ?? null ) : null;
-			$has_next   = is_array( $pagination ) ? ! empty( $pagination['has_next'] ) : count( $data ) >= $per_page;
-
-			if ( ! $has_next ) {
-				return $items;
-			}
-		}
-
-		$summary['errors'][] = 'List committees did not finish within 50 pages';
-
-		return null;
+		return Agend_Loop_Sync_Gateway::fetch_loop_committees( $summary );
 	}
 
 	/**
@@ -791,8 +609,11 @@ class Agend_Loop_Sync_Committee_Sync {
 	private function committees_without_local_members( array $index, array $rosters, array $loop_committees ): array {
 		$live = array();
 		foreach ( $loop_committees as $item ) {
-			if ( empty( $item['is_archived'] ) && '' !== (string) ( $item['unique_id'] ?? '' ) ) {
-				$live[ (string) $item['unique_id'] ] = true;
+			$unique_id = (string) ( $item['unique_id'] ?? '' );
+
+			// A community rule channel belongs to the rule sync, never to this one.
+			if ( empty( $item['is_archived'] ) && '' !== $unique_id && ! Agend_Loop_Sync_Gateway::is_rule_channel( $unique_id ) ) {
+				$live[ $unique_id ] = true;
 			}
 		}
 
@@ -864,6 +685,10 @@ class Agend_Loop_Sync_Committee_Sync {
 			if ( '' === $uid || ! empty( $item['is_archived'] ) ) {
 				continue;
 			}
+			// Community rule channels are archived by the rule sync, not here.
+			if ( Agend_Loop_Sync_Gateway::is_rule_channel( $uid ) ) {
+				continue;
+			}
 			if ( in_array( $uid, $current, true ) ) {
 				continue; // Still present upstream.
 			}
@@ -883,46 +708,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return bool True when archived or, in dry run, would be; false when it failed or archiving is unavailable.
 	 */
 	private function archive_committee( string $unique_id, string $reason, array &$summary ): bool {
-		if ( ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
-			return false;
-		}
-
-		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info(
-				'Dry run: would archive committee',
-				array(
-					'unique_id' => $unique_id,
-					'reason'    => $reason,
-				)
-			);
-			++$summary['archived'];
-			return true;
-		}
-
-		$res = agend_apps_loop_archive_committee( $unique_id );
-		if ( is_wp_error( $res ) ) {
-			$summary['errors'][] = sprintf( 'Archive %s: %s', $unique_id, $res->get_error_message() );
-			Agend_Loop_Sync_Logger::error(
-				'Committee archive failed',
-				array(
-					'unique_id' => $unique_id,
-					'reason'    => $reason,
-					'error'     => $res->get_error_message(),
-				)
-			);
-			return false;
-		}
-
-		++$summary['archived'];
-		Agend_Loop_Sync_Logger::info(
-			'Committee archived',
-			array(
-				'unique_id' => $unique_id,
-				'reason'    => $reason,
-			)
-		);
-
-		return true;
+		return Agend_Loop_Sync_Gateway::archive_channel( $unique_id, $reason, $summary, 'committee' );
 	}
 
 	/**
@@ -1130,14 +916,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return WP_User[]
 	 */
 	private function get_member_users(): array {
-		return get_users(
-			array(
-				'meta_key'     => 'imk_membership_number', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_compare' => 'EXISTS',
-				'orderby'      => 'ID',
-				'order'        => 'ASC',
-			)
-		);
+		return Agend_Loop_Sync_Gateway::member_users();
 	}
 
 	/**
@@ -1519,7 +1298,7 @@ class Agend_Loop_Sync_Committee_Sync {
 
 		$held_by_external_id = array();
 		foreach ( $holds as $hold ) {
-			$hold = self::normalise_hold( $hold );
+			$hold = Agend_Loop_Sync_Gateway::normalise_hold( $hold );
 			if ( null !== $hold ) {
 				$held_by_external_id[ $hold['external_id'] ] = $hold;
 			}
@@ -1687,7 +1466,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return string
 	 */
 	private function loop_members_error( $error ): string {
-		$status = self::error_status( $error );
+		$status = Agend_Loop_Sync_Gateway::error_status( $error );
 
 		if ( 404 === $status ) {
 			return __( 'Loop has no channel for this committee yet. Run a committee sync first, then load the members again.', 'agend-loop-sync' );
@@ -1709,23 +1488,14 @@ class Agend_Loop_Sync_Committee_Sync {
 	 */
 	private function finish( array $summary ): array {
 		// Stored in an option on every run: keep a large membership's unresolved
-		// ids from bloating it.
-		$total = count( $summary['unresolved_external_ids'] );
-		if ( $total > 100 ) {
-			$summary['unresolved_external_ids']       = array_slice( $summary['unresolved_external_ids'], 0, 100 );
-			$summary['unresolved_external_ids_total'] = $total;
-		}
+		// ids and held members from bloating it.
+		$summary = Agend_Loop_Sync_Gateway::trim_summary( $summary );
 
 		// Same for the per-member hand-over outcomes, which a large queue can make long.
 		$adoption_total = count( $summary['adoption_results'] ?? array() );
 		if ( $adoption_total > self::ADOPTION_RESULTS_KEPT ) {
 			$summary['adoption_results']       = array_slice( $summary['adoption_results'], 0, self::ADOPTION_RESULTS_KEPT );
 			$summary['adoption_results_total'] = $adoption_total;
-		}
-
-		// And for the held members; `held_members` keeps the full count.
-		if ( count( $summary['held_results'] ?? array() ) > self::HOLD_RESULTS_KEPT ) {
-			$summary['held_results'] = array_slice( $summary['held_results'], 0, self::HOLD_RESULTS_KEPT );
 		}
 
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );

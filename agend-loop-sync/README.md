@@ -3,7 +3,9 @@
 Keeps Agend Loop in step with the membership records behind a WordPress
 site. Members' Loop accounts are refreshed automatically. Optionally, every
 Upbeat committee becomes a private Loop channel whose members and moderators
-follow the committee roster.
+follow the committee roster, and criteria-based "communities" (for example
+"All Fellows") are kept in step with membership by community rules (see
+[Community rules](#community-rules)).
 
 Committee sync is optional and off on new installs. A site that manages
 channel membership in Loop itself, such as one piloting a few invite-only
@@ -25,6 +27,12 @@ directly and never modifies the membership plugin.
   kept up to date as a private Loop channel, named after the committee. Off
   on new installs; everything below about committees applies only when it is
   on.
+- **Community rules (optional).** Criteria-based private channels the website
+  keeps in sync: "All Fellows", "Specialist members", "Registered for event
+  X". Members who meet a rule's criteria are added, members who stop meeting
+  them are removed, and members who lapse lose access (and get it back
+  automatically when financial again). Off on new installs; see
+  [Community rules](#community-rules).
 - **Committee roles become channel roles.** Committee positions such as
   Chair, Secretary or Member map to Loop channel roles (owner, moderator,
   member) through an editable mapping.
@@ -62,7 +70,10 @@ directly and never modifies the membership plugin.
   needs `loop.committees.browse`, `loop.committees.create` and
   `loop.committees.delete`. Handing members to the sync (optional) also needs
   `loop.committees.update` and Agend Apps Core 1.42.0 or later (see
-  [Handing members to the sync](#handing-members-to-the-sync)).
+  [Handing members to the sync](#handing-members-to-the-sync)). Community
+  rules need the same `loop.committees.browse`, `loop.committees.create` and
+  `loop.committees.delete` scopes as committee sync (see
+  [Community rules](#community-rules)).
 - **Agend Membership** (`iugo-membership-kiosk`), active. Provides access to
   Upbeat and the `imk_membership_number` user meta used to identify members.
 - Single sign-on from this site into Loop (the Agend SAML IdP). The plugin
@@ -388,6 +399,133 @@ Requirements and failure handling:
   Upbeat (one call per member, as the committee sync does) and the committee
   channel from Loop, so it can take a moment. It changes nothing in Loop.
 
+### Community rules
+
+Community rules are optional and off on new installs. Each enabled rule owns
+one private Loop channel, keyed `rule:<slug>` and named after the rule, whose
+members the website keeps in step with membership. This is separate from
+committee sync, and either can be on without the other. Channels you create
+and fill by hand in Loop are not affected: the rule sync only reads, updates
+and archives `rule:` channels, and the committee sync never touches them.
+
+Turn on **Community rules** on **Settings > Loop Sync**, then add rules in the
+**Community rules** section that appears.
+
+#### What a rule is
+
+| Field | Meaning |
+|---|---|
+| Channel name | The Loop channel's name. Unique across rules, ignoring case. |
+| Slug | Letters, numbers and hyphens. Becomes the channel key `rule:<slug>`. Unique, and fixed once the rule is saved. Taken from the name when left blank on a new rule. |
+| Enabled | A disabled rule keeps its settings but its channel is archived on the next complete run. |
+| Membership types | Optional list (for example `Fellow`, `Specialist`). A member matches when their Upbeat membership type is any of them, ignoring case. Empty means any. |
+| Membership levels | The same, for the Upbeat membership level. |
+| Registered for events | Optional list of Upbeat event IDs. A member matches when they have a registration for any listed event that is not cancelled. A registration whose transaction or attendance status mentions cancel, void or refund does not count. |
+| Combine criteria | `all` (default): every criterion that is filled in must pass. `any`: one passing is enough. A rule with no criteria matches every member. The lapse rule applies on top of either. |
+| Lapse rule | Whether the access statuses below apply to this rule (default on). |
+| Always include | Membership numbers, each optionally `= owner`, `moderator` or `member` (default member), who are in the channel whatever the criteria and lapse rule say, such as a staff moderator. If such a member also meets the criteria, the highest role wins. |
+| Channel options | Whether members can leave and whether staff can add members by hand. Sent to Loop only when enabled by a filter; see [Optional channel flags](#optional-channel-flags). |
+
+Up to 50 rules, each with up to 2000 members (the gateway's roster limit; a
+rule over it is not synced and the run says so).
+
+A client plugin can add criteria of its own, or override the result, with the
+`agend_loop_sync_rule_matches` filter. It runs after the built-in criteria and
+the lapse rule, for every member and rule:
+
+```php
+add_filter(
+    'agend_loop_sync_rule_matches',
+    function ( bool $matches, array $rule, $member_detail, int $user_id ): bool {
+        if ( 'specialists' === $rule['slug'] ) {
+            return $matches && $member_detail instanceof My_Member_Detail && $member_detail->get_specialist();
+        }
+        return $matches;
+    },
+    10,
+    4
+);
+```
+
+The `agend_loop_sync_registration_counts` filter (`$counts`, `$registration`,
+`$rule`) changes which registrations count towards an event criterion, for a
+site whose Upbeat uses other cancellation words.
+
+#### Lapsed members lose access
+
+Upbeat statuses run Financial, then Renewal Due (after 31 March), Overdue
+(mid April) and Reinstatable (30 June). Under **Statuses that keep access**,
+the default is to keep access while a member is **Financial, Renewal Due or
+Overdue** and to remove it at **Reinstatable** or any lapsed status (including
+Lapsed, Cancelled, Pending, or no status). Untick Overdue to cut access
+earlier; tick Reinstatable to extend it. Financial always keeps access.
+
+The setting applies to every rule that has the lapse rule turned on. When a
+member is Financial again, the next run adds them back automatically. Note
+that the membership plugin's own `has_renewal_due()` also counts Reinstatable;
+the rule sync compares the Upbeat status itself, so Reinstatable loses access
+by default.
+
+#### When it runs
+
+- On a schedule (hourly by default, or twice daily or daily), while the
+  plugin and community rules are both on.
+- On demand, with **Run rules now**.
+- About five minutes after a member's Upbeat record changes
+  (`iugo_membership_kiosk_invalidate_member_caches_complete`) or a member with
+  a membership number signs in, so a status change or a new Loop account is
+  picked up quickly. One run is scheduled for a burst of changes, and it never
+  runs in the triggering request.
+
+A run reads each local member with a membership number from Upbeat once
+(member detail, plus registrations only when some enabled rule lists events;
+the membership plugin caches both), evaluates every rule, and sends each rule's
+roster to the gateway. Two runs never overlap.
+
+#### Safety
+
+- **Merge mode on incomplete data.** If any member lookup fails, or no member
+  could be read, every rule runs in merge mode (add and update only), nothing
+  is removed and no channel is archived, and the summary says so. Otherwise
+  the run uses replace mode, so a member who stops matching is removed.
+- **Only what the sync added is removed.** The gateway removes only
+  memberships the sync itself added or adopted. Members someone added by hand
+  in Loop are never removed.
+- **Members need a Loop account first.** A member with no Loop user yet is
+  skipped by the gateway, reported as "skipped (no Loop account yet)" in the
+  last-run summary, and joins on a later run once they have one (Agend
+  provisioning of accounts is pending). Their existing memberships are kept
+  that run.
+- **Holds still apply.** A Loop administrator's emergency removal or role cap
+  is enforced by the gateway and shown in the summary as held.
+- **Archiving.** A rule that is deleted or disabled has its channel archived,
+  and so does a rule that matches nobody (the gateway ignores an empty roster,
+  so archiving is how the last members lose access); the channel is
+  unarchived when the rule matches someone again. Both happen on a complete,
+  non-dry run only.
+- **Dry run.** Logs "would sync rule" and "would archive rule channel" and
+  sends nothing.
+
+The last-run summary shows, for each rule, the members matched, applied,
+removed, skipped because they have no Loop account yet, and held, plus the
+outcome. **Recent rule activity** lists the log entries about rules.
+
+#### Optional channel flags
+
+Agend is adding two optional channel settings, `member_can_leave` and
+`allow_manual_members`, to the committee payload. Each rule stores both
+(default true). They are sent with the roster only when the
+`agend_loop_sync_send_rule_channel_flags` filter returns true (default false),
+because a gateway that does not know them may reject the request. Turn the
+filter on once the gateway supports them:
+
+```php
+add_filter( 'agend_loop_sync_send_rule_channel_flags', '__return_true' );
+```
+
+The filter receives the rule as its second argument, so it can be enabled per
+rule.
+
 ### Initial backfill
 
 **Backfill all users** runs the member sync for every member with a
@@ -411,6 +549,8 @@ picked up after their first SSO sign-in. It honours dry-run mode.
 - **Self-healing schedule.** If the scheduled event goes missing (for
   example after a cron reset or a file-based deploy), it is recreated on the
   next page load. Changing the schedule takes effect straight away.
+- **Community rules never act on partial data.** See
+  [Community rules](#community-rules).
 - **Stale-sync warning.** The settings screen warns when the last committee
   sync is more than twice the scheduled interval old, which usually means
   WP-Cron is not running.
@@ -427,6 +567,8 @@ picked up after their first SSO sign-in. It honours dry-run mode.
 |---|---|
 | Member | IdP entity ID, membership number, email, display name, WordPress role slugs. Loop stores only the display name; the email is used to find the account when the membership number does not match. |
 | Committee | IdP entity ID, committee slug and name, active flag, sync mode, and for each member: membership number, channel role, the original committee role name, and email (when valid). Loop uses the email only if the membership number does not match an account. While members are queued for hand-over, also their membership numbers. |
+
+| Community rule | IdP entity ID, the rule's key (`rule:<slug>`) and name, active flag, sync mode, and for each member: membership number and channel role. No email or name is sent. With the optional flags filter on, also `member_can_leave` and `allow_manual_members`. |
 
 No other profile data is sent.
 
@@ -452,6 +594,10 @@ the Loop administrator gave and the date it was placed.
 | Committee filter | All web-visible committees | See [Choosing which committees sync](#choosing-which-committees-sync). |
 | Committee groups | Empty | One Upbeat group per line, for the groups filter. |
 | Committee allow-list | Empty | One committee name per line, for the allow-list filter. |
+| Community rules | Off | Scheduled and manual rule syncs. The settings below it, and the rules section, show only while it is on. |
+| Community rules schedule | Hourly | Hourly, twice daily or daily. |
+| Statuses that keep access | Financial, Renewal Due, Overdue | See [Lapsed members lose access](#lapsed-members-lose-access). Financial always keeps access. |
+| Rules | None | Added, edited and deleted in the Community rules section; see [Community rules](#community-rules). |
 
 ## Admin tools
 
@@ -461,6 +607,8 @@ nonce-protected.
 | Tool | What it does | Calls Loop? |
 |---|---|---|
 | Sync committees now | Runs a full committee sync immediately. Shown only with committee sync on, like the scan, inspect and hand-over tools. | Yes (unless dry run) |
+| Run rules now | Runs a community rule sync immediately. Shown only with community rules on. | Yes (unless dry run) |
+| Add, edit or delete a rule | Manages the rules. A rule's slug is locked once saved. Deleting a rule archives its channel on the next complete run. | No |
 | Backfill all users | Pushes every member to Loop in batches of 100. | Yes (unless dry run) |
 | Scan members for committees | Lists local members who sit on a committee, with their committees, roles, email and membership number, plus a count of each role name. Up to 200 members are listed. | No |
 | Inspect committee catalogue | Lists every Upbeat committee with its unique ID, web flag, groups and activity count, plus every role name in use. | No |
@@ -479,6 +627,9 @@ The screen also shows:
   administrator holds members the sync skipped or capped, the summary also
   shows how many and lists the first 100 (see
   [Who can change a synced channel](#who-can-change-a-synced-channel)).
+- **Community rules:** the last rule run's time, mode and archive count, a
+  line per rule (matched, applied, removed, skipped, held, outcome) and the
+  recent log entries about rules.
 - **Recent activity:** the 30 most recent log entries (the last 200 are
   kept). With `WP_DEBUG` on, entries also go to the PHP error log.
 
@@ -508,7 +659,12 @@ settles it or you clear it.
    unmanaged: the sync never removes or demotes them. Use **Hand members to
    the sync** for any who should follow the roster (see
    [Handing members to the sync](#handing-members-to-the-sync)).
-8. Confirm the schedule, and make sure WP-Cron fires (see below).
+8. If the site uses community rules, tick **Community rules**, save, check the
+   statuses that keep access, add the rules, and run **Run rules now** with
+   dry run on. Check **Recent rule activity** shows the rosters you expect,
+   then turn dry run off and run it again. Enable the optional channel flags
+   filter only once the gateway supports them.
+9. Confirm the schedule, and make sure WP-Cron fires (see below).
 
 ## Things to know
 
@@ -536,6 +692,15 @@ settles it or you clear it.
   cannot be read, or the pages do not add up to the total Upbeat reports,
   the run stops before making any change. If a member's committee pages
   cannot all be read, the run drops to merge mode.
+- **Community rules need members to have Loop accounts.** A member who meets a
+  rule but has no Loop user yet is skipped and joins on a later run, once they
+  have signed in to Loop through SSO.
+- **A rule that matches nobody archives its channel.** The gateway ignores an
+  empty roster, so this is how the last members are removed. It returns when
+  someone matches again.
+- **Rule runs grow with membership size.** Each run makes one cached Upbeat
+  member call per local member (and one registrations call when a rule lists
+  events). Leave large memberships to the schedule and the debounced runs.
 - **WP-Cron depends on site traffic.** On low-traffic sites, or for
   predictable timing, trigger WP-Cron from a server cron job.
 - **Role-based channels come from Loop, not WordPress.** Which channels a
@@ -580,5 +745,20 @@ settles it or you clear it.
   each committee in Upbeat's response carries its full roster and a large
   page can outrun the HTTP timeout. Change the page size with the
   `agend_loop_sync_committee_page_size` filter.
+- Community rules: `Agend_Loop_Sync_Rule_Sync` (runner),
+  `Agend_Loop_Sync_Rule_Matcher` (criteria and lapse rule) and
+  `Agend_Loop_Sync_Gateway` (helpers shared with the committee sync: reading
+  the gateway reply, holds, listing and archiving channels). Options:
+  `agend_loop_sync_rule_sync_enabled`, `agend_loop_sync_rules`,
+  `agend_loop_sync_access_statuses`, `agend_loop_sync_rule_schedule`,
+  `agend_loop_sync_last_rule_sync` and `agend_loop_sync_last_rule_summary`.
+  Cron hooks: `agend_loop_sync_rules_event` (recurring) and
+  `agend_loop_sync_rules_debounced_event` (single, about five minutes out).
+  Filters: `agend_loop_sync_rule_matches`,
+  `agend_loop_sync_registration_counts` and
+  `agend_loop_sync_send_rule_channel_flags`. Channels with a `rule:` key
+  belong to the rule sync; the committee sync skips them.
+- Version 1.5.0 adds community rules. Nothing changes for a site that does not
+  turn them on.
 - Tests live in `tests/` and run as part of the repository's PHPUnit suite
   (`composer test` from the repository root).
