@@ -80,6 +80,42 @@
 	appearance: none;
 }
 
+/* A dropdown field: the whole field opens it, and a drawn chevron replaces the
+   native arrow that `appearance: none` removes. */
+.agend-ds__field--choice {
+	position: relative;
+	cursor: pointer;
+}
+
+.agend-ds__field--choice::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	right: 18px;
+	width: 7px;
+	height: 7px;
+	margin-top: -5px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(45deg);
+	pointer-events: none;
+}
+
+.agend-ds .agend-ds__select {
+	padding-right: 24px !important;
+	cursor: pointer;
+	text-overflow: ellipsis;
+}
+
+.agend-ds .agend-ds__select.is-empty {
+	color: #667085;
+}
+
+/* The open list keeps the text colour, not the empty field's grey. */
+.agend-ds .agend-ds__select option {
+	color: #1b2430;
+}
+
 .agend-ds .agend-ds__input::placeholder {
 	color: #667085;
 	opacity: 1;
