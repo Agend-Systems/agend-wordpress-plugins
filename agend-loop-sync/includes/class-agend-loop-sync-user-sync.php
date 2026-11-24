@@ -17,6 +17,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_User_Sync {
 
 	/**
+	 * Provisioning outcomes the gateway reports.
+	 *
+	 * @var string[]
+	 */
+	const PROVISIONING_OUTCOMES = array( 'provisioned', 'linked', 'already_linked', 'skipped' );
+
+	/**
+	 * Reasons the gateway gives for skipping a member. Anything else is read
+	 * as 'unknown'.
+	 *
+	 * @var string[]
+	 */
+	const SKIP_REASONS = array( 'connection_not_usable', 'provisioning_not_allowed', 'restricted_role', 'consent_required', 'rate_limited', 'conflict', 'provisioning_failed' );
+
+	/**
+	 * Members per bulk request; the gateway's limit.
+	 */
+	const BATCH_SIZE = 100;
+
+	/**
 	 * Per-request guard so a user is synced at most once per request, even when
 	 * several triggering hooks (e.g. profile_update + set_user_role) fire in the
 	 * same request.
@@ -212,6 +232,11 @@ class Agend_Loop_Sync_User_Sync {
 			'roles'         => array_values( (array) $user->roles ),
 		);
 
+		$provision = Agend_Loop_Sync_Settings::should_provision();
+		if ( $provision ) {
+			$payload['provision'] = true;
+		}
+
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
 			Agend_Loop_Sync_Logger::info(
 				'Dry run: would sync user',
@@ -219,6 +244,7 @@ class Agend_Loop_Sync_User_Sync {
 					'wp_id'       => (int) $user->ID,
 					'external_id' => $external_id,
 					'roles'       => $payload['roles'],
+					'provision'   => $provision,
 				)
 			);
 			return true;
@@ -226,33 +252,421 @@ class Agend_Loop_Sync_User_Sync {
 
 		$response = agend_apps_loop_sync_user( $payload );
 
-		if ( is_wp_error( $response ) ) {
+		// The gateway refuses the whole request when the key lacks the
+		// provisioning scope. Note it, so later syncs stop asking, and sync the
+		// member without it rather than not at all.
+		if ( $provision && is_wp_error( $response ) && self::is_scope_refusal( $response ) ) {
+			Agend_Loop_Sync_Settings::note_provision_refused();
 			Agend_Loop_Sync_Logger::error(
-				'User sync failed',
-				array(
-					'wp_id' => (int) $user->ID,
-					'error' => $response->get_error_message(),
-				)
+				'Loop account creation was refused: the site key lacks loop.users.provision; synced without it',
+				array( 'wp_id' => (int) $user->ID )
 			);
-			return false;
+			unset( $payload['provision'] );
+			$provision = false;
+			$response  = agend_apps_loop_sync_user( $payload );
 		}
 
-		Agend_Loop_Sync_Logger::info( 'User synced', array( 'wp_id' => (int) $user->ID ) );
+		if ( is_wp_error( $response ) ) {
+			return $this->handle_sync_error( $user, $response, $provision );
+		}
+
+		$data    = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+		$outcome = $provision ? self::provisioning_outcome( is_array( $data ) ? $data : array() ) : array();
+
+		if ( $provision ) {
+			Agend_Loop_Sync_Provision_Retry::remove( array( (int) $user->ID ) );
+		}
+
+		$context = array( 'wp_id' => (int) $user->ID );
+		if ( array() !== $outcome ) {
+			$context['provisioning'] = $outcome['outcome'];
+			if ( isset( $outcome['reason'] ) ) {
+				$context['reason'] = $outcome['reason'];
+			}
+		}
+		Agend_Loop_Sync_Logger::info( 'User synced', $context );
 
 		return true;
 	}
 
 	/**
-	 * Backfills every local member into Loop in one pass, using the bulk-sync
-	 * endpoint in batches of 100. Unlike the per-login trigger this is intended
-	 * for the initial rollout. It never creates Loop accounts (those appear at a
-	 * member's first SSO sign-in to Loop): it only refreshes display names and
-	 * role-based channels on existing accounts, and a member with no account
-	 * comes back as failed. Honours dry-run.
+	 * Logs a failed single-user sync without the member's email, and, when the
+	 * sync asked for provisioning, explains why the account was not created and
+	 * queues a retry where waiting will help.
+	 *
+	 * @param WP_User  $user      The user.
+	 * @param WP_Error $error     The gateway error.
+	 * @param bool     $provision Whether the request asked for provisioning.
+	 * @return bool Always false.
+	 */
+	private function handle_sync_error( WP_User $user, WP_Error $error, bool $provision ): bool {
+		$reason = $provision ? self::skip_reason_from_error( $error ) : '';
+		if ( '' !== $reason ) {
+			Agend_Loop_Sync_Logger::warning(
+				'Loop account not created',
+				array(
+					'wp_id'  => (int) $user->ID,
+					'reason' => $reason,
+				)
+			);
+			if ( Agend_Loop_Sync_Provision_Retry::is_retryable( $reason ) ) {
+				Agend_Loop_Sync_Provision_Retry::add( array( (int) $user->ID => $reason ) );
+			} else {
+				// Waiting will not help, so a retry already queued would only
+				// repeat this answer.
+				Agend_Loop_Sync_Provision_Retry::remove( array( (int) $user->ID ) );
+			}
+			return false;
+		}
+
+		Agend_Loop_Sync_Logger::error( 'User sync failed', array( 'wp_id' => (int) $user->ID ) + self::error_context( $error ) );
+
+		return false;
+	}
+
+	/**
+	 * Reads the `provisioning` block of a synced user or bulk result item.
+	 *
+	 * @param array<string, mixed> $item The synced user, or one bulk result item.
+	 * @return array{outcome?: string, reason?: string} Empty when the gateway sent none.
+	 */
+	public static function provisioning_outcome( array $item ): array {
+		$block = $item['provisioning'] ?? ( $item['user']['provisioning'] ?? null );
+		if ( ! is_array( $block ) || ! isset( $block['outcome'] ) || ! is_scalar( $block['outcome'] ) ) {
+			return array();
+		}
+
+		$outcome = (string) $block['outcome'];
+		if ( ! in_array( $outcome, self::PROVISIONING_OUTCOMES, true ) ) {
+			$outcome = 'skipped';
+		}
+
+		$read = array( 'outcome' => $outcome );
+		if ( 'skipped' === $outcome ) {
+			$reason         = isset( $block['reason'] ) && is_scalar( $block['reason'] ) ? (string) $block['reason'] : '';
+			$read['reason'] = in_array( $reason, self::SKIP_REASONS, true ) ? $reason : 'unknown';
+		}
+
+		return $read;
+	}
+
+	/**
+	 * The gateway reports a single member it could not provision as a 404 whose
+	 * message ends "provisioning was skipped: <reason>." Reads the reason, and
+	 * nothing else from the message, which also carries the member's email.
+	 *
+	 * @param WP_Error $error The gateway error.
+	 * @return string The skip reason, or '' when the error is something else.
+	 */
+	public static function skip_reason_from_error( WP_Error $error ): string {
+		if ( ! preg_match( '/provisioning was skipped: ([a-z_]+)/', $error->get_error_message(), $match ) ) {
+			return '';
+		}
+
+		return in_array( $match[1], self::SKIP_REASONS, true ) ? $match[1] : 'unknown';
+	}
+
+	/**
+	 * Whether a failed request is worth sending again later: no answer at all
+	 * (a transport error), a server error, or a rate limit. A request the
+	 * gateway rejected as invalid or unauthorised would fail the same way.
+	 *
+	 * @param WP_Error $error The error.
+	 * @return bool
+	 */
+	public static function is_passing_failure( WP_Error $error ): bool {
+		if ( 'agend_apps_rate_limited' === $error->get_error_code() ) {
+			return true;
+		}
+
+		$data   = $error->get_error_data();
+		$status = is_array( $data ) && isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
+
+		if ( 'agend_api_error' !== $error->get_error_code() || 0 === $status ) {
+			return true;
+		}
+
+		return 429 === $status || $status >= 500;
+	}
+
+	/**
+	 * Whether the gateway refused the request for a missing scope.
+	 *
+	 * @param WP_Error $error The gateway error.
+	 * @return bool
+	 */
+	public static function is_scope_refusal( WP_Error $error ): bool {
+		$data = $error->get_error_data();
+		$code = is_array( $data ) ? ( $data['body']['error']['code'] ?? '' ) : '';
+
+		return 'INSUFFICIENT_SCOPES' === $code;
+	}
+
+	/**
+	 * What to log about a gateway error: the HTTP status, the gateway's code and
+	 * the message with any email address masked, since a not-found message
+	 * names the member's address.
+	 *
+	 * @param WP_Error $error The gateway error.
+	 * @return array<string, mixed>
+	 */
+	private static function error_context( WP_Error $error ): array {
+		$data    = $error->get_error_data();
+		$context = array(
+			'error' => preg_replace( '/[^\s()<>@,;:"]+@[^\s()<>@,;:"]+/', '[email]', $error->get_error_message() ),
+		);
+
+		if ( is_array( $data ) ) {
+			if ( isset( $data['status_code'] ) ) {
+				$context['status'] = (int) $data['status_code'];
+			}
+			$code = $data['body']['error']['code'] ?? '';
+			if ( is_scalar( $code ) && '' !== (string) $code ) {
+				$context['code'] = (string) $code;
+			}
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Backfills every local member into Loop, using the bulk-sync endpoint in
+	 * batches of 100. Intended for the initial rollout. Honours dry run.
+	 *
+	 * Without provisioning it refreshes display names and role-based channels on
+	 * existing Loop accounts only, and a member who has never signed in to Loop
+	 * comes back as failed. With provisioning on (see
+	 * Agend_Loop_Sync_Settings::should_provision()) Agend first creates or links
+	 * the account of each member who has none, so they are in Loop before their
+	 * first sign-in. Members it cannot create yet for a passing reason are
+	 * queued for a retry an hour later (Agend_Loop_Sync_Provision_Retry).
 	 *
 	 * @return array<string, mixed> A summary of the backfill.
 	 */
 	public static function backfill_all(): array {
+		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_user_sync_enabled() ) {
+			$summary             = self::empty_summary( false );
+			$summary['errors'][] = 'User sync is disabled in settings';
+			return $summary;
+		}
+
+		$users = get_users(
+			array(
+				'meta_key'     => 'imk_membership_number', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_compare' => 'EXISTS',
+				'orderby'      => 'ID',
+				'order'        => 'ASC',
+			)
+		);
+
+		$summary = self::sync_users( $users, Agend_Loop_Sync_Settings::should_provision() );
+
+		Agend_Loop_Sync_Logger::info( 'User backfill complete', self::loggable_summary( $summary ) );
+
+		return $summary;
+	}
+
+	/**
+	 * Bulk-syncs the given users in batches of 100, with or without
+	 * provisioning, and keeps the provisioning retry queue in step: a member
+	 * skipped for a passing reason is queued, and a member whose account now
+	 * exists is taken off.
+	 *
+	 * Provisioning stops early in two cases. A refusal for a missing scope ends
+	 * the run, since every later batch would be refused too. A member skipped
+	 * for the hourly creation limit means the rest of the run would be too, so
+	 * the remaining members are queued for the retry without being sent.
+	 *
+	 * @param WP_User[] $users     Users to sync.
+	 * @param bool      $provision Whether to ask Agend to create missing accounts.
+	 * @return array<string, mixed> The summary: counts, `provisioning` counts when provisioning, `errors`, and `attempted_ids` (users whose batch was sent).
+	 */
+	public static function sync_users( array $users, bool $provision ): array {
+		$summary          = self::empty_summary( $provision );
+		$summary['total'] = count( $users );
+
+		if ( ! function_exists( 'agend_apps_loop_bulk_sync_users' ) ) {
+			$summary['errors'][] = 'agend-apps-core is not available';
+			return $summary;
+		}
+
+		$items = array();
+		foreach ( $users as $user ) {
+			$item = self::bulk_item( $user, $summary );
+			if ( null === $item ) {
+				$summary['unsendable_ids'][] = (int) $user->ID;
+			} else {
+				$items[ (int) $user->ID ] = $item;
+			}
+		}
+
+		$idp      = Agend_Loop_Sync_Settings::idp_entity_id();
+		$retry    = array();
+		$done     = array();
+		$deferred = false;
+
+		$chunks = array_chunk( $items, self::BATCH_SIZE, true );
+		$count  = count( $chunks );
+		for ( $index = 0; $index < $count; $index++ ) {
+			$chunk = $chunks[ $index ];
+			if ( $deferred ) {
+				foreach ( array_keys( $chunk ) as $wp_id ) {
+					$retry[ $wp_id ] = 'rate_limited';
+				}
+				$summary['provisioning']['deferred'] += count( $chunk );
+				continue;
+			}
+
+			++$summary['batches'];
+
+			if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
+				Agend_Loop_Sync_Logger::info(
+					'Dry run: would bulk-sync users',
+					array(
+						'count'     => count( $chunk ),
+						'provision' => $provision,
+					)
+				);
+				$summary['sent'] += count( $chunk );
+				continue;
+			}
+
+			$response = agend_apps_loop_bulk_sync_users( array_values( $chunk ), $idp, $provision );
+
+			// Counted whether or not the request succeeds, so a member whose
+			// batch keeps failing still reaches the retry limit.
+			$summary['attempted_ids'] = array_merge( $summary['attempted_ids'], array_keys( $chunk ) );
+
+			if ( is_wp_error( $response ) ) {
+				// A missing scope refuses every batch. Note it, then send this
+				// batch and the rest without provisioning so members are still
+				// refreshed.
+				if ( $provision && self::is_scope_refusal( $response ) ) {
+					Agend_Loop_Sync_Settings::note_provision_refused();
+					$summary['provisioning']['refused'] = true;
+					$summary['errors'][]                = 'Agend refused to create Loop accounts: the site key does not hold loop.users.provision. Members were synced without creating accounts. Ask Agend to grant the scope, or turn off "Create Loop accounts".';
+					Agend_Loop_Sync_Logger::error( 'Loop account creation was refused: the site key lacks loop.users.provision; syncing without it' );
+					$provision = false;
+					--$summary['batches'];
+					--$index;
+					continue;
+				}
+
+				$summary['errors'][] = (string) self::error_context( $response )['error'];
+				Agend_Loop_Sync_Logger::error( 'User backfill batch failed', self::error_context( $response ) );
+				if ( $provision && self::is_passing_failure( $response ) ) {
+					foreach ( array_keys( $chunk ) as $wp_id ) {
+						$retry[ $wp_id ] = 'request_failed';
+					}
+				}
+				continue;
+			}
+
+			$data                  = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+			$summary['sent']      += count( $chunk );
+			$summary['succeeded'] += (int) ( $data['succeeded'] ?? 0 );
+			$summary['failed']    += (int) ( $data['failed'] ?? 0 );
+
+			if ( ! $provision ) {
+				continue;
+			}
+
+			$by_external_id = array();
+			foreach ( $chunk as $wp_id => $item ) {
+				$by_external_id[ (int) $item['external_id'] ][] = $wp_id;
+			}
+
+			foreach ( (array) ( $data['results'] ?? array() ) as $result ) {
+				if ( ! is_array( $result ) || ! isset( $result['external_id'] ) ) {
+					continue;
+				}
+				$outcome = self::provisioning_outcome( $result );
+				if ( array() === $outcome ) {
+					continue;
+				}
+
+				$wp_ids = $by_external_id[ (int) $result['external_id'] ] ?? array();
+				++$summary['provisioning'][ $outcome['outcome'] ];
+
+				if ( 'skipped' !== $outcome['outcome'] ) {
+					$done = array_merge( $done, $wp_ids );
+					continue;
+				}
+
+				$reason = $outcome['reason'];
+
+				$summary['provisioning']['reasons'][ $reason ] = ( $summary['provisioning']['reasons'][ $reason ] ?? 0 ) + 1;
+
+				foreach ( $wp_ids as $wp_id ) {
+					Agend_Loop_Sync_Logger::warning(
+						'Loop account not created',
+						array(
+							'wp_id'  => (int) $wp_id,
+							'reason' => $reason,
+						)
+					);
+					if ( Agend_Loop_Sync_Provision_Retry::is_retryable( $reason ) ) {
+						$retry[ $wp_id ] = $reason;
+					} else {
+						$done[] = $wp_id;
+					}
+				}
+
+				if ( 'rate_limited' === $reason ) {
+					$deferred = true;
+				}
+			}
+		}
+
+		// Keyed on what the run set out to do: a scope refusal part way turns
+		// $provision off, but the members it already queued or settled count.
+		if ( $summary['provision'] ) {
+			Agend_Loop_Sync_Provision_Retry::remove( $done );
+			Agend_Loop_Sync_Provision_Retry::add( $retry );
+			$summary['provisioning']['queued'] = count( $retry );
+		}
+
+		$summary['attempted_ids'] = array_values( array_unique( $summary['attempted_ids'] ) );
+
+		return $summary;
+	}
+
+	/**
+	 * One member's bulk-sync item, or null (counted in the summary) when the
+	 * member has no usable membership number or email.
+	 *
+	 * @param WP_User              $user    The user.
+	 * @param array<string, mixed> $summary The run summary, by reference.
+	 * @return array<string, mixed>|null
+	 */
+	private static function bulk_item( WP_User $user, array &$summary ): ?array {
+		$number = trim( (string) get_user_meta( $user->ID, 'imk_membership_number', true ) );
+		if ( '' === $number ) {
+			++$summary['skipped_no_number'];
+			return null;
+		}
+
+		$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $number );
+		if ( null === $external_id || ! is_email( $user->user_email ) ) {
+			++$summary['skipped_invalid'];
+			return null;
+		}
+
+		return array(
+			'external_id'  => $external_id,
+			'email'        => (string) $user->user_email,
+			'display_name' => (string) $user->display_name,
+			'roles'        => array_values( (array) $user->roles ),
+		);
+	}
+
+	/**
+	 * A summary with every count at zero.
+	 *
+	 * @param bool $provision Whether the run provisions.
+	 * @return array<string, mixed>
+	 */
+	private static function empty_summary( bool $provision ): array {
 		$summary = array(
 			'total'             => 0,
 			'sent'              => 0,
@@ -262,75 +676,36 @@ class Agend_Loop_Sync_User_Sync {
 			'skipped_invalid'   => 0,
 			'batches'           => 0,
 			'dry_run'           => Agend_Loop_Sync_Settings::is_dry_run(),
+			'provision'         => $provision,
 			'errors'            => array(),
+			'attempted_ids'     => array(),
+			'unsendable_ids'    => array(),
 		);
 
-		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_user_sync_enabled() ) {
-			$summary['errors'][] = 'User sync is disabled in settings';
-			return $summary;
-		}
-
-		if ( ! function_exists( 'agend_apps_loop_bulk_sync_users' ) ) {
-			$summary['errors'][] = 'agend-apps-core is not available';
-			return $summary;
-		}
-
-		$idp   = Agend_Loop_Sync_Settings::idp_entity_id();
-		$users = get_users(
-			array(
-				'meta_key'     => 'imk_membership_number', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_compare' => 'EXISTS',
-				'orderby'      => 'ID',
-				'order'        => 'ASC',
-			)
-		);
-		$summary['total'] = count( $users );
-
-		$items = array();
-		foreach ( $users as $user ) {
-			$number = trim( (string) get_user_meta( $user->ID, 'imk_membership_number', true ) );
-			if ( '' === $number ) {
-				++$summary['skipped_no_number'];
-				continue;
-			}
-			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $number );
-			if ( null === $external_id || ! is_email( $user->user_email ) ) {
-				++$summary['skipped_invalid'];
-				continue;
-			}
-			$items[] = array(
-				'external_id'  => $external_id,
-				'email'        => (string) $user->user_email,
-				'display_name' => (string) $user->display_name,
-				'roles'        => array_values( (array) $user->roles ),
+		if ( $provision ) {
+			$summary['provisioning'] = array(
+				'provisioned'    => 0,
+				'linked'         => 0,
+				'already_linked' => 0,
+				'skipped'        => 0,
+				'reasons'        => array(),
+				'queued'         => 0,
+				'deferred'       => 0,
+				'refused'        => false,
 			);
 		}
 
-		foreach ( array_chunk( $items, 100 ) as $chunk ) {
-			++$summary['batches'];
+		return $summary;
+	}
 
-			if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-				Agend_Loop_Sync_Logger::info( 'Dry run: would bulk-sync users', array( 'count' => count( $chunk ) ) );
-				$summary['sent'] += count( $chunk );
-				continue;
-			}
-
-			$response = agend_apps_loop_bulk_sync_users( $chunk, $idp );
-
-			if ( is_wp_error( $response ) ) {
-				$summary['errors'][] = $response->get_error_message();
-				Agend_Loop_Sync_Logger::error( 'User backfill batch failed', array( 'error' => $response->get_error_message() ) );
-				continue;
-			}
-
-			$data                  = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
-			$summary['sent']      += count( $chunk );
-			$summary['succeeded'] += (int) ( $data['succeeded'] ?? 0 );
-			$summary['failed']    += (int) ( $data['failed'] ?? 0 );
-		}
-
-		Agend_Loop_Sync_Logger::info( 'User backfill complete', $summary );
-
+	/**
+	 * The summary without the per-user id list, for the log.
+	 *
+	 * @param array<string, mixed> $summary The run summary.
+	 * @return array<string, mixed>
+	 */
+	public static function loggable_summary( array $summary ): array {
+		unset( $summary['attempted_ids'], $summary['unsendable_ids'] );
 		return $summary;
 	}
 }

@@ -342,6 +342,27 @@ final class RuleSyncTest extends RuleTestCase {
 	}
 
 	#[Test]
+	public function the_manual_members_flag_always_travels_with_a_roster(): void {
+		// The gateway refuses allow_manual_members without a roster (400), so the
+		// flag must never go on a request that has none, an emptied rule included.
+		Agend_Test_WP::set_filter( 'agend_loop_sync_send_rule_channel_flags', true );
+		$this->add_rule( 'Open' );
+		$this->add_rule( 'Specialists', array( 'membership_types' => 'Specialist' ) );
+		$this->add_member( 1, '100', 'Financial', 'Fellow' );
+		Loop_Sync_Test_State::$loop_committees = array( $this->loop_channel( 'rule:specialists' ) );
+
+		$this->rule_sync()->run();
+
+		$payloads = $this->payloads();
+		$this->assertCount( 2, $payloads );
+		foreach ( $payloads as $unique_id => $payload ) {
+			$this->assertTrue( $payload['allow_manual_members'], $unique_id );
+			$this->assertArrayHasKey( 'roster', $payload, $unique_id );
+		}
+		$this->assertSame( array(), $payloads['rule:specialists']['roster'] );
+	}
+
+	#[Test]
 	public function a_roster_over_the_gateway_limit_is_not_sent(): void {
 		$this->add_rule( 'Huge' );
 		for ( $i = 1; $i <= 2001; $i++ ) {
