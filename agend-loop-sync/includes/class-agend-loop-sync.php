@@ -76,6 +76,8 @@ class Agend_Loop_Sync {
 		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'sync_committee_cron' ) );
 		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'sync_rules_cron' ) );
 
+		add_action( AGEND_LOOP_SYNC_PROVISION_RETRY_HOOK, array( 'Agend_Loop_Sync_Provision_Retry', 'run' ) );
+
 		$this->user_sync->register();
 		$this->committee_sync->register();
 		$this->rule_sync->register();

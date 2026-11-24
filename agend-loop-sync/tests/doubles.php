@@ -147,6 +147,7 @@ function loop_sync_test_user( int $id, ?string $membership_number, string $email
 	}
 
 	Loop_Sync_Test_State::$users[] = $user;
+	$GLOBALS['agend_test_users'][]  = $user;
 
 	return $user;
 }
@@ -284,8 +285,8 @@ if ( ! function_exists( 'agend_apps_loop_sync_user' ) ) {
 		return loop_sync_test_gateway( __FUNCTION__, array( $user ) );
 	}
 
-	function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id ) {
-		return loop_sync_test_gateway( __FUNCTION__, array( $users, $idp_entity_id ) );
+	function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id, bool $provision = false ) {
+		return loop_sync_test_gateway( __FUNCTION__, array( $users, $idp_entity_id, $provision ) );
 	}
 
 	function agend_apps_loop_sync_committee( array $committee ) {

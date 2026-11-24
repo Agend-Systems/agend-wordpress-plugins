@@ -29,7 +29,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - The gateway removes only memberships the sync itself added, so channel
  *   members someone added by hand in Loop are never removed.
  * - Roster members with no Loop account yet are skipped by the gateway and
- *   reported; they join on a later run once they have one.
+ *   reported; they join on a later run once they have one. The account comes
+ *   from the member's first sign-in to Loop or, with "Create Loop accounts"
+ *   on (Agend_Loop_Sync_Settings::should_provision()), from the next member
+ *   sync or backfill, so after the backfill a member is added without ever
+ *   signing in.
  * - A rule that matches nobody, on a complete run, sends an empty roster in
  *   replace mode, which clears the memberships this sync added (members added
  *   by hand stay, and the channel is not archived). In merge mode nothing is

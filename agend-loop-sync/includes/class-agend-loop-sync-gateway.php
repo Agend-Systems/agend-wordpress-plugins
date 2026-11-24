@@ -32,12 +32,13 @@ class Agend_Loop_Sync_Gateway {
 	const ROSTER_MAX = 2000;
 
 	/**
-	 * The kinds of sync hold a Loop administrator can place. Anything else is
-	 * recorded as 'unknown'.
+	 * The kinds of sync hold Loop reports: a Loop administrator's emergency
+	 * removal or role cap, or a member who left a channel that lets members
+	 * leave. Anything else is recorded as 'unknown'.
 	 *
 	 * @var string[]
 	 */
-	const HOLD_KINDS = array( 'removal', 'role_cap' );
+	const HOLD_KINDS = array( 'removal', 'role_cap', 'member_left' );
 
 	/**
 	 * The channel roles a role cap can name. Anything else is dropped.
@@ -125,7 +126,7 @@ class Agend_Loop_Sync_Gateway {
 	 * reason, held_since }. Pure.
 	 *
 	 * @param mixed $hold One entry of the gateway's `held` or `holds` list.
-	 * @return array<string, mixed>|null external_id (int), kind ('removal', 'role_cap' or 'unknown'), role_cap (a channel role, '' when none), reason (capped) and held_since (as sent); null when the entry names no member.
+	 * @return array<string, mixed>|null external_id (int), kind ('removal', 'role_cap', 'member_left' or 'unknown'), role_cap (a channel role, '' when none), reason (capped) and held_since (as sent); null when the entry names no member.
 	 */
 	public static function normalise_hold( $hold ): ?array {
 		if ( ! is_array( $hold ) ) {
@@ -159,8 +160,9 @@ class Agend_Loop_Sync_Gateway {
 	}
 
 	/**
-	 * Records the members the gateway skipped or capped because a Loop
-	 * administrator placed a sync hold on them.
+	 * Records the members the gateway skipped or capped because of a sync hold:
+	 * a Loop administrator removed or capped them, or the member left the
+	 * channel themselves.
 	 *
 	 * The gateway reports `held` on every roster sync, `[]` when nothing is
 	 * held. A response without it comes from a gateway that does not know about
@@ -191,7 +193,9 @@ class Agend_Loop_Sync_Gateway {
 
 			if ( $total <= self::HOLD_RESULTS_LOGGED ) {
 				Agend_Loop_Sync_Logger::info(
-					ucfirst( $kind ) . ' member held by a Loop administrator',
+					'member_left' === $hold['kind']
+						? ucfirst( $kind ) . ' member left the channel in Loop'
+						: ucfirst( $kind ) . ' member held by a Loop administrator',
 					array(
 						$kind         => $label,
 						'external_id' => $hold['external_id'],

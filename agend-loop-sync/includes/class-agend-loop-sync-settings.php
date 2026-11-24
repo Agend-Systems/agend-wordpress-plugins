@@ -32,6 +32,20 @@ class Agend_Loop_Sync_Settings {
 	const OPT_LAST_SYNC        = 'agend_loop_sync_last_committee_sync';
 	const OPT_LAST_SUMMARY     = 'agend_loop_sync_last_sync_summary';
 	const OPT_ADOPT_QUEUE      = 'agend_loop_sync_adopt_queue';
+	const OPT_PROVISION        = 'agend_loop_sync_provision_members';
+	const OPT_PROVISION_RETRY  = 'agend_loop_sync_provision_retry';
+
+	/**
+	 * The scope a site key needs, on top of `loop.users.sync`, before the
+	 * gateway will create a member's Loop account ahead of their first sign-in.
+	 */
+	const PROVISION_SCOPE = 'loop.users.provision';
+
+	/**
+	 * The first agend-apps-core release whose bulk sync helper can send
+	 * `provision`. An older one would silently drop it.
+	 */
+	const PROVISION_MIN_CORE_VERSION = '1.94.0';
 
 	const OPT_RULE_SYNC        = 'agend_loop_sync_rule_sync_enabled';
 	const OPT_RULES            = 'agend_loop_sync_rules';
@@ -178,6 +192,9 @@ class Agend_Loop_Sync_Settings {
 		add_option( self::OPT_RULE_SCHEDULE, 'hourly' );
 		add_option( self::OPT_ACCESS_STATUSES, self::DEFAULT_ACCESS_STATUSES );
 		add_option( self::OPT_RULES, array() );
+		// Creating Loop accounts needs a scope most site keys do not hold, so it
+		// is opt-in: on by default it would turn every member sync into a 403.
+		add_option( self::OPT_PROVISION, '0' );
 	}
 
 	/**
@@ -194,6 +211,11 @@ class Agend_Loop_Sync_Settings {
 		register_setting(
 			self::GROUP,
 			self::OPT_USER_SYNC,
+			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_bool' ) )
+		);
+		register_setting(
+			self::GROUP,
+			self::OPT_PROVISION,
 			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_bool' ) )
 		);
 		register_setting(
@@ -503,6 +525,61 @@ class Agend_Loop_Sync_Settings {
 	 */
 	public static function is_user_sync_enabled(): bool {
 		return '1' === (string) get_option( self::OPT_USER_SYNC, '1' );
+	}
+
+	/**
+	 * Whether the site asks Agend to create a member's Loop account before
+	 * their first sign-in. The setting can be overridden with the
+	 * `agend_loop_sync_provision_members` filter. This is the request; whether
+	 * it can be sent is should_provision().
+	 *
+	 * @return bool
+	 */
+	public static function is_provision_enabled(): bool {
+		$stored = '1' === (string) get_option( self::OPT_PROVISION, '0' );
+
+		/**
+		 * Filters whether member syncs ask Agend to create the member's Loop
+		 * account before their first sign-in (`provision: true`).
+		 *
+		 * @param bool $provision The stored setting.
+		 */
+		return (bool) apply_filters( 'agend_loop_sync_provision_members', $stored );
+	}
+
+	/**
+	 * Why provisioning is turned on but cannot be sent, or '' when nothing
+	 * stands in the way.
+	 *
+	 * - `core_too_old`: agend-apps-core cannot send the field on a bulk sync.
+	 * - `scope_missing`: the site key's scopes are known and do not include
+	 *   `loop.users.provision`, so the gateway would refuse every sync with 403.
+	 *
+	 * An unknown scope list does not block: the request is sent and a refusal is
+	 * reported where it happens.
+	 *
+	 * @return string
+	 */
+	public static function provision_blocker(): string {
+		if ( defined( 'AGEND_APPS_CORE_VERSION' ) && version_compare( (string) AGEND_APPS_CORE_VERSION, self::PROVISION_MIN_CORE_VERSION, '<' ) ) {
+			return 'core_too_old';
+		}
+
+		if ( class_exists( 'Agend_Apps_Key_Scopes' ) && Agend_Apps_Key_Scopes::known() && ! Agend_Apps_Key_Scopes::has( self::PROVISION_SCOPE ) ) {
+			return 'scope_missing';
+		}
+
+		return '';
+	}
+
+	/**
+	 * Whether member syncs send `provision: true` now: turned on, and nothing
+	 * known stands in the way.
+	 *
+	 * @return bool
+	 */
+	public static function should_provision(): bool {
+		return self::is_provision_enabled() && '' === self::provision_blocker();
 	}
 
 	/**
