@@ -559,7 +559,9 @@
       return b;
     }
 
-    function confirmThen(question, run, danger) {
+    // `from` is the label of the action that asked: Cancel puts focus back on it.
+    // Focus starts on Cancel, so one Enter press never confirms by accident.
+    function confirmThen(question, run, danger, from) {
       buttons.textContent = '';
       buttons.classList.add('agend-member-jobs__actions--confirm');
       buttons.appendChild(el('span', 'agend-member-jobs__confirm', question));
@@ -573,9 +575,16 @@
         danger
       );
       var no = button(a.no, function () {
-        tr.parentNode.replaceChild(self.drawItem(item), tr);
+        var fresh = self.drawItem(item);
+        tr.parentNode.replaceChild(fresh, tr);
+        var back = Array.prototype.filter.call(fresh.querySelectorAll('.agend-member-jobs__action'), function (b) {
+          return b.textContent === from;
+        })[0];
+        if (back) {
+          back.focus();
+        }
       });
-      yes.focus();
+      no.focus();
     }
 
     if (status === 'pending') {
@@ -591,7 +600,8 @@
             function () {
               self.act(item, '/withdraw', {}, a.withdrawn);
             },
-            true
+            true,
+            a.withdraw
           );
         },
         true
@@ -605,9 +615,14 @@
         buttons.appendChild(view);
       }
       button(a.filled, function () {
-        confirmThen(a.filledConfirm, function () {
-          self.act(item, '/close', { filled: true }, a.closed);
-        });
+        confirmThen(
+          a.filledConfirm,
+          function () {
+            self.act(item, '/close', { filled: true }, a.closed);
+          },
+          false,
+          a.filled
+        );
       });
       button(
         a.close,
@@ -617,7 +632,8 @@
             function () {
               self.act(item, '/close', { filled: false }, a.closed);
             },
-            true
+            true,
+            a.close
           );
         },
         true

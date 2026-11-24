@@ -21,6 +21,8 @@
   --agend-mj-danger: #b42318;
   --agend-mj-danger-line: #f0c3bd;
   color: var(--agend-mj-body);
+  /* The jobs list stacks each job when the widget itself is narrow. */
+  container-type: inline-size;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 1rem;
   line-height: 1.5;
@@ -28,7 +30,7 @@
 
 @supports (color: color-mix(in srgb, red 50%, white)) {
   .agend-member-jobs {
-    --agend-mj-button-ink: color-mix(in srgb, var(--agend-mj-button) 78%, #000000);
+    --agend-mj-button-ink: color-mix(in srgb, var(--agend-mj-button) 70%, #000000);
     --agend-mj-button-line: color-mix(in srgb, var(--agend-mj-button) 35%, #ffffff);
     --agend-mj-button-wash: color-mix(in srgb, var(--agend-mj-button) 10%, #ffffff);
   }
@@ -193,7 +195,7 @@
 
 .agend-member-jobs__button:focus-visible,
 .agend-member-jobs__action:focus-visible {
-  outline: 2px solid var(--agend-mj-accent);
+  outline: 2px solid var(--agend-mj-button-ink);
   outline-offset: 2px;
 }
 
@@ -462,6 +464,78 @@
   font-size: 0.9em;
   font-weight: 500;
   text-align: right;
+}
+
+/* A narrow widget (a phone, or a narrow column): each job stacks, title first,
+   then its status and dates side by side, then its actions, so nothing needs
+   a sideways scroll. The column headings are left for screen readers. */
+@container (max-width: 40em) {
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table {
+    display: block;
+    min-width: 0;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tbody {
+    display: block;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__group-row {
+    display: block;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__group-row th.agend-member-jobs__group-heading {
+    display: block;
+    padding: 1.25em 1.25em 0.25em;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.6em 1em;
+    padding: 1em 1.25em 1.125em;
+    border-top: 1px solid var(--agend-mj-line);
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row td {
+    display: block;
+    padding: 0;
+    border-top: 0;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row td.agend-member-jobs__job,
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row td.agend-member-jobs__actions-cell {
+    grid-column: 1 / -1;
+  }
+
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row td.agend-member-jobs__actions-cell:empty,
+  .agend-member-jobs .agend-member-jobs__table-wrap table.agend-member-jobs__table tr.agend-member-jobs__row td.agend-member-jobs__actions-cell:has(> .agend-member-jobs__actions:empty) {
+    display: none;
+  }
+
+  .agend-member-jobs__actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .agend-member-jobs__date-line,
+  .agend-member-jobs__date-note {
+    white-space: normal;
+  }
+
+  .agend-member-jobs__confirm {
+    max-width: none;
+    margin-left: 0;
+    text-align: left;
+  }
 }
 
 .agend-member-jobs__back {

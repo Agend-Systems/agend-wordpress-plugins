@@ -55,7 +55,7 @@ const items = [
   { id: 'd', title: 'New role', status: 'pending', submitted_at: '2026-11-24T00:00:00Z' },
 ];
 
-async function view(t, available) {
+async function view(t, available, list = items) {
   const dom = new JSDOM('<!doctype html><div class="agend-member-jobs"></div>', { url: 'https://example.test/my-account/my-jobs/' });
   t.after(() => dom.window.close());
   const { document } = dom.window;
@@ -72,7 +72,10 @@ async function view(t, available) {
   const fetch = async (url) => {
     const body = String(url).endsWith('/credits')
       ? { success: true, data: { available } }
-      : { success: true, data: { items, pagination: { has_next: false } } };
+      : { success: true, data: { items: list, pagination: { has_next: false } } };
+    if (available === undefined && String(url).endsWith('/credits')) {
+      return { ok: false, status: 503, json: async () => ({ success: false }) };
+    }
     return { ok: true, status: 200, json: async () => body };
   };
   Object.defineProperty(document, 'readyState', { value: 'complete' });
@@ -154,4 +157,34 @@ test('Withdraw and Close are marked as the actions that take a job away, and kee
   assert.ok(pending.classList.contains('agend-member-jobs__actions--confirm'));
   assert.equal(text(pending.querySelector('.agend-member-jobs__confirm')), 'Withdraw this job?');
   assert.deepEqual([...pending.querySelectorAll('.agend-member-jobs__action--danger')].map(text), ['Yes']);
+});
+
+test('confirming starts on Cancel, and Cancel puts focus back on the action that asked', async (t) => {
+  const root = await view(t, 3);
+  const doc = root.ownerDocument;
+  const liveRow = () => [...root.querySelectorAll('tr')].find((tr) => text(tr.querySelector('.agend-member-jobs__title')) === 'Live role');
+  const close = [...liveRow().querySelectorAll('.agend-member-jobs__action')].find((b) => text(b) === 'Close');
+  close.click();
+  assert.equal(text(doc.activeElement), 'Cancel');
+  doc.activeElement.click();
+  const back = doc.activeElement;
+  assert.equal(text(back), 'Close');
+  assert.ok(liveRow().contains(back));
+  assert.equal(liveRow().querySelector('.agend-member-jobs__confirm'), null);
+});
+
+test('titles and reasons are shown as text, never as markup', async (t) => {
+  const hostile = [{ id: 'x', title: '<img src=x onerror="window.__x=1">Role', status: 'rejected', rejection_reason: '<b>bold</b>' }];
+  const root = await view(t, 3, hostile);
+  assert.equal(root.querySelector('img'), null);
+  assert.equal(root.querySelector('.agend-member-jobs__reason b'), null);
+  assert.equal(text(root.querySelector('.agend-member-jobs__title')), '<img src=x onerror="window.__x=1">Role');
+});
+
+test('one credit reads in the singular, and a failed credit check says it is unknown', async (t) => {
+  const one = await view(t, 1);
+  assert.equal(text(one.querySelector('.agend-member-jobs__credits-text')), 'job credit available');
+  const unknown = await view(t, undefined);
+  assert.equal(text(unknown.querySelector('.agend-member-jobs__credits-text')), 'Unknown.');
+  assert.equal(unknown.querySelector('.agend-member-jobs__credits-count'), null);
 });
