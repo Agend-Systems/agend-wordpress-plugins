@@ -258,6 +258,8 @@ class Agend_Loop_Sync_Provision_Retry {
 	}
 
 	/**
+	 * Saves the queue, deleting the option once it is empty.
+	 *
 	 * @param array<int, array{reason: string, attempts: int, since: int}> $queue The queue.
 	 * @return void
 	 */
