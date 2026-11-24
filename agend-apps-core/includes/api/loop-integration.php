@@ -22,7 +22,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Syncs a single WordPress user into Loop.
  *
  * The user must already exist in Loop (provisioned via SSO); the gateway
- * returns a 404-mapped WP_Error otherwise.
+ * returns a 404-mapped WP_Error otherwise. With `provision` true, a member who
+ * has no Agend user on the site's SSO connection is provisioned first, as a
+ * first SAML sign-in would, and the response carries `provisioning`
+ * (`outcome`, plus `reason` when skipped). That needs the key to hold
+ * `loop.users.provision` as well as `loop.users.sync`: without it the gateway
+ * refuses the whole request with 403 INSUFFICIENT_SCOPES. The endpoint scope
+ * map cannot express a scope that depends on the body, so it lists only
+ * `loop.users.sync`. A member who could not be provisioned still comes back as
+ * a 404, with the skip reason in the error message.
  *
  * @param array $user {
  *     User payload.
@@ -35,6 +43,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *     @type string $last_name     Optional. Last name.
  *     @type string $avatar_url    Optional. Avatar URL.
  *     @type array  $roles         WordPress role slugs. Required (may be empty).
+ *     @type bool   $provision     Optional. Provision the member first (see above). Default false.
  * }
  * @return array|WP_Error Decoded synced user on success, or WP_Error on failure.
  */
@@ -72,13 +81,33 @@ function agend_apps_loop_sync_user( array $user ) {
  * Each user is resolved and synced independently; unresolved users are
  * reported as failed in the result, not as a fatal error.
  *
+ * With $provision true, each member with no Agend user on the site's SSO
+ * connection is provisioned before the sync, as at a first SAML sign-in. Every
+ * result item then carries `provisioning` (`outcome`, plus `reason` when
+ * skipped), failed items included, and the result carries `provisioning`
+ * counts by outcome. The key must hold `loop.users.provision` as well as
+ * `loop.users.sync`, or the gateway refuses the whole request with 403
+ * INSUFFICIENT_SCOPES. The gateway creates at most 2000 users per connection
+ * per hour; a member over that limit is skipped with reason `rate_limited`.
+ *
  * @param array  $users         Array of per-user payloads (see agend_apps_loop_sync_user()),
  *                              1 to 100 items. Each item carries external_id, email, roles, etc.
  *                              The site is passed separately as $idp_entity_id, not per user.
  * @param string $idp_entity_id The site's SAML IdP entity id (Issuer). Required by the gateway.
+ * @param bool   $provision     Optional. Provision members before the sync. Default false,
+ *                              which sends no `provision` field at all.
  * @return array|WP_Error Decoded bulk-sync result on success, or WP_Error on failure.
  */
-function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id ) {
+function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id, bool $provision = false ) {
+	$body = array(
+		'idp_entity_id' => $idp_entity_id,
+		'users'         => array_values( $users ),
+	);
+
+	if ( $provision ) {
+		$body['provision'] = true;
+	}
+
 	/**
 	 * Filters the bulk-sync request args before the request is sent.
 	 *
@@ -88,12 +117,7 @@ function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id ) 
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_loop_bulk_sync_users_args',
-		array(
-			'body' => array(
-				'idp_entity_id' => $idp_entity_id,
-				'users'         => array_values( $users ),
-			),
-		),
+		array( 'body' => $body ),
 		$users,
 		$idp_entity_id
 	);

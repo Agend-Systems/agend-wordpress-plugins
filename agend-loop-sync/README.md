@@ -23,6 +23,12 @@ directly and never modifies the membership plugin.
   WordPress role changed, or has their record updated in Upbeat, their Loop
   account is refreshed: their display name is updated and Loop adds them to
   any channels their member role grants.
+- **Loop accounts before first sign-in (optional).** With **Create Loop
+  accounts** on, member sync and the backfill ask Agend to create a member's
+  Loop account on this site's SSO connection, as their first sign-in would,
+  so they are in their communities without ever having signed in. Off by
+  default; needs the `loop.users.provision` scope on the site key. See
+  [Creating Loop accounts before first sign-in](#creating-loop-accounts-before-first-sign-in).
 - **Committee channels (optional).** Each Upbeat committee is created and
   kept up to date as a private Loop channel, named after the committee. Off
   on new installs; everything below about committees applies only when it is
@@ -105,7 +111,9 @@ organisation's Loop members.
 Syncs only ever update an **existing** Loop account. Loop accounts are
 created when a member first signs in to Loop through SSO; a member without
 one is reported as unresolved and picked up on a later sync once their
-account exists.
+account exists. With **Create Loop accounts** on, member sync creates the
+account first instead (see
+[Creating Loop accounts before first sign-in](#creating-loop-accounts-before-first-sign-in)).
 
 ### Member sync
 
@@ -281,9 +289,10 @@ channel, and the sync honours it:
 |---|---|
 | Removal | Does not re-add the member, even though Upbeat still lists them. A hand-over naming them reports `held`. |
 | Role cap | Never raises the member above the capped role (owner, admin, moderator or member). It may still lower them. |
+| Member left | Placed by the member, not an administrator, when they leave a community rule channel that lets members leave (the rule's **Members can leave the channel** option). The sync does not re-add them; rejoining in Loop lifts it. |
 
 A member stays out, or capped, until a Loop administrator lifts the hold in
-Loop. The plugin cannot lift a hold, and neither a change in Upbeat nor a
+Loop (or, for a member who left, until they rejoin). The plugin cannot lift a hold, and neither a change in Upbeat nor a
 sync lifts one. Once a hold is lifted the next sync treats the member like
 any other roster entry, re-adding them as a managed member if Upbeat still
 lists them.
@@ -533,7 +542,64 @@ membership number in one pass, in batches of 100, using the gateway's bulk
 endpoint. Run it once at rollout so existing Loop accounts get current
 display names and role-based channels without waiting for each member to
 sign in. Members without a Loop account are counted as failed; they are
-picked up after their first SSO sign-in. It honours dry-run mode.
+picked up after their first SSO sign-in. With **Create Loop accounts** on,
+it creates those accounts instead. It honours dry-run mode.
+
+### Creating Loop accounts before first sign-in
+
+Off by default. With **Create Loop accounts** ticked, every member sync (sign
+in, profile or role change, Upbeat change) and the backfill send
+`provision: true`. For each member who has no Agend user on this site's SSO
+connection, Agend then creates one, or links an existing Agend login at the
+member's email, exactly as the member's first SAML sign-in would, and the
+sync carries on as usual. Agend sends the member no email, apart from the
+security notice a silent link sends when it resets an unconfirmed address.
+Community rules then add the member on their next run, so after the backfill
+members are in their communities without having signed in.
+
+It needs Agend's side set up first: the `loop.users.provision` scope on the
+site key (on top of `loop.users.sync`), and an approved, active SAML
+connection that allows organisation provisioning, with the default role and
+membership number settings Agend confirms. Ask Agend before ticking it.
+
+What happens to each member is reported, never with their name or email:
+
+| Outcome | Meaning |
+|---|---|
+| Created | Agend created the member's Loop account. |
+| Linked | The member already had an Agend login at their email; it is now linked to this site's SSO. |
+| Already in Loop | The member already had an account on this connection. Nothing was written. |
+| Not created | Agend skipped the member, with a reason (below). |
+
+| Reason | What to do |
+|---|---|
+| `rate_limited` | Agend creates at most 2000 accounts per connection per hour. Retried automatically. |
+| `provisioning_failed` | An unexpected fault. Retried automatically. |
+| `connection_not_usable`, `provisioning_not_allowed` | The SSO connection is not set up for this. Ask Agend. |
+| `restricted_role` | The member already has, or would get, a staff role that needs their own confirmation. They sign in themselves. |
+| `consent_required` | An existing login can be linked only with the member's confirmation. They sign in themselves. |
+| `conflict` | Another login already holds the member's membership number. Ask Agend to look into it. |
+
+**Retries.** Members skipped as `rate_limited` or `provisioning_failed`, or in
+a batch that got no answer, a server error or a rate limit, wait in a queue
+and are sent again about an hour later, until their account exists or 24
+tries have run. A batch the gateway rejects as invalid or unauthorised is
+logged and not retried, since it would fail the same way. Once a backfill
+meets the hourly limit it stops sending and queues the rest, so a large
+backfill finishes over several hours on its own. Each retry sends at most
+2500 queued members, oldest first. A queued member who loses their
+membership number, or whose email becomes invalid, is dropped. The settings
+screen shows how many members are waiting and when the next try runs.
+Turning the setting off empties the queue at the next try.
+
+**Safeguards.** When the site key's scopes are known and do not include
+`loop.users.provision`, nothing asks for provisioning and the settings screen
+says so. If the gateway refuses anyway (403), the member is synced again
+without provisioning, the backfill carries on without it, and provisioning
+pauses for an hour; the settings screen says so too. While provisioning is
+blocked by a missing scope or an old Agend Apps Core, the next retry empties
+the queue: run the backfill again once it is fixed. Creating accounts also
+needs Agend Apps Core 1.94.0 or later.
 
 ## Safety and reliability
 
@@ -588,6 +654,7 @@ the Loop administrator gave and the date it was placed.
 | Enable plugin | Off | Master switch for all syncing. |
 | Dry run | On | Log what would be sent without sending anything. |
 | User sync | On | Member sync triggers and backfill. |
+| Create Loop accounts | Off | Member sync and the backfill create a member's Loop account before their first sign-in. See [Creating Loop accounts before first sign-in](#creating-loop-accounts-before-first-sign-in). |
 | Committee sync | Off on new installs (sites upgraded from 1.3.x keep their setting) | Scheduled and manual committee syncs. The settings below it, and the committee tools, show only while it is on. |
 | Committee sync schedule | Daily | Hourly, twice daily or daily. |
 | Committee role mapping | See [Role mapping](#role-mapping) | Committee role to channel role, one per line. Lines with a channel role other than owner, moderator or member are dropped on save. |
@@ -609,7 +676,7 @@ nonce-protected.
 | Sync committees now | Runs a full committee sync immediately. Shown only with committee sync on, like the scan, inspect and hand-over tools. | Yes (unless dry run) |
 | Run rules now | Runs a community rule sync immediately. Shown only with community rules on. | Yes (unless dry run) |
 | Add, edit or delete a rule | Manages the rules. A rule's slug is locked once saved. Deleting a rule archives its channel on the next complete run. | No |
-| Backfill all users | Pushes every member to Loop in batches of 100. | Yes (unless dry run) |
+| Backfill all users | Pushes every member to Loop in batches of 100, creating missing accounts when **Create Loop accounts** is on. The result shows account outcomes and reasons. | Yes (unless dry run) |
 | Scan members for committees | Lists local members who sit on a committee, with their committees, roles, email and membership number, plus a count of each role name. Up to 200 members are listed. | No |
 | Inspect committee catalogue | Lists every Upbeat committee with its unique ID, web flag, groups and activity count, plus every role name in use. | No |
 | Hand members to the sync | Loads a committee's members with their roles, management state and any sync hold, and queues the ticked ones for the next committee sync. See [Handing members to the sync](#handing-members-to-the-sync). | Reads only. The hand-over itself is sent by the next committee sync. |
@@ -653,7 +720,10 @@ settles it or you clear it.
 5. Turn **Dry run** off. Run **Backfill all users**, then **Sync committees
    now**.
 6. Review the backfill result. Members counted as failed do not have a Loop
-   account yet; they are picked up after their first SSO sign-in.
+   account yet; they are picked up after their first SSO sign-in. To have
+   their accounts created instead, ask Agend to set up provisioning and grant
+   `loop.users.provision`, tick **Create Loop accounts**, and run the
+   backfill again (first with dry run on).
 7. If a synced committee channel already had members before go-live, added by
    hand in Loop or by an earlier version of this plugin, they stay
    unmanaged: the sync never removes or demotes them. Use **Hand members to
@@ -676,7 +746,7 @@ settles it or you clear it.
   being updated but is not archived while the committee still
   exists in Upbeat.
 - **Members need a Loop account first.** Syncs update existing accounts;
-  they do not create them.
+  they create them only with **Create Loop accounts** on.
 - **Upbeat changes can take time to arrive.** The membership plugin caches
   the committee list for up to 24 hours and each member's committee
   activities for up to 1 hour, so a sync reflects Upbeat as of those caches.
@@ -694,7 +764,8 @@ settles it or you clear it.
   cannot all be read, the run drops to merge mode.
 - **Community rules need members to have Loop accounts.** A member who meets a
   rule but has no Loop user yet is skipped and joins on a later run, once they
-  have signed in to Loop through SSO.
+  have signed in to Loop through SSO, or, with **Create Loop accounts** on,
+  once member sync or the backfill has created their account.
 - **A rule that matches nobody empties its channel, it does not archive it.**
   On a complete run the empty roster removes only what the sync added, so
   staff or guests added by hand stay and the channel stays visible to them.
@@ -737,7 +808,9 @@ settles it or you clear it.
   membership numbers (at most 2000 per committee, the gateway's limit).
 - Sync holds arrive as `held` in the committee sync response and `holds` in
   the committee members report. Each entry has `external_id`, `kind`
-  (`removal` or `role_cap`), `role_cap`, `reason` and `held_since`. The run
+  (`removal`, `role_cap` or `member_left`), `role_cap`, `reason` and
+  `held_since`. `member_left` is a member who left a channel that lets members
+  leave; the sync does not add them back unless they rejoin in Loop. The run
   summary keeps them as `held_members` (the total) and `held_results` (the
   first 100, each with its `committee`). A response without the field is read
   as no holds.
@@ -760,5 +833,14 @@ settles it or you clear it.
   belong to the rule sync; the committee sync skips them.
 - Version 1.5.0 adds community rules. Nothing changes for a site that does not
   turn them on.
+- Version 1.6.0 adds **Create Loop accounts** (option
+  `agend_loop_sync_provision_members`, filter of the same name, needs Agend
+  Apps Core 1.94.0), the provisioning retry queue (option
+  `agend_loop_sync_provision_retry`, single cron event
+  `agend_loop_sync_provision_retry_event`, class
+  `Agend_Loop_Sync_Provision_Retry`), and reads the `member_left` sync hold a
+  member who leaves a channel places. Member sync and backfill logs no longer
+  carry the member's email in a gateway error message. Nothing else changes
+  while the setting is off.
 - Tests live in `tests/` and run as part of the repository's PHPUnit suite
   (`composer test` from the repository root).

@@ -40,12 +40,24 @@ $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
 $als_outcome_labels = array(
 	'adopted'           => __( 'adopted', 'agend-loop-sync' ),
 	'already_managed'   => __( 'already managed by the sync', 'agend-loop-sync' ),
-	'held'              => __( 'held by a Loop administrator, not adopted', 'agend-loop-sync' ),
+	'held'              => __( 'held in Loop, not adopted', 'agend-loop-sync' ),
 	'inserted'          => __( 'added as a new member', 'agend-loop-sync' ),
 	'managed_elsewhere' => __( 'managed by another source, not adopted', 'agend-loop-sync' ),
 	'not_in_roster'     => __( 'not on the committee roster', 'agend-loop-sync' ),
 	'unresolved'        => __( 'no Loop user yet', 'agend-loop-sync' ),
 	'unknown'           => __( 'unknown outcome', 'agend-loop-sync' ),
+);
+
+// Why Agend did not create a member's Loop account, in words.
+$als_provision_reasons = array(
+	'connection_not_usable'    => __( 'single sign-on connection not ready', 'agend-loop-sync' ),
+	'provisioning_not_allowed' => __( 'connection does not allow account creation', 'agend-loop-sync' ),
+	'restricted_role'          => __( 'existing login with a staff role, left for the member to confirm', 'agend-loop-sync' ),
+	'consent_required'         => __( 'existing login that needs the member\'s confirmation', 'agend-loop-sync' ),
+	'rate_limited'             => __( 'hourly limit reached, will retry', 'agend-loop-sync' ),
+	'conflict'                 => __( 'membership number already used by another login', 'agend-loop-sync' ),
+	'provisioning_failed'      => __( 'unexpected fault, will retry', 'agend-loop-sync' ),
+	'unknown'                  => __( 'other reason', 'agend-loop-sync' ),
 );
 
 // A sync hold in words: what it does, since when and why. Plain text, so escape
@@ -61,6 +73,8 @@ $als_describe_hold = static function ( array $hold ): string {
 		$parts = array( sprintf( __( 'Role capped at %s.', 'agend-loop-sync' ), $role_cap ) );
 	} elseif ( 'role_cap' === $kind ) {
 		$parts = array( __( 'Role capped.', 'agend-loop-sync' ) );
+	} elseif ( 'member_left' === $kind ) {
+		$parts = array( __( 'Left the channel in Loop. The sync does not add them back unless they rejoin there.', 'agend-loop-sync' ) );
 	} else {
 		$parts = array( __( 'Held.', 'agend-loop-sync' ) );
 	}
@@ -205,6 +219,31 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 						<input type="checkbox" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_USER_SYNC ); ?>" value="1" <?php checked( Agend_Loop_Sync_Settings::is_user_sync_enabled() ); ?> />
 						<?php esc_html_e( 'Sync a user to Loop on login, profile update, and role change.', 'agend-loop-sync' ); ?>
 					</label>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Create Loop accounts', 'agend-loop-sync' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_PROVISION ); ?>" value="1" <?php checked( Agend_Loop_Sync_Settings::is_provision_enabled() ); ?> />
+						<?php esc_html_e( 'Create a member\'s Loop account before their first sign-in, so they are in their communities straight away.', 'agend-loop-sync' ); ?>
+					</label>
+					<p class="description"><?php esc_html_e( 'Applies to member sync and the backfill. Agend creates the account on this site\'s single sign-on connection, as a first sign-in would, and sends the member no email. Needs the loop.users.provision scope on the site key and a connection Agend has set up for it: ask Agend before turning this on.', 'agend-loop-sync' ); ?></p>
+					<?php if ( Agend_Loop_Sync_Settings::is_provision_enabled() ) : ?>
+						<?php $als_provision_blocker = Agend_Loop_Sync_Settings::provision_blocker(); ?>
+						<?php if ( 'scope_missing' === $als_provision_blocker ) : ?>
+							<p><strong><?php esc_html_e( 'The site key does not hold loop.users.provision, so no accounts are being created. Member sync carries on without it. Ask Agend to grant the scope.', 'agend-loop-sync' ); ?></strong></p>
+						<?php elseif ( 'scope_refused' === $als_provision_blocker ) : ?>
+							<p><strong><?php esc_html_e( 'Agend refused to create accounts in the last hour because the site key does not hold loop.users.provision, so none are being created. Member sync carries on without it. Ask Agend to grant the scope.', 'agend-loop-sync' ); ?></strong></p>
+						<?php elseif ( 'core_too_old' === $als_provision_blocker ) : ?>
+							<p><strong>
+								<?php
+								/* translators: %s: agend-apps-core version number. */
+								printf( esc_html__( 'Agend Apps Core %s or later is needed to create accounts, so none are being created. Update Agend Apps Core.', 'agend-loop-sync' ), esc_html( Agend_Loop_Sync_Settings::PROVISION_MIN_CORE_VERSION ) );
+								?>
+							</strong></p>
+						<?php endif; ?>
+					<?php endif; ?>
 				</td>
 			</tr>
 			<tr>
@@ -356,7 +395,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		<?php submit_button( __( 'Backfill all users', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
 	</form>
 	<p class="description">
-		<?php esc_html_e( 'Backfill refreshes every local member with a membership number in Loop in one pass (batches of 100), updating display names and role-based channels. It does not create Loop accounts, so members who have not yet signed in to Loop through SSO are counted as failed. Honours dry run.', 'agend-loop-sync' ); ?>
+		<?php esc_html_e( 'Backfill refreshes every local member with a membership number in Loop in one pass (batches of 100), updating display names and role-based channels. With "Create Loop accounts" on, it also creates the account of each member who has not signed in to Loop yet; members it cannot create yet, for example over Agend\'s limit of 2000 new accounts an hour, are tried again an hour later. With it off, members who have not signed in to Loop are counted as failed. Honours dry run.', 'agend-loop-sync' ); ?>
 	</p>
 
 	<?php
@@ -380,7 +419,65 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					<em><?php esc_html_e( '(dry run: nothing was sent)', 'agend-loop-sync' ); ?></em>
 				<?php endif; ?>
 			</p>
+			<?php if ( is_array( $als_backfill['provisioning'] ?? null ) && empty( $als_backfill['dry_run'] ) ) : ?>
+				<?php $als_prov = $als_backfill['provisioning']; ?>
+				<p>
+					<?php
+					printf(
+						/* translators: 1: accounts created, 2: existing logins linked, 3: already in Loop, 4: not created. */
+						esc_html__( 'Loop accounts: %1$d created, %2$d existing logins linked, %3$d already in Loop, %4$d not created.', 'agend-loop-sync' ),
+						(int) ( $als_prov['provisioned'] ?? 0 ),
+						(int) ( $als_prov['linked'] ?? 0 ),
+						(int) ( $als_prov['already_linked'] ?? 0 ),
+						(int) ( $als_prov['skipped'] ?? 0 )
+					);
+					?>
+				</p>
+				<?php if ( ! empty( $als_prov['reasons'] ) && is_array( $als_prov['reasons'] ) ) : ?>
+					<ul class="ul-disc">
+						<?php foreach ( $als_prov['reasons'] as $als_reason => $als_count ) : ?>
+							<li><?php echo esc_html( sprintf( '%s: %d', $als_provision_reasons[ $als_reason ] ?? $als_reason, (int) $als_count ) ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<?php if ( (int) ( $als_prov['deferred'] ?? 0 ) > 0 ) : ?>
+					<p>
+						<?php
+						/* translators: %d: members not sent this run. */
+						printf( esc_html__( '%d members were not sent because Agend\'s hourly limit was reached; they are queued for the next retry.', 'agend-loop-sync' ), (int) $als_prov['deferred'] );
+						?>
+					</p>
+				<?php endif; ?>
+			<?php endif; ?>
+			<?php foreach ( (array) ( $als_backfill['errors'] ?? array() ) as $als_backfill_error ) : ?>
+				<p><strong><?php echo esc_html( (string) $als_backfill_error ); ?></strong></p>
+			<?php endforeach; ?>
 		</div>
+	<?php endif; ?>
+
+	<?php
+	$als_retry_queue = Agend_Loop_Sync_Provision_Retry::queued();
+	if ( array() !== $als_retry_queue ) :
+		$als_retry_next = Agend_Loop_Sync_Provision_Retry::next_run();
+		?>
+		<p>
+			<?php
+			if ( $als_retry_next > 0 ) {
+				printf(
+					/* translators: 1: members waiting, 2: date and time of the next retry. */
+					esc_html__( '%1$d members are waiting for their Loop account to be created. Next try: %2$s.', 'agend-loop-sync' ),
+					count( $als_retry_queue ),
+					esc_html( wp_date( 'Y-m-d H:i', $als_retry_next ) )
+				);
+			} else {
+				printf(
+					/* translators: %d: members waiting. */
+					esc_html__( '%d members are waiting for their Loop account to be created.', 'agend-loop-sync' ),
+					count( $als_retry_queue )
+				);
+			}
+			?>
+		</p>
 	<?php endif; ?>
 
 	<hr />
@@ -1043,7 +1140,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		<?php if ( ! Agend_Loop_Sync_Settings::is_enabled() ) : ?>
 			<p><strong><?php esc_html_e( 'Loop Sync is turned off (Enable plugin, above), so rules will not run until it is turned on.', 'agend-loop-sync' ); ?></strong></p>
 		<?php endif; ?>
-		<p><?php esc_html_e( 'Each enabled rule keeps one private Loop channel (rule:<slug>) in step with membership: members who meet the criteria are added and members who stop meeting them are removed. A member with no Loop account yet is skipped until they have one. Honours dry run.', 'agend-loop-sync' ); ?></p>
+		<p><?php esc_html_e( 'Each enabled rule keeps one private Loop channel (rule:<slug>) in step with membership: members who meet the criteria are added and members who stop meeting them are removed. A member with no Loop account yet is skipped until they have one: their first sign-in to Loop creates it, or, with "Create Loop accounts" on, the next member sync. Honours dry run.', 'agend-loop-sync' ); ?></p>
 
 		<?php if ( $als_last_rule_sync > 0 ) : ?>
 			<p>

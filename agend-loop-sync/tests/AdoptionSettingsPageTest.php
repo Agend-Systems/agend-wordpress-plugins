@@ -457,8 +457,8 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( 'Outcomes: 1 adopted, 1 held by a Loop administrator, not adopted.', $html );
-		$this->assertStringContainsString( 'Board: membership number 200, held by a Loop administrator, not adopted', $html );
+		$this->assertStringContainsString( 'Outcomes: 1 adopted, 1 held in Loop, not adopted.', $html );
+		$this->assertStringContainsString( 'Board: membership number 200, held in Loop, not adopted', $html );
 		$this->assertStringNotContainsString( 'unknown outcome', $html );
 	}
 

@@ -204,7 +204,7 @@ class Agend_Loop_Sync_Admin {
 		ignore_user_abort( true );
 
 		$summary = Agend_Loop_Sync_User_Sync::backfill_all();
-		set_transient( 'agend_loop_sync_user_backfill', $summary, 5 * MINUTE_IN_SECONDS );
+		set_transient( 'agend_loop_sync_user_backfill', Agend_Loop_Sync_User_Sync::loggable_summary( $summary ), 5 * MINUTE_IN_SECONDS );
 
 		wp_safe_redirect(
 			add_query_arg(
