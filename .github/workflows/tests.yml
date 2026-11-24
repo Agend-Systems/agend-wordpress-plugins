@@ -97,6 +97,7 @@ jobs:
       - run: node --test agend-apps-shop/tests/js/cart-ux.test.cjs
       - run: node --test agend-apps-core/tests/js/member-login.test.cjs
       - run: node --test agend-apps-core/tests/js/memberships-catalogue.test.cjs
+      - run: node --test agend-apps-core/tests/js/events-cart-recommendations.test.cjs
       # My Account > Jobs: the credits panel, Current and Past groups, row actions.
       - run: node --test agend-apps-core/tests/js/member-jobs.test.cjs
       - name: Committed build is up to date

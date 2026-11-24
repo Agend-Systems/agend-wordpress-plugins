@@ -189,6 +189,10 @@ return array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.items.browse' ) ),
 	),
+	'GET /cart/recommendations' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.browse' ) ),
+	),
 	'GET /cms/assets/{id}' => array(
 		'app'    => 'cms',
 		'scopes' => array( array( 'cms.assets.browse' ) ),

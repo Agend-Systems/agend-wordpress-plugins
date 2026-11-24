@@ -685,6 +685,19 @@ The member login surface follows the same pattern:
 its own edit-mode notice for that case and otherwise echoes the core
 renderer.
 
+### Events: recommendations after adding tickets
+
+With Agend Apps Shop active and a cart page configured, enable **Event
+recommendations after adding tickets** under **Settings → Agend Widgets →
+Detail Pages**. Configure each event's recommendations in Agend Events.
+The site's API key needs the existing `cart.items.browse` scope.
+
+After tickets are added in the Events catalogue, delegates can view their
+cart or keep browsing. Eligible recommendations link to the site's event
+details and use the same cart. The setting applies to client-rendered and
+server-rendered event details for both the Events block and Elementor
+widget. The generic Shop Add to Cart block uses its own flow.
+
 ### Directory: require sign-in to view details
 
 The directory catalogue's `require_login_for_detail` setting (Detail View, off by

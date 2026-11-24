@@ -40,6 +40,36 @@ final class CartRoutesTest extends TestCase {
 		return $request;
 	}
 
+	#[Test]
+	public function should_forward_current_cart_identity_for_an_uncached_recommendations_read(): void {
+		$source_id = 'c3fa4551-fa95-411d-8ad4-c3898f6c629a';
+		$request   = new WP_REST_Request( 'GET', '/agend-apps/v1/cart/recommendations' );
+		$request->set_header( 'X-Cart-Session', 'guest-session' );
+		$request->set_param( 'sourceEventId', $source_id );
+		$controller = new Agend_Apps_Cart_REST_Controller();
+		$payload    = array(
+			'data' => array(
+				'source'          => array( 'type' => 'event', 'id' => $source_id ),
+				'recommendations' => array(),
+			),
+		);
+
+		Agend_Test_WP::queue_response( 200, $payload );
+		$response = $controller->get_cart_recommendations( $request );
+		self::assertSame( 200, $response->get_status() );
+		self::assertSame( $payload['data'], $response->get_data()['data'] );
+		self::assertSame( 'private, no-store', $response->get_headers()['Cache-Control'] );
+		self::assertStringEndsWith( '/v1/cart/recommendations?sourceEventId=' . $source_id, Agend_Test_WP::$requests[0]['url'] );
+		self::assertSame( 2, Agend_Test_WP::$requests[0]['timeout'] );
+		self::assertSame( 'guest-session', Agend_Test_WP::$requests[0]['headers']['X-Cart-Session'] );
+		self::assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, $payload );
+		self::assertSame( 200, $controller->get_cart_recommendations( $request )->get_status() );
+		self::assertSame( 'Bearer member-token', Agend_Test_WP::$requests[1]['headers']['Authorization'] );
+	}
+
 	private function checkoutBody( WP_REST_Request $request ): array {
 		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'checkoutUrl' => 'https://pay.test/' ) ) );
 		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_cart( $request );

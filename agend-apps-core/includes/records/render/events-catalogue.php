@@ -159,6 +159,9 @@ function agend_apps_records_render_events_catalogue( array $settings ): string {
 	// link on the confirmation screen.
 	$config['cartEnabled'] = agend_apps_records_shop_cart_enabled();
 	$config['cartPageUrl'] = agend_apps_records_shop_cart_page_url();
+	if ( agend_apps_records_events_cart_recommendations_enabled() ) {
+		$config['cartRecommendations'] = true;
+	}
 	$checkout_signin_url = agend_apps_records_events_checkout_signin_url();
 	if ( '' !== $checkout_signin_url ) {
 		$config['checkoutSignInUrl'] = $checkout_signin_url;

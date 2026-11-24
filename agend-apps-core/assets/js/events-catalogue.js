@@ -24,6 +24,7 @@
 
   var DEEP_LINK_PARAM = 'agend_event';
   var PAY_PARAM = 'agend_pay';
+  var EVENT_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
   // The organisation timezone (IANA name, from cfg.timezone) — the FALLBACK for
   // rendering event times when an event carries no timezone of its own. Event
@@ -1416,6 +1417,7 @@
 
     // ticketId -> { entry, qty, price, attendeeRows: [{name,email}] }
     var lines = {};
+    var addingToCart = false;
     var resume = checkoutSignInState(event.slug);
     var signIn = !isSignedIn && (cfg.onDetailPage || cfg.ssrDetail)
       ? eventCheckoutSignIn(cfg, event.slug, lines) : null;
@@ -1446,9 +1448,11 @@
         totalRow.appendChild(el('span', null, 'Total'));
         totalRow.appendChild(el('span', null, t === 0 ? 'Free' : '$' + t.toFixed(2)));
         summary.appendChild(totalRow);
-        submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
+        if (!addingToCart) {
+          submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
+        }
       }
-      submit.disabled = !any;
+      submit.disabled = addingToCart || !any;
     }
 
     function buildAttendeeRows(line, container) {
@@ -1566,6 +1570,7 @@
     }
 
     submit.addEventListener('click', function () {
+      if (addingToCart) return;
       errorBox.style.display = 'none';
 
       // Cart mode (Agend Apps Shop active): add the selected ticket lines to the
@@ -1591,6 +1596,7 @@
           (missingName.value.trim() ? incomplete.querySelector('input[type="email"]') : missingName).focus();
           return;
         }
+        addingToCart = true;
         submit.disabled = true;
         submit.textContent = 'Adding…';
         // Add lines sequentially so a single guest cart session token (returned
@@ -1598,19 +1604,22 @@
         var addChain = Promise.resolve();
         cartSelected.forEach(function (id) {
           var line = lines[id];
+          var quantity = line.qty;
+          var attendees = cartAttendeesForLine(line);
           addChain = addChain.then(function () {
-            return cartAddItem('event_tickets', id, line.qty, cartAttendeesForLine(line));
+            return cartAddItem('event_tickets', id, quantity, attendees);
           });
         });
         addChain.then(function () {
           document.dispatchEvent(new CustomEvent('agend:cart:updated'));
-          if (cfg.cartPageUrl) {
+          if (!wrap.isConnected) return;
+          if (cfg.cartPageUrl && cfg.cartRecommendations !== true) {
             window.location.assign(cartDestination(cfg));
           } else if (typeof onSuccess === 'function') {
             onSuccess(event, 'cart');
           }
         }).catch(function (err) {
-          submit.disabled = false;
+          addingToCart = false;
           refreshSummary();
           showError((err && err.message) || 'Unable to add to cart. Please try again.');
         });
@@ -1738,6 +1747,84 @@
     }
   }
 
+  // Use the site's Events page or the current catalogue's normal detail link.
+  // URL parsing preserves plain permalinks such as /?page_id=42.
+  function eventDetailUrl(cfg, slug) {
+    var base = cfg.detailBase || (cfg.prettyLinks && cfg.basePath);
+    var url = new URL(base || window.location.href, window.location.href);
+    if (cfg.prettyLinks && base) {
+      url.pathname = url.pathname.replace(/\/?$/, '/') + 'event/' + encodeURIComponent(slug) + '/';
+    } else {
+      url.searchParams.set(DEEP_LINK_PARAM, slug);
+    }
+    return url;
+  }
+
+  function renderCartRecommendations(event, cfg, slot, data) {
+    if (!data || !data.source || data.source.type !== 'event' || data.source.id !== event.id || !Array.isArray(data.recommendations)) {
+      return;
+    }
+    var list = el('ul');
+    data.recommendations.slice(0, 2).forEach(function (item) {
+      if (!item || item.type !== 'event' || typeof item.eventId !== 'string' || !EVENT_ID_PATTERN.test(item.eventId) ||
+          item.eventId === event.id || typeof item.slug !== 'string' || !/^[a-z0-9_-]+$/i.test(item.slug) ||
+          typeof item.name !== 'string' || !item.name.trim()) {
+        return;
+      }
+      var target = eventDetailUrl(cfg, item.slug);
+      if (target.origin !== window.location.origin || !/^https?:$/.test(target.protocol)) return;
+      target.searchParams.delete(PAY_PARAM);
+      target.searchParams.delete('agend_resume_booking');
+      target.hash = '';
+      var entry = el('li');
+      var link = el('a', null, item.name);
+      link.href = target.href;
+      entry.appendChild(link);
+      list.appendChild(entry);
+    });
+    if (!list.children.length) return;
+    var section = el('div', 'agend-ev-reg__recommendations');
+    section.appendChild(el('h3', null, 'Related events'));
+    section.appendChild(list);
+    slot.appendChild(section);
+  }
+
+  function loadCartRecommendations(event, cfg, slot) {
+    if (typeof event.id !== 'string' || !EVENT_ID_PATTERN.test(event.id) || typeof AbortController === 'undefined') return;
+    var controller = new AbortController();
+    var timer = window.setTimeout(cancel, 2500);
+    var url = restBase().replace(/\/$/, '') + '/cart/recommendations';
+    url += (url.indexOf('?') === -1 ? '?' : '&') + 'sourceEventId=' + encodeURIComponent(event.id);
+
+    function cancel() {
+      controller.abort();
+      cleanup();
+    }
+
+    function cleanup() {
+      window.clearTimeout(timer);
+      document.removeEventListener('agend:cart:updated', cancel);
+    }
+
+    document.addEventListener('agend:cart:updated', cancel);
+    Promise.resolve().then(function () {
+      return fetch(url, {
+        method: 'GET',
+        headers: cartHeaders(),
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+    }).then(function (res) {
+      return res.ok ? res.json() : null;
+    }).then(function (body) {
+      if (!controller.signal.aborted && slot.isConnected && body) {
+        renderCartRecommendations(event, cfg, slot, body.data);
+      }
+    }).catch(function () {
+      // A recommendation lookup cannot invalidate a successful ticket add.
+    }).finally(cleanup);
+  }
+
   // Post-flow confirmation. `mode` is 'cart' when tickets were added to the
   // shop cart (US: shop integration), otherwise a completed registration.
   function renderConfirmation(event, cfg, onBackToEvent, onBackToEvents, mode) {
@@ -1766,6 +1853,12 @@
       actions.appendChild(listBtn);
     }
     panel.appendChild(actions);
+    if (isCart && cfg.cartRecommendations === true && cfg.cartPageUrl) {
+      var recommendations = el('div');
+      recommendations.setAttribute('aria-live', 'polite');
+      panel.appendChild(recommendations);
+      loadCartRecommendations(event, cfg, recommendations);
+    }
     wrap.appendChild(panel);
     return wrap;
   }
@@ -1986,36 +2079,6 @@
     catalogueEl.appendChild(pager);
     }
 
-    // Build the canonical detail URL for a slug. The dedicated Events page
-    // (cfg.detailBase) takes priority over everything else: pretty path
-    // (/{page}/event/{slug}/) when permalinks are on, else the legacy
-    // ?agend_event= query param on that page. With no dedicated page
-    // configured, falls back to the host page path (US-1.2), and finally to
-    // the legacy query param on the current URL.
-    function deepLinkUrl(slug) {
-      if (cfg.detailBase) {
-        var detailBase = cfg.detailBase;
-        if (detailBase.charAt(detailBase.length - 1) !== '/') {
-          detailBase += '/';
-        }
-        if (cfg.prettyLinks) {
-          return detailBase + 'event/' + encodeURIComponent(slug) + '/';
-        }
-        var sep = detailBase.indexOf('?') === -1 ? '?' : '&';
-        return detailBase + sep + DEEP_LINK_PARAM + '=' + encodeURIComponent(slug);
-      }
-      if (cfg.prettyLinks && cfg.basePath) {
-        var base = cfg.basePath;
-        if (base.charAt(base.length - 1) !== '/') {
-          base += '/';
-        }
-        return base + 'event/' + encodeURIComponent(slug) + '/';
-      }
-      var url = new URL(window.location.href);
-      url.searchParams.set(DEEP_LINK_PARAM, slug);
-      return url.toString();
-    }
-
     // Opens an item: in place when the widget is on the detail page (or no
     // dedicated page is configured), otherwise navigates there.
     function mountFilters(target) {
@@ -2045,7 +2108,7 @@
         showDetail(slug, true);
         return;
       }
-      window.location.assign(deepLinkUrl(slug));
+      window.location.assign(eventDetailUrl(cfg, slug).href);
     }
 
     // Templated cards are raw HTML, so clicks are delegated from the grid. A
@@ -2107,7 +2170,7 @@
       try {
         var target;
         if (slug) {
-          target = deepLinkUrl(slug);
+          target = eventDetailUrl(cfg, slug).href;
         } else if (cfg.prettyLinks && cfg.basePath) {
           // Returning to the catalogue: drop the /event/{slug}/ path segment.
           target = cfg.basePath;
@@ -2320,8 +2383,19 @@
 
   function initAll() {
     var nodes = document.querySelectorAll('.agend-events-catalogue[data-agend-events-config]');
+    if (nodes.length) {
+      document.addEventListener('agend:cart:updated', clearCartRecommendations);
+    }
     Array.prototype.forEach.call(nodes, function (root, index) {
       initWidget(root, index === 0);
+    });
+  }
+
+  // This listener outlives individual confirmations without retaining them.
+  // A change from any cart widget invalidates the eligibility we displayed.
+  function clearCartRecommendations() {
+    document.querySelectorAll('.agend-ev-reg__recommendations').forEach(function (section) {
+      section.remove();
     });
   }
 

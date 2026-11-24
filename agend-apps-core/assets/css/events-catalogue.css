@@ -847,6 +847,28 @@
   max-width: 260px;
 }
 
+.agend-ev-reg__recommendations {
+  margin: 1.75rem auto 0;
+  max-width: 420px;
+}
+
+.agend-ev-reg__recommendations h3 {
+  color: var(--agend-ev-heading);
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.agend-ev-reg__recommendations ul {
+  padding: 0 1.25rem;
+  margin: 0;
+  display: inline-block;
+  text-align: left;
+}
+
+.agend-ev-reg__recommendations li + li {
+  margin-top: 0.35rem;
+}
+
 .agend-ev-reg__link {
   background: none;
   border: none;

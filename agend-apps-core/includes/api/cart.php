@@ -89,6 +89,30 @@ function agend_apps_cart_get( string $cart_session, string $bearer_token = '' ) 
 }
 
 /**
+ * Reads the current buyer's event recommendations without caching.
+ *
+ * @param string $source_event_id Source event UUID.
+ * @param string $cart_session    Guest cart session token.
+ * @param string $bearer_token    Member bearer token, or empty for a guest.
+ * @return array|WP_Error Gateway response.
+ */
+function agend_apps_cart_get_recommendations( string $source_event_id, string $cart_session, string $bearer_token ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/cart/recommendations',
+		array(
+			'query'               => array( 'sourceEventId' => $source_event_id ),
+			'cart_session'        => $cart_session,
+			'bearer_token'        => $bearer_token,
+			'bearer_resolved'     => true,
+			'timeout'             => 2,
+			'scope_recheck'       => false,
+			'isolated_rate_limit' => true, // Keep an optional lookup from blocking checkout locally.
+		)
+	);
+}
+
+/**
  * Adds an item to the cart.
  *
  * Clears any cached cart for the given identity after a successful add.

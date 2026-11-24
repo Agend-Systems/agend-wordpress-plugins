@@ -1129,7 +1129,7 @@ function agend_apps_records_ssr_reviews_section( array $item, string $slug, $rev
  */
 function agend_apps_records_ssr_events_config( array $item, string $slug, WP_Post $host ): array {
 	$host_url = get_permalink( $host->ID );
-	return array(
+	$config   = array(
 		'ssrDetail'   => true,
 		'deepLink'    => $slug,
 		'prettyLinks' => (bool) get_option( 'permalink_structure' ),
@@ -1144,6 +1144,10 @@ function agend_apps_records_ssr_events_config( array $item, string $slug, WP_Pos
 		'cartPageUrl'       => agend_apps_records_shop_cart_page_url(),
 		'checkoutSignInUrl' => agend_apps_records_events_checkout_signin_url(),
 	);
+	if ( agend_apps_records_events_cart_recommendations_enabled() ) {
+		$config['cartRecommendations'] = true;
+	}
+	return $config;
 }
 
 /**
