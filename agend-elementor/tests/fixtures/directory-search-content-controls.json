@@ -46,6 +46,56 @@
                     }
                 },
                 {
+                    "id": "dropdowns",
+                    "args": {
+                        "label": "Dropdown fields",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Filter",
+                                "type": "select",
+                                "default": "custom_field",
+                                "options": {
+                                    "custom_field": "Custom field",
+                                    "category": "Category",
+                                    "state": "State",
+                                    "city": "City"
+                                },
+                                "name": "dropdown_filter"
+                            },
+                            {
+                                "label": "Custom field key",
+                                "type": "text",
+                                "default": "",
+                                "placeholder": "profession",
+                                "description": "The field's key, as set on the directory.",
+                                "condition": {
+                                    "dropdown_filter": "custom_field"
+                                },
+                                "name": "dropdown_custom_field_key"
+                            },
+                            {
+                                "label": "Label",
+                                "type": "text",
+                                "default": "",
+                                "description": "Read by screen readers; not shown.",
+                                "name": "dropdown_label"
+                            },
+                            {
+                                "label": "First option",
+                                "type": "text",
+                                "default": "",
+                                "placeholder": "Any",
+                                "description": "Shown when nothing is chosen, for example \"All professions\".",
+                                "name": "dropdown_any_label"
+                            }
+                        ],
+                        "title_field": "{{{ dropdown_label }}}",
+                        "default": [],
+                        "description": "Each row adds a dropdown between the keyword and location fields, listing every value the directory holds for one filter. The directory page's filter template needs a filter for the same field, or the catalogue there ignores the choice when the search arrives from another page."
+                    }
+                },
+                {
                     "id": "show_location",
                     "args": {
                         "label": "Show location field",

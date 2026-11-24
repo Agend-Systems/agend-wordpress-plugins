@@ -25,6 +25,14 @@ $als_schedule       = Agend_Loop_Sync_Settings::get_committee_schedule();
 $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, 0 );
 $als_committees_on  = Agend_Loop_Sync_Settings::is_committee_sync_enabled();
 
+$als_rules_on        = Agend_Loop_Sync_Settings::is_rule_sync_enabled();
+$als_rule_schedule   = Agend_Loop_Sync_Settings::get_rule_schedule();
+$als_access_statuses = Agend_Loop_Sync_Settings::get_access_statuses();
+$als_rules           = Agend_Loop_Sync_Settings::get_rules();
+$als_last_rule_sync  = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_RULE_SYNC, 0 );
+$als_rule_summary    = get_option( Agend_Loop_Sync_Settings::OPT_LAST_RULE_SUMMARY, array() );
+$als_rule_summary    = is_array( $als_rule_summary ) ? $als_rule_summary : array();
+
 $als_last_summary = get_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array() );
 $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
 
@@ -115,6 +123,56 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		<div class="notice notice-warning is-dismissible">
 			<p><?php esc_html_e( 'Committee sync is off, so that committee action was not run. Turn committee sync on to use it.', 'agend-loop-sync' ); ?></p>
 		</div>
+	<?php endif; ?>
+
+	<?php
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$als_rules_notice = isset( $_GET['rules'] ) ? sanitize_text_field( wp_unslash( $_GET['rules'] ) ) : '';
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$als_rules_code = isset( $_GET['rules_code'] ) ? sanitize_text_field( wp_unslash( $_GET['rules_code'] ) ) : '';
+	$als_rule_errors = array(
+		'invalid_name'   => __( 'The rule was not saved: it needs a name.', 'agend-loop-sync' ),
+		'invalid_slug'   => __( 'The rule was not saved: it needs a slug of letters, numbers and hyphens.', 'agend-loop-sync' ),
+		'slug_taken'     => __( 'The rule was not saved: another rule already uses that slug.', 'agend-loop-sync' ),
+		'name_taken'     => __( 'The rule was not saved: another rule already uses that name.', 'agend-loop-sync' ),
+		'too_many_rules' => __( 'The rule was not saved: the site already has the most rules allowed.', 'agend-loop-sync' ),
+		'rule_not_found' => __( 'The rule was not saved: it no longer exists.', 'agend-loop-sync' ),
+	);
+	if ( 'ran' === $als_rules_notice ) :
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$als_ran_rules = isset( $_GET['rules_synced'] ) ? (int) $_GET['rules_synced'] : 0;
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$als_ran_scanned = isset( $_GET['members_scanned'] ) ? (int) $_GET['members_scanned'] : 0;
+		?>
+		<div class="notice notice-success is-dismissible">
+			<p>
+			<?php
+			printf(
+				/* translators: 1: rules synced, 2: members scanned. */
+				esc_html__( 'Community rules run. Rules synced: %1$d. Members scanned: %2$d.', 'agend-loop-sync' ),
+				(int) $als_ran_rules,
+				(int) $als_ran_scanned
+			);
+			?>
+			</p>
+		</div>
+	<?php elseif ( 'not_run' === $als_rules_notice ) : ?>
+		<?php
+		$als_not_run_reasons = array(
+			'disabled'    => __( 'Loop Sync is turned off (Enable plugin, above), so no rules ran.', 'agend-loop-sync' ),
+			'unavailable' => __( 'No rules ran: the membership plugin or agend-apps-core is not available.', 'agend-loop-sync' ),
+			'locked'      => __( 'No rules ran: another community rule run is already in progress. Try again shortly.', 'agend-loop-sync' ),
+		);
+		?>
+		<div class="notice notice-warning is-dismissible"><p><?php echo esc_html( $als_not_run_reasons[ $als_rules_code ] ?? __( 'No rules ran.', 'agend-loop-sync' ) ); ?></p></div>
+	<?php elseif ( 'saved' === $als_rules_notice ) : ?>
+		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Rule saved. It takes effect on the next rule run.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'deleted' === $als_rules_notice ) : ?>
+		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Rule deleted. Its Loop channel is archived by the next complete rule run.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'off' === $als_rules_notice ) : ?>
+		<div class="notice notice-warning is-dismissible"><p><?php esc_html_e( 'Community rules are off, so that action was not run. Turn community rules on to use them.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'error' === $als_rules_notice ) : ?>
+		<div class="notice notice-error is-dismissible"><p><?php echo esc_html( $als_rule_errors[ $als_rules_code ] ?? __( 'The rule was not saved.', 'agend-loop-sync' ) ); ?></p></div>
 	<?php endif; ?>
 
 	<form method="post" action="options.php">
@@ -218,7 +276,62 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				</td>
 			</tr>
 		</tbody>
+		<tbody>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Community rules', 'agend-loop-sync' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" id="als-rule-sync" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_RULE_SYNC ); ?>" value="1" <?php checked( $als_rules_on ); ?> />
+						<?php esc_html_e( 'Keep criteria-based private Loop channels in step with membership: members who meet a rule are added, members who stop meeting it are removed.', 'agend-loop-sync' ); ?>
+					</label>
+					<p class="description"><?php esc_html_e( 'Optional. Channels you create and fill by hand in Loop are not affected.', 'agend-loop-sync' ); ?></p>
+				</td>
+			</tr>
+		</tbody>
+		<tbody id="als-rule-settings"<?php echo $als_rules_on ? '' : ' hidden'; ?>>
+			<tr>
+				<th scope="row">
+					<label for="als-rule-schedule"><?php esc_html_e( 'Community rules schedule', 'agend-loop-sync' ); ?></label>
+				</th>
+				<td>
+					<select id="als-rule-schedule" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_RULE_SCHEDULE ); ?>">
+						<?php foreach ( Agend_Loop_Sync_Settings::SCHEDULES as $als_sched_option ) : ?>
+							<option value="<?php echo esc_attr( $als_sched_option ); ?>" <?php selected( $als_rule_schedule, $als_sched_option ); ?>>
+								<?php echo esc_html( $als_sched_option ); ?>
+							</option>
+						<?php endforeach; ?>
+					</select>
+					<p class="description"><?php esc_html_e( 'A change in a member\'s Upbeat record, or a member signing in, also schedules one extra run about five minutes later.', 'agend-loop-sync' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Statuses that keep access', 'agend-loop-sync' ); ?></th>
+				<td>
+					<fieldset>
+						<legend class="screen-reader-text"><?php esc_html_e( 'Statuses that keep access', 'agend-loop-sync' ); ?></legend>
+						<?php foreach ( Agend_Loop_Sync_Settings::ACCESS_STATUS_CHOICES as $als_status ) : ?>
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_ACCESS_STATUSES ); ?>[]" value="<?php echo esc_attr( $als_status ); ?>" <?php checked( in_array( $als_status, $als_access_statuses, true ) ); ?> <?php disabled( Agend_Loop_Sync_Settings::ALWAYS_ALLOWED_STATUS === $als_status ); ?> />
+								<?php echo esc_html( $als_status ); ?>
+							</label><br />
+						<?php endforeach; ?>
+					</fieldset>
+					<p class="description"><?php esc_html_e( 'A member whose Upbeat status is ticked keeps access to every rule channel that applies this lapse rule. Any other status removes them, and they return automatically when their status is ticked again. Financial always keeps access. The default keeps Financial, Renewal Due and Overdue; untick Overdue to cut access earlier.', 'agend-loop-sync' ); ?></p>
+				</td>
+			</tr>
+		</tbody>
 		</table>
+		<script>
+			( function () {
+				var toggle = document.getElementById( 'als-rule-sync' );
+				var rows = document.getElementById( 'als-rule-settings' );
+				if ( toggle && rows ) {
+					toggle.addEventListener( 'change', function () {
+						rows.hidden = ! toggle.checked;
+					} );
+				}
+			}() );
+		</script>
 		<script>
 			( function () {
 				var toggle = document.getElementById( 'als-committee-sync' );
@@ -897,6 +1010,296 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			</tbody>
 		</table>
 	<?php endif; ?>
+	<?php endif; ?>
+
+	<hr id="als-rules" />
+
+	<h2><?php esc_html_e( 'Community rules', 'agend-loop-sync' ); ?></h2>
+	<?php if ( ! $als_rules_on ) : ?>
+		<p><?php esc_html_e( 'Community rules are off. Turn them on above to keep criteria-based private Loop channels, such as "All Fellows", in step with membership.', 'agend-loop-sync' ); ?></p>
+	<?php else : ?>
+		<?php
+		$als_edit_slug = '';
+		if ( isset( $_GET['edit_rule'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$als_edit_slug = Agend_Loop_Sync_Settings::sanitize_rule_slug( sanitize_text_field( wp_unslash( $_GET['edit_rule'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		}
+		$als_editing = '' !== $als_edit_slug ? Agend_Loop_Sync_Settings::get_rule( $als_edit_slug ) : null;
+		$als_form    = null !== $als_editing ? $als_editing : Agend_Loop_Sync_Settings::sanitize_rule( array( 'enabled' => true ) );
+
+		$als_always_text = '';
+		foreach ( $als_form['always_include'] as $als_always ) {
+			$als_always_text .= $als_always['membership_number'] . ' = ' . $als_always['role'] . "\n";
+		}
+
+		$als_rule_outcomes = array(
+			'synced'         => __( 'synced', 'agend-loop-sync' ),
+			'dry_run'        => __( 'dry run, nothing sent', 'agend-loop-sync' ),
+			'failed'         => __( 'failed', 'agend-loop-sync' ),
+			'emptied'        => __( 'nobody matches, sync-added members cleared', 'agend-loop-sync' ),
+			'empty_skipped'  => __( 'nobody matches, nothing sent (merge mode)', 'agend-loop-sync' ),
+			'too_large'      => __( 'too many members, not synced', 'agend-loop-sync' ),
+		);
+		?>
+		<?php if ( ! Agend_Loop_Sync_Settings::is_enabled() ) : ?>
+			<p><strong><?php esc_html_e( 'Loop Sync is turned off (Enable plugin, above), so rules will not run until it is turned on.', 'agend-loop-sync' ); ?></strong></p>
+		<?php endif; ?>
+		<p><?php esc_html_e( 'Each enabled rule keeps one private Loop channel (rule:<slug>) in step with membership: members who meet the criteria are added and members who stop meeting them are removed. A member with no Loop account yet is skipped until they have one. Honours dry run.', 'agend-loop-sync' ); ?></p>
+
+		<?php if ( $als_last_rule_sync > 0 ) : ?>
+			<p>
+				<?php
+				/* translators: %s: formatted date and time of the last rule run. */
+				printf( esc_html__( 'Last run: %s', 'agend-loop-sync' ), esc_html( wp_date( 'Y-m-d H:i', $als_last_rule_sync ) ) );
+				if ( ! empty( $als_rule_summary ) ) {
+					echo ' ';
+					printf(
+						/* translators: 1: members scanned, 2: mode (replace or merge), 3: channels archived. */
+						esc_html__( '%1$d members scanned, %2$s mode, %3$d channels archived.', 'agend-loop-sync' ),
+						(int) ( $als_rule_summary['members_scanned'] ?? 0 ),
+						esc_html( (string) ( $als_rule_summary['mode'] ?? 'replace' ) ),
+						(int) ( $als_rule_summary['archived'] ?? 0 )
+					);
+				}
+				?>
+				<?php if ( ! empty( $als_rule_summary['dry_run'] ) ) : ?>
+					<em><?php esc_html_e( '(dry run: nothing was sent)', 'agend-loop-sync' ); ?></em>
+				<?php endif; ?>
+			</p>
+		<?php endif; ?>
+
+		<?php if ( 'merge' === ( $als_rule_summary['mode'] ?? '' ) ) : ?>
+			<div class="notice notice-warning inline"><p><?php esc_html_e( 'The last run could not read every member from Upbeat, so it only added and updated members. Nobody was removed and no channel was archived.', 'agend-loop-sync' ); ?></p></div>
+		<?php endif; ?>
+
+		<?php foreach ( (array) ( $als_rule_summary['errors'] ?? array() ) as $als_rule_error ) : ?>
+			<div class="notice notice-error inline"><p><?php echo esc_html( (string) $als_rule_error ); ?></p></div>
+		<?php endforeach; ?>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="agend_loop_sync_run_rules" />
+			<?php wp_nonce_field( 'agend_loop_sync_run_rules' ); ?>
+			<?php submit_button( __( 'Run rules now', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+		</form>
+
+		<h3><?php esc_html_e( 'Rules', 'agend-loop-sync' ); ?></h3>
+		<?php if ( array() === $als_rules ) : ?>
+			<p><?php esc_html_e( 'No rules yet. Add one below.', 'agend-loop-sync' ); ?></p>
+		<?php else : ?>
+			<table class="widefat striped">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Name', 'agend-loop-sync' ); ?></th>
+						<th><?php esc_html_e( 'Slug', 'agend-loop-sync' ); ?></th>
+						<th><?php esc_html_e( 'Enabled', 'agend-loop-sync' ); ?></th>
+						<th><?php esc_html_e( 'Criteria', 'agend-loop-sync' ); ?></th>
+						<th><?php esc_html_e( 'Last run', 'agend-loop-sync' ); ?></th>
+						<th><span class="screen-reader-text"><?php esc_html_e( 'Actions', 'agend-loop-sync' ); ?></span></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $als_rules as $als_rule ) : ?>
+						<?php
+						$als_criteria = array();
+						if ( array() !== $als_rule['membership_types'] ) {
+							/* translators: %s: comma separated membership types. */
+							$als_criteria[] = sprintf( __( 'Type: %s', 'agend-loop-sync' ), implode( ', ', $als_rule['membership_types'] ) );
+						}
+						if ( array() !== $als_rule['membership_levels'] ) {
+							/* translators: %s: comma separated membership levels. */
+							$als_criteria[] = sprintf( __( 'Level: %s', 'agend-loop-sync' ), implode( ', ', $als_rule['membership_levels'] ) );
+						}
+						if ( array() !== $als_rule['event_ids'] ) {
+							/* translators: %s: comma separated event ids. */
+							$als_criteria[] = sprintf( __( 'Registered for event: %s', 'agend-loop-sync' ), implode( ', ', $als_rule['event_ids'] ) );
+						}
+						$als_criteria_text = array() === $als_criteria ? __( 'Every member', 'agend-loop-sync' ) : implode( 'any' === $als_rule['match'] ? __( ' or ', 'agend-loop-sync' ) : __( ' and ', 'agend-loop-sync' ), $als_criteria );
+						$als_stats         = is_array( $als_rule_summary['rules'][ $als_rule['slug'] ] ?? null ) ? $als_rule_summary['rules'][ $als_rule['slug'] ] : null;
+						?>
+						<tr>
+							<td><?php echo esc_html( $als_rule['name'] ); ?></td>
+							<td><code><?php echo esc_html( Agend_Loop_Sync_Gateway::RULE_PREFIX . $als_rule['slug'] ); ?></code></td>
+							<td><?php echo $als_rule['enabled'] ? esc_html__( 'Yes', 'agend-loop-sync' ) : esc_html__( 'No', 'agend-loop-sync' ); ?></td>
+							<td>
+								<?php echo esc_html( $als_criteria_text ); ?>
+								<?php if ( $als_rule['apply_access_statuses'] ) : ?>
+									<br /><em><?php esc_html_e( 'Lapse rule applies', 'agend-loop-sync' ); ?></em>
+								<?php endif; ?>
+							</td>
+							<td>
+								<?php if ( null === $als_stats ) : ?>
+									<?php esc_html_e( 'Not run yet', 'agend-loop-sync' ); ?>
+								<?php else : ?>
+									<?php
+									printf(
+										/* translators: 1: members matched, 2: applied, 3: removed, 4: skipped (no Loop account yet), 5: held by a Loop administrator. */
+										esc_html__( '%1$d matched, %2$d applied, %3$d removed, %4$d skipped (no Loop account yet), %5$d held', 'agend-loop-sync' ),
+										(int) ( $als_stats['matched'] ?? 0 ),
+										(int) ( $als_stats['applied'] ?? 0 ),
+										(int) ( $als_stats['removed'] ?? 0 ),
+										(int) ( $als_stats['skipped'] ?? 0 ),
+										(int) ( $als_stats['held'] ?? 0 )
+									);
+									?>
+									<br /><em><?php echo esc_html( $als_rule_outcomes[ (string) ( $als_stats['outcome'] ?? '' ) ] ?? '' ); ?></em>
+								<?php endif; ?>
+							</td>
+							<td>
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => 'agend-loop-sync', 'edit_rule' => $als_rule['slug'] ), admin_url( 'options-general.php' ) ) . '#als-rule-form' ); ?>"><?php esc_html_e( 'Edit', 'agend-loop-sync' ); ?></a>
+								<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+									<input type="hidden" name="action" value="agend_loop_sync_delete_rule" />
+									<input type="hidden" name="slug" value="<?php echo esc_attr( $als_rule['slug'] ); ?>" />
+									<?php wp_nonce_field( 'agend_loop_sync_delete_rule' ); ?>
+									<?php submit_button( __( 'Delete', 'agend-loop-sync' ), 'secondary small', 'submit', false ); ?>
+								</form>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
+
+		<h3 id="als-rule-form">
+			<?php echo null !== $als_editing ? esc_html__( 'Edit rule', 'agend-loop-sync' ) : esc_html__( 'Add a rule', 'agend-loop-sync' ); ?>
+		</h3>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="agend_loop_sync_save_rule" />
+			<input type="hidden" name="original_slug" value="<?php echo esc_attr( null !== $als_editing ? $als_editing['slug'] : '' ); ?>" />
+			<?php wp_nonce_field( 'agend_loop_sync_save_rule' ); ?>
+			<table class="form-table" role="presentation">
+				<tbody>
+					<tr>
+						<th scope="row"><label for="als-rule-name"><?php esc_html_e( 'Channel name', 'agend-loop-sync' ); ?></label></th>
+						<td><input type="text" id="als-rule-name" name="rule[name]" value="<?php echo esc_attr( $als_form['name'] ); ?>" class="regular-text" maxlength="<?php echo (int) Agend_Loop_Sync_Settings::RULE_NAME_MAX; ?>" required /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-slug"><?php esc_html_e( 'Slug', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<input type="text" id="als-rule-slug" name="rule[slug]" value="<?php echo esc_attr( $als_form['slug'] ); ?>" class="regular-text code" maxlength="<?php echo (int) Agend_Loop_Sync_Settings::RULE_SLUG_MAX; ?>" <?php echo null !== $als_editing ? 'readonly' : ''; ?> />
+							<p class="description">
+								<?php
+								echo null !== $als_editing
+									? esc_html__( 'The slug cannot change once a rule is saved: it is the key of the rule\'s Loop channel.', 'agend-loop-sync' )
+									: esc_html__( 'Lower case letters, numbers and hyphens. Leave blank to use the name. It cannot be changed later.', 'agend-loop-sync' );
+								?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Enabled', 'agend-loop-sync' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="rule[enabled]" value="1" <?php checked( $als_form['enabled'] ); ?> />
+								<?php esc_html_e( 'Keep this rule\'s channel in step. Disabling a rule archives its channel on the next complete run.', 'agend-loop-sync' ); ?>
+							</label>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-types"><?php esc_html_e( 'Membership types', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<textarea id="als-rule-types" name="rule[membership_types]" rows="3" cols="50" class="large-text code"><?php echo esc_textarea( implode( "\n", $als_form['membership_types'] ) ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One per line, for example Fellow. Not case sensitive. Leave empty for any type.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-levels"><?php esc_html_e( 'Membership levels', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<textarea id="als-rule-levels" name="rule[membership_levels]" rows="3" cols="50" class="large-text code"><?php echo esc_textarea( implode( "\n", $als_form['membership_levels'] ) ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One per line. Not case sensitive. Leave empty for any level.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-events"><?php esc_html_e( 'Registered for events', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<textarea id="als-rule-events" name="rule[event_ids]" rows="3" cols="50" class="large-text code"><?php echo esc_textarea( implode( "\n", $als_form['event_ids'] ) ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One Upbeat event ID per line. A member matches when they have a registration for any of them that is not cancelled, voided or refunded. Leave empty to ignore events.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-match"><?php esc_html_e( 'Combine criteria', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<select id="als-rule-match" name="rule[match]">
+								<option value="all" <?php selected( $als_form['match'], 'all' ); ?>><?php esc_html_e( 'All of them must pass', 'agend-loop-sync' ); ?></option>
+								<option value="any" <?php selected( $als_form['match'], 'any' ); ?>><?php esc_html_e( 'Any one passing is enough', 'agend-loop-sync' ); ?></option>
+							</select>
+							<p class="description"><?php esc_html_e( 'Applies to the type, level and event criteria that are filled in. The lapse rule below always applies on top.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Lapse rule', 'agend-loop-sync' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="rule[apply_access_statuses]" value="1" <?php checked( $als_form['apply_access_statuses'] ); ?> />
+								<?php esc_html_e( 'Only members whose status keeps access (see Statuses that keep access above) are in this channel.', 'agend-loop-sync' ); ?>
+							</label>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="als-rule-always"><?php esc_html_e( 'Always include', 'agend-loop-sync' ); ?></label></th>
+						<td>
+							<textarea id="als-rule-always" name="rule[always_include]" rows="3" cols="50" class="large-text code"><?php echo esc_textarea( $als_always_text ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'One membership number per line, optionally followed by = owner, moderator or member (default member). These members are in the channel whatever the criteria and lapse rule say.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Channel options', 'agend-loop-sync' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="rule[member_can_leave]" value="1" <?php checked( $als_form['member_can_leave'] ); ?> />
+								<?php esc_html_e( 'Members can leave the channel', 'agend-loop-sync' ); ?>
+							</label><br />
+							<label>
+								<input type="checkbox" name="rule[allow_manual_members]" value="1" <?php checked( $als_form['allow_manual_members'] ); ?> />
+								<?php esc_html_e( 'Staff can add members by hand in Loop', 'agend-loop-sync' ); ?>
+							</label>
+							<p class="description"><?php esc_html_e( 'Only sent to Loop once the gateway supports them and the agend_loop_sync_send_rule_channel_flags filter returns true.', 'agend-loop-sync' ); ?></p>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+			<?php submit_button( null !== $als_editing ? __( 'Save rule', 'agend-loop-sync' ) : __( 'Add rule', 'agend-loop-sync' ), 'primary', 'submit', false ); ?>
+			<?php if ( null !== $als_editing ) : ?>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => 'agend-loop-sync' ), admin_url( 'options-general.php' ) ) . '#als-rules' ); ?>"><?php esc_html_e( 'Cancel', 'agend-loop-sync' ); ?></a>
+			<?php endif; ?>
+		</form>
+
+		<h3><?php esc_html_e( 'Recent rule activity', 'agend-loop-sync' ); ?></h3>
+		<table class="widefat striped">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( 'Time', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Level', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Message', 'agend-loop-sync' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php
+				$als_rule_log = array();
+				foreach ( Agend_Loop_Sync_Logger::recent( 200 ) as $als_rule_entry ) {
+					if ( false !== stripos( (string) $als_rule_entry['message'], 'rule' ) ) {
+						$als_rule_log[] = $als_rule_entry;
+					}
+					if ( count( $als_rule_log ) >= 15 ) {
+						break;
+					}
+				}
+				if ( array() === $als_rule_log ) :
+					?>
+					<tr><td colspan="3"><?php esc_html_e( 'No rule activity yet.', 'agend-loop-sync' ); ?></td></tr>
+					<?php
+				else :
+					foreach ( $als_rule_log as $als_rule_entry ) :
+						?>
+						<tr>
+							<td><?php echo esc_html( wp_date( 'Y-m-d H:i', (int) $als_rule_entry['time'] ) ); ?></td>
+							<td><?php echo esc_html( (string) $als_rule_entry['level'] ); ?></td>
+							<td><?php echo esc_html( (string) $als_rule_entry['message'] ); ?></td>
+						</tr>
+						<?php
+					endforeach;
+				endif;
+				?>
+			</tbody>
+		</table>
 	<?php endif; ?>
 
 	<hr />

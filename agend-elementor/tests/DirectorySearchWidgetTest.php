@@ -80,6 +80,7 @@ final class DirectorySearchWidgetTest extends TestCase {
 			'field background' => array( 'field_background', '.agend-ds__field' ),
 			'field text'       => array( 'field_text_colour', '.agend-ds__input' ),
 			'placeholder'      => array( 'field_placeholder_colour', '.agend-ds__input::placeholder' ),
+			'empty dropdown'   => array( 'field_placeholder_colour', '.agend-ds__select.is-empty' ),
 			'field icon'       => array( 'field_icon_colour', '.agend-ds__field .agend-ds__icon' ),
 			'field height'     => array( 'field_height', '.agend-ds__field' ),
 			'field radius'     => array( 'field_radius', '.agend-ds__field' ),

@@ -5,7 +5,8 @@
  * Page-builder agnostic: an adapter passes the surface's settings (see
  * `agend_apps_records_surface_schema( 'directory-search' )`) and echoes the
  * returned HTML. The form works without script as a plain GET to the
- * directory page carrying `q`; assets/js/directory-search.js takes it over,
+ * directory page carrying `q` and each dropdown's search link parameter;
+ * assets/js/directory-search.js takes it over,
  * searching the page's Directory Catalogue in place or building a full search
  * link for the directory page.
  *
@@ -20,6 +21,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
 require_once __DIR__ . '/../format.php';
+// The dropdown fields name a directory filter and list its values the way a
+// Filter Shortcuts grid does. That file requires this one back; require_once
+// makes the pair safe whichever loads first.
+require_once __DIR__ . '/filter-shortcuts.php';
 
 /**
  * Where a search from this box goes when the page has no catalogue: the
@@ -52,17 +57,106 @@ function agend_apps_records_directory_search_radius( array $s ): float {
 }
 
 /**
+ * The dropdown fields the settings describe, each with the values it offers.
+ *
+ * A row that names no usable filter is skipped, and so is one with no values
+ * to offer, except in an editor preview, where an empty dropdown shows the
+ * designer where it will sit. A signed-in visitor's custom field values depend
+ * on what they may read, so those are left to the browser (`facet`), as a
+ * Filter Shortcuts grid leaves them.
+ *
+ * @param array $s       Surface settings.
+ * @param bool  $preview Whether this is an editor preview.
+ * @return array<int, array{filter: array, label: string, any: string, values: array<int, array{label: string, value: string}>, facet: string}>
+ */
+function agend_apps_records_directory_search_dropdowns( array $s, bool $preview = false ): array {
+	$dropdowns = array();
+	foreach ( (array) ( $s['dropdowns'] ?? array() ) as $row ) {
+		if ( ! is_array( $row ) ) {
+			continue;
+		}
+		$as_shortcut = array(
+			'filter'           => (string) ( $row['dropdown_filter'] ?? 'custom_field' ),
+			'custom_field_key' => (string) ( $row['dropdown_custom_field_key'] ?? '' ),
+			'top_level_only'   => 'yes',
+		);
+		$filter      = agend_apps_records_filter_shortcuts_filter( $as_shortcut );
+		if ( null === $filter ) {
+			continue;
+		}
+
+		$values = array();
+		$facet  = '';
+		if ( agend_apps_records_filter_shortcuts_values_on_server( $filter ) ) {
+			foreach ( agend_apps_records_filter_shortcuts_directory_tiles( $filter, $as_shortcut, '' ) as $tile ) {
+				$values[] = array(
+					'label' => $tile['label'],
+					'value' => $tile['value'],
+				);
+			}
+		} else {
+			$facet = agend_apps_records_filter_shortcuts_facet( $filter );
+		}
+		if ( empty( $values ) && '' === $facet && ! $preview ) {
+			continue;
+		}
+
+		$label = trim( (string) ( $row['dropdown_label'] ?? '' ) );
+		$any   = trim( (string) ( $row['dropdown_any_label'] ?? '' ) );
+		if ( '' === $label ) {
+			$names = agend_apps_records_filter_shortcuts_filter_options();
+			$label = '' !== $any ? $any : (string) $names[ $filter['filter'] ];
+		}
+
+		$dropdowns[] = array(
+			'filter' => $filter,
+			'label'  => $label,
+			'any'    => '' !== $any ? $any : __( 'Any', 'agend-apps-core' ),
+			'values' => $values,
+			'facet'  => $facet,
+		);
+	}
+
+	return $dropdowns;
+}
+
+/**
+ * A value as a search link parameter carries it: a comma written as %2C and a
+ * percent sign as %25, so a comma inside one value is not read as two. Used
+ * for an option's value, which a page without script submits as it stands.
+ *
+ * @param string $value The value.
+ * @return string
+ */
+function agend_apps_records_directory_search_link_value( string $value ): string {
+	return str_replace( array( '%', ',' ), array( '%25', '%2C' ), $value );
+}
+
+/**
  * The client-side config from the surface settings.
  *
- * @param array $s Surface settings (Elementor-shaped values: toggles are 'yes'/'').
+ * @param array $s         Surface settings (Elementor-shaped values: toggles are 'yes'/'').
+ * @param array $dropdowns agend_apps_records_directory_search_dropdowns(), in
+ *                         the order their fields are drawn.
  * @return array Config passed to the frontend script as JSON.
  */
-function agend_apps_records_directory_search_build_config( array $s ): array {
+function agend_apps_records_directory_search_build_config( array $s, array $dropdowns = array() ): array {
+	$choices = array();
+	foreach ( $dropdowns as $dropdown ) {
+		$choices[] = array(
+			'state'    => $dropdown['filter']['state'],
+			'mode'     => $dropdown['filter']['mode'],
+			'fieldKey' => $dropdown['filter']['fieldKey'],
+			'facet'    => '' !== $dropdown['facet'] ? $dropdown['facet'] : null,
+		);
+	}
+
 	return array(
-		'target' => agend_apps_records_directory_search_target( $s ),
-		'region' => trim( (string) ( $s['location_region'] ?? '' ) ),
-		'radius' => agend_apps_records_directory_search_radius( $s ),
-		'scroll' => 'yes' === ( $s['scroll_to_results'] ?? 'yes' ),
+		'target'  => agend_apps_records_directory_search_target( $s ),
+		'region'  => trim( (string) ( $s['location_region'] ?? '' ) ),
+		'radius'  => agend_apps_records_directory_search_radius( $s ),
+		'scroll'  => 'yes' === ( $s['scroll_to_results'] ?? 'yes' ),
+		'choices' => $choices,
 		'text'   => array(
 			'myLocation'  => __( 'My location', 'agend-apps-core' ),
 			'empty'       => __( 'Enter a suburb, postcode or address.', 'agend-apps-core' ),
@@ -121,6 +215,30 @@ function agend_apps_records_directory_search_field( string $kind, string $label,
 }
 
 /**
+ * A dropdown field of the box.
+ *
+ * Named for its search link parameter, so a page without script still sends
+ * the choice; each option also carries its plain value for the script.
+ *
+ * @param array $dropdown One agend_apps_records_directory_search_dropdowns() entry.
+ * @param int   $index    Its position among the dropdowns, which indexes the
+ *                        config's `choices`.
+ * @return string Escaped markup.
+ */
+function agend_apps_records_directory_search_dropdown_field( array $dropdown, int $index ): string {
+	$options = '<option value="">' . esc_html( $dropdown['any'] ) . '</option>';
+	foreach ( $dropdown['values'] as $entry ) {
+		$options .= '<option value="' . esc_attr( agend_apps_records_directory_search_link_value( $entry['value'] ) ) . '" data-agend-ds-value="' . esc_attr( $entry['value'] ) . '">'
+			. esc_html( $entry['label'] ) . '</option>';
+	}
+
+	return '<label class="agend-ds__field agend-ds__field--choice" data-agend-ds-choice="' . esc_attr( (string) $index ) . '">'
+		. '<span class="agend-ds__label">' . esc_html( $dropdown['label'] ) . '</span>'
+		. '<select class="agend-ds__input agend-ds__select is-empty" name="' . esc_attr( $dropdown['filter']['param'] ) . '">' . $options . '</select>'
+		. '</label>';
+}
+
+/**
  * The hidden inputs that keep a target address's own query (page_id on plain
  * permalinks, a language) through a GET form, which replaces the action's
  * query string with its fields.
@@ -166,8 +284,9 @@ function agend_apps_records_render_directory_search( array $settings, array $opt
 		return '';
 	}
 
-	$config = agend_apps_records_directory_search_build_config( $settings );
-	$icons  = 'yes' === ( $settings['show_icons'] ?? 'yes' );
+	$dropdowns = agend_apps_records_directory_search_dropdowns( $settings, ! empty( $opts['preview'] ) );
+	$config    = agend_apps_records_directory_search_build_config( $settings, $dropdowns );
+	$icons     = 'yes' === ( $settings['show_icons'] ?? 'yes' );
 	$target = $config['target'];
 
 	$text = static function ( string $key, string $fallback ) use ( $settings ): string {
@@ -183,6 +302,9 @@ function agend_apps_records_render_directory_search( array $settings, array $opt
 			(string) ( $settings['keyword_placeholder'] ?? __( 'Search by name or keyword', 'agend-apps-core' ) ),
 			$icons ? 'search' : ''
 		);
+	}
+	foreach ( $dropdowns as $index => $dropdown ) {
+		$fields .= agend_apps_records_directory_search_dropdown_field( $dropdown, $index );
 	}
 	if ( 'yes' === ( $settings['show_location'] ?? 'yes' ) ) {
 		$fields .= agend_apps_records_directory_search_field(

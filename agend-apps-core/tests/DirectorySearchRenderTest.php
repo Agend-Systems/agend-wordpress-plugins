@@ -30,6 +30,24 @@ final class DirectorySearchRenderTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/pages.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/directory-search.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/tests/fixtures/directory-widgets-stub.php';
+		$GLOBALS['agend_test_dw_requests'] = array();
+	}
+
+	/** A Profession dropdown row, as the repeater saves it. */
+	private static function profession_row( array $extra = array() ): array {
+		return $extra + array(
+			'dropdown_filter'           => 'custom_field',
+			'dropdown_custom_field_key' => 'profession',
+			'dropdown_label'            => 'Profession',
+			'dropdown_any_label'        => 'All professions',
+		);
+	}
+
+	private function give_professions( array $values ): void {
+		$GLOBALS['agend_test_dw_facets'] = array(
+			'data' => array( 'custom.profession' => array( 'values' => $values ) ),
+		);
 	}
 
 	/** Reads the config off the data attribute, as the script does. */
@@ -180,5 +198,109 @@ final class DirectorySearchRenderTest extends TestCase {
 		self::assertTrue( $config['scroll'] );
 		self::assertSame( 15.0, (float) $config['radius'] );
 		self::assertSame( 'My location', $config['text']['myLocation'] );
+	}
+
+	#[Test]
+	public function should_draw_a_dropdown_of_the_directorys_values_between_the_keyword_and_place_fields(): void {
+		$this->give_professions(
+			array(
+				array( 'value' => 'Accountant', 'label' => 'Accountant', 'count' => 640 ),
+				array( 'value' => 'SMSF Administration' ),
+				array( 'value' => '' ),
+			)
+		);
+
+		$html = agend_apps_records_render_directory_search( array( 'dropdowns' => array( self::profession_row() ) ) );
+
+		self::assertSame( 1, preg_match( '/agend-ds__field--keyword.*agend-ds__field--choice.*agend-ds__field--location/s', $html ) );
+		self::assertStringContainsString( '<span class="agend-ds__label">Profession</span>', $html );
+		self::assertStringContainsString( '<select class="agend-ds__input agend-ds__select is-empty" name="cf_profession"><option value="">All professions</option>', $html );
+		self::assertStringContainsString( '<option value="Accountant" data-agend-ds-value="Accountant">Accountant</option>', $html );
+		self::assertStringContainsString( '<option value="SMSF Administration" data-agend-ds-value="SMSF Administration">SMSF Administration</option>', $html );
+		self::assertSame( 3, substr_count( $html, '<option ' ) );
+		self::assertSame( array( array( 'facets', array( 'custom.profession' ) ) ), $GLOBALS['agend_test_dw_requests'] );
+	}
+
+	#[Test]
+	public function should_write_an_options_value_the_way_a_search_link_carries_it_and_keep_the_plain_value_for_the_script(): void {
+		$this->give_professions( array( array( 'value' => 'Tax, audit', 'label' => 'Tax, audit' ), array( 'value' => '50%' ) ) );
+
+		$html = agend_apps_records_render_directory_search( array( 'dropdowns' => array( self::profession_row() ) ) );
+
+		self::assertStringContainsString( '<option value="Tax%2C audit" data-agend-ds-value="Tax, audit">Tax, audit</option>', $html );
+		self::assertStringContainsString( '<option value="50%25" data-agend-ds-value="50%">50%</option>', $html );
+	}
+
+	#[Test]
+	public function should_hand_the_script_the_state_key_each_dropdown_writes_in_the_order_drawn(): void {
+		$this->give_professions( array( array( 'value' => 'Auditor' ) ) );
+		$GLOBALS['agend_test_dw_facets']['data']['location.state'] = array( 'values' => array( array( 'value' => 'NSW' ) ) );
+
+		$config = $this->config_from(
+			agend_apps_records_render_directory_search(
+				array( 'dropdowns' => array( self::profession_row(), array( 'dropdown_filter' => 'state' ) ) )
+			)
+		);
+
+		self::assertSame(
+			array(
+				array( 'state' => 'custom_fields', 'mode' => 'map', 'fieldKey' => 'profession', 'facet' => null ),
+				array( 'state' => 'location_state', 'mode' => 'array', 'fieldKey' => '', 'facet' => null ),
+			),
+			$config['choices']
+		);
+	}
+
+	#[Test]
+	public function should_name_a_state_dropdown_for_the_state_parameter_and_fall_back_to_the_filters_name_and_any(): void {
+		$GLOBALS['agend_test_dw_facets'] = array( 'data' => array( 'location.state' => array( 'values' => array( array( 'value' => 'NSW', 'label' => 'New South Wales' ) ) ) ) );
+
+		$html = agend_apps_records_render_directory_search( array( 'dropdowns' => array( array( 'dropdown_filter' => 'state' ) ) ) );
+
+		self::assertStringContainsString( 'name="state"><option value="">Any</option><option value="NSW" data-agend-ds-value="NSW">New South Wales</option>', $html );
+		self::assertStringContainsString( '<span class="agend-ds__label">State</span>', $html );
+	}
+
+	#[Test]
+	public function should_skip_a_dropdown_with_no_usable_filter_or_no_values_but_show_it_empty_in_an_editor_preview(): void {
+		$rows = array(
+			array( 'dropdown_filter' => 'custom_field', 'dropdown_custom_field_key' => '' ),
+			array( 'dropdown_filter' => 'unknown' ),
+			self::profession_row(),
+		);
+
+		$page    = agend_apps_records_render_directory_search( array( 'dropdowns' => $rows ) );
+		$preview = agend_apps_records_render_directory_search( array( 'dropdowns' => $rows ), array( 'preview' => true ) );
+
+		self::assertStringNotContainsString( 'agend-ds__field--choice', $page );
+		self::assertSame( array(), $this->config_from( $page )['choices'] );
+		self::assertSame( 1, substr_count( $preview, 'agend-ds__field--choice' ) );
+		self::assertStringContainsString( 'name="cf_profession"><option value="">All professions</option></select>', $preview );
+	}
+
+	#[Test]
+	public function should_leave_a_signed_in_visitors_custom_field_values_to_the_browser(): void {
+		$GLOBALS['agend_test_current_user_id'] = 7;
+		$this->give_professions( array( array( 'value' => 'Auditor' ) ) );
+
+		$html   = agend_apps_records_render_directory_search( array( 'dropdowns' => array( self::profession_row() ) ) );
+		$config = $this->config_from( $html );
+
+		self::assertStringContainsString( 'name="cf_profession"><option value="">All professions</option></select>', $html );
+		self::assertSame( 'custom.profession', $config['choices'][0]['facet'] );
+		self::assertSame( array(), $GLOBALS['agend_test_dw_requests'] );
+	}
+
+	#[Test]
+	public function should_escape_a_dropdowns_labels_and_values(): void {
+		$this->give_professions( array( array( 'value' => '"><script>x</script>', 'label' => '<b>Bold</b>' ) ) );
+
+		$html = agend_apps_records_render_directory_search(
+			array( 'dropdowns' => array( self::profession_row( array( 'dropdown_any_label' => '<i>Any</i>' ) ) ) )
+		);
+
+		self::assertStringNotContainsString( '<script>', $html );
+		self::assertStringNotContainsString( '<b>Bold</b>', $html );
+		self::assertStringNotContainsString( '<i>Any</i>', $html );
 	}
 }

@@ -1454,6 +1454,81 @@ for tier names).
   chevron, container queries for layout, a skeleton that has the cards'
   proportions. Colours come from the site palette with `color-mix()` tints.
 
+## My Communities
+
+The **Agend My Communities** surface (`loop-my-communities`; block
+`agend-apps/loop-my-communities`, Elementor widget `agend-loop-my-communities` in
+Agend Elementor) is a page for a signed-in member that lists the communities
+(Agend Loop channels) they belong to. Each has an **Access community** button
+that signs the member in to Loop by single sign-on and lands them in that
+channel. It replaces having only the yes or no "Is in an active Loop channel"
+check above, which stays as it is.
+
+**It needs an Agend change.** The list comes from the existing
+`GET /v1/loop/integration/members/channels` route asked with `include=channels`.
+A gateway that has not shipped that option ignores it and answers without a
+`channels` key; the surface then shows its "not available" state and never an
+empty list or an error page, so it is safe to install first.
+
+- **The contract.** Same path, scope (`loop.memberships.read`) and site-key-only
+  rule as the membership check. The request is
+  `GET /v1/loop/integration/members/channels?external_source=..&external_id=..&include=channels`,
+  sent by `agend_apps_loop_get_member_channel_list()` in
+  `includes/api/loop-memberships.php`. With `include=channels`, `data` also has
+  `channels`: the member's active (not archived, not direct message) channels in
+  the organisation, by name, each `{ id, name, slug, description, channel_type,
+  unique_id }` (`channel_type` is `channel`, `committee`, `space` or `feed`).
+  `resolved: false` means Agend has no user for the pair and is shown as an empty
+  list. The member's bearer is never sent: the function forces `unattended` after
+  the `agend_apps_loop_get_member_channel_list_args` filter runs, so a filter
+  cannot restore it. `agend_apps_loop_get_member_channel_list_response` filters
+  the decoded answer.
+- **The service.** `Agend_Apps_Loop_My_Communities::for_current_user()` returns a
+  state and a normalised list (`id`, `name`, `description`, `channel_type`,
+  `access_url`). States: `signed_out`; `no_contact` (no membership number);
+  `refused` (the key lacks the scope, or Agend answered `INSUFFICIENT_SCOPES`,
+  `APP_NOT_ALLOWED` or `SOURCE_NOT_ALLOWED`); `unavailable` (any other gateway
+  error, or no `channels` key); `ok`. A channel entry with no id, name or slug is
+  skipped. Types can be left out with the
+  `agend_apps_loop_my_communities_excluded_types` filter (default: none, every
+  type Agend returns is shown).
+- **Caching.** Per member and contact pair, in a transient. A good answer is kept
+  five minutes (Loop sends no membership webhooks, so a change shows within
+  that), a read that failed 30 seconds, and a refusal five minutes. Only the
+  channel facts are cached; the access links are built on each read, so a
+  settings change applies at once.
+- **Access links.** `{Agend host}/sso/{account slug}/loop-channel/{channel slug}`,
+  with `?idp={connection slug}` when set. The Agend host is the configured
+  gateway root (`Agend_Apps_Settings::get_root_url()`, so staging and custom
+  environments follow), changeable with the `agend_apps_loop_sso_base_url`
+  filter. The first path segment is the Agend **account** slug, the existing
+  `agend_apps_account_slug` option (Settings > Agend Apps > Identity). The only
+  new setting is the optional connection slug, option
+  `agend_apps_community_sso_connection`, under Settings > Agend Apps > Community
+  ("Single sign-on connection for My Communities"); empty lets Agend choose. The
+  `agend_apps_loop_channel_access_url( $url, $channel, $user_id )` filter has the
+  last word on each link. Without the account slug, channels show with no button,
+  and only administrators see a note saying why.
+- **Never in a cached page.** Like the member summary, the page holds a neutral
+  shell and a script, `assets/js/loop-my-communities.js`. The script POSTs the
+  page's content settings to `agend-apps/v1/member/communities`, with the
+  `X-WP-Nonce` header, and places the fragment the server draws, after DOMPurify.
+  The route needs a signed-in member (its permission callback; WordPress ignores
+  a session without a valid nonce), answers 200 with a state in the body for every
+  ordinary outcome, is `no-store` with `Vary: Cookie`, and takes the member from
+  the session alone. A visitor who is not signed in gets a sign-in card drawn on
+  the server, with no script and no call. Surface gate: needs
+  `loop.memberships.read`.
+- **States a member sees.** Signed out (sign-in card), loading, a list of cards
+  (name, description if shown, an Access community button that opens in a new tab
+  with `rel="noopener noreferrer"`), "You are not in any communities yet.", and a
+  "not available right now" notice for `unavailable` and `refused`. Members are
+  never told why; administrators see the reason in a note that says only they see
+  it.
+- **Editable words.** Heading, button, empty, not available, signed out message
+  and sign in button are block attributes and widget controls, with colours and
+  the card corner. The editor shows a labelled example and makes no call.
+
 ## Loop channel membership condition
 
 "Is in an active Loop channel" shows a menu item, or any other content, only
@@ -1901,11 +1976,21 @@ The destination catalogue reads a parameter only when its filter template holds
 a matching filter (Search, Location, the custom field, and so on). A device
 position carried to another page is rounded to two decimals, because the
 address is shareable. Without script the search box is a GET form carrying `q`
-and each tile is a plain link.
+and each dropdown's parameter, and each tile is a plain link.
 
-Filter Shortcuts "all values" reads the directory facets (or categories) on the
-server. A signed-in visitor's custom field values depend on their entitlements,
-so for them the page leaves those to the browser.
+The search box's **Dropdown fields** setting adds one dropdown per row between
+the keyword and location fields, each for one directory filter (a custom field
+by key, category, state or city) with every value the directory holds. Search
+sends the dropdowns' choices with the keyword and place. A dropdown shows the
+catalogue's value when it holds exactly one, and its first option ("All
+professions") otherwise; choosing that option clears the filter, but leaves
+alone several values a checkbox filter chose. A row with nothing to offer is
+not drawn. Rows resolve their filter and values through the Filter Shortcuts
+functions, so the two widgets list the same values.
+
+Filter Shortcuts "all values" and the search box's dropdowns read the directory
+facets (or categories) on the server. A signed-in visitor's custom field values
+depend on their entitlements, so for them the page leaves those to the browser.
 
 Directory Count reads the total from the pagination meta of a one-listing
 directory search, so it is cached like any search.

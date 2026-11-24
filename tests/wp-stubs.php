@@ -747,6 +747,11 @@ if ( ! class_exists( 'wpdb' ) ) {
 				$name = stripslashes( $m[2] );
 				$old  = stripslashes( $m[3] );
 				if ( array_key_exists( $name, Agend_Test_WP::$options ) && (string) Agend_Test_WP::$options[ $name ] === $old ) {
+					// As MySQL does: a row the UPDATE matches but leaves unchanged
+					// is not counted as affected.
+					if ( $new === $old ) {
+						return 0;
+					}
 					Agend_Test_WP::$options[ $name ] = $new;
 					$this->rows_affected             = 1;
 					return 1;
@@ -1020,7 +1025,8 @@ if ( ! function_exists( 'wp_specialchars_decode' ) ) {
 }
 
 function home_url( $path = '' ): string {
-	return 'https://example.test' . $path;
+	// A test may put the site in a subdirectory by setting this global.
+	return ( $GLOBALS['agend_test_home_url'] ?? 'https://example.test' ) . $path;
 }
 
 if ( ! function_exists( 'site_url' ) ) {

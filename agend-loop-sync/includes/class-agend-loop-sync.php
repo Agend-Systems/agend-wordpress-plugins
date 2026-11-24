@@ -38,6 +38,13 @@ class Agend_Loop_Sync {
 	private $committee_sync = null;
 
 	/**
+	 * Community rule sync handler.
+	 *
+	 * @var Agend_Loop_Sync_Rule_Sync|null
+	 */
+	private $rule_sync = null;
+
+	/**
 	 * Returns the singleton instance.
 	 *
 	 * @return Agend_Loop_Sync
@@ -63,15 +70,18 @@ class Agend_Loop_Sync {
 
 		$this->user_sync      = new Agend_Loop_Sync_User_Sync();
 		$this->committee_sync = new Agend_Loop_Sync_Committee_Sync();
+		$this->rule_sync      = new Agend_Loop_Sync_Rule_Sync();
 
 		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'maybe_seed_defaults' ), 5 );
 		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'sync_committee_cron' ) );
+		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'sync_rules_cron' ) );
 
 		$this->user_sync->register();
 		$this->committee_sync->register();
+		$this->rule_sync->register();
 
 		if ( is_admin() && class_exists( 'Agend_Loop_Sync_Admin' ) ) {
-			$admin = new Agend_Loop_Sync_Admin( $this->committee_sync );
+			$admin = new Agend_Loop_Sync_Admin( $this->committee_sync, $this->rule_sync );
 			$admin->register();
 		}
 	}
@@ -81,6 +91,13 @@ class Agend_Loop_Sync {
 	 */
 	public function committee_sync() {
 		return $this->committee_sync;
+	}
+
+	/**
+	 * @return Agend_Loop_Sync_Rule_Sync|null
+	 */
+	public function rule_sync() {
+		return $this->rule_sync;
 	}
 
 	/**

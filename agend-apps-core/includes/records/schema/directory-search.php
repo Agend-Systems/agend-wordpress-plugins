@@ -51,6 +51,50 @@ function agend_apps_records_schema_directory_search(): array {
 						'condition' => array( 'show_keyword' => 'yes' ),
 					),
 					array(
+						'name'        => 'dropdowns',
+						'label'       => __( 'Dropdown fields', 'agend-apps-core' ),
+						'type'        => 'repeater',
+						'row_label'   => 'dropdown_label',
+						'default'     => array(),
+						'description' => __( 'Each row adds a dropdown between the keyword and location fields, listing every value the directory holds for one filter. The directory page\'s filter template needs a filter for the same field, or the catalogue there ignores the choice when the search arrives from another page.', 'agend-apps-core' ),
+						'fields'      => array(
+							array(
+								'name'    => 'dropdown_filter',
+								'label'   => __( 'Filter', 'agend-apps-core' ),
+								'type'    => 'select',
+								'default' => 'custom_field',
+								// Resolved here rather than named: the block editor
+								// resolves a named option list only on a top-level
+								// field, never inside a repeater row.
+								'options' => agend_apps_records_filter_shortcuts_filter_options(),
+							),
+							array(
+								'name'        => 'dropdown_custom_field_key',
+								'label'       => __( 'Custom field key', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'placeholder' => 'profession',
+								'description' => __( 'The field\'s key, as set on the directory.', 'agend-apps-core' ),
+								'condition'   => array( 'dropdown_filter' => 'custom_field' ),
+							),
+							array(
+								'name'        => 'dropdown_label',
+								'label'       => __( 'Label', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'description' => __( 'Read by screen readers; not shown.', 'agend-apps-core' ),
+							),
+							array(
+								'name'        => 'dropdown_any_label',
+								'label'       => __( 'First option', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'placeholder' => __( 'Any', 'agend-apps-core' ),
+								'description' => __( 'Shown when nothing is chosen, for example "All professions".', 'agend-apps-core' ),
+							),
+						),
+					),
+					array(
 						'name'    => 'show_location',
 						'label'   => __( 'Show location field', 'agend-apps-core' ),
 						'type'    => 'toggle',

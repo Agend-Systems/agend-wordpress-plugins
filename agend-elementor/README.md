@@ -206,6 +206,16 @@ The **Agend Member Summary** widget (block: **Agend Member Summary**) is the `me
 - Needs the `crm.contacts.browse` scope; each part also needs its own (`crm.memberships.browse` for the membership). A part the key lacks is left out for members and listed to administrators. In the `wordpress` and `sso` sign-in modes the key also needs `sso.identities.read` and `sso.tokens.create`, or members cannot be connected.
 - Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
 
+## Agend My Communities
+
+The **Agend My Communities** widget (block: **Agend My Communities**) is the `loop-my-communities` core surface: the communities (Agend Loop channels) a signed-in member belongs to, each with an **Access community** button that signs them in to Loop and opens it in a new tab. See "My Communities" in `agend-apps-core/README.md` for the contract, the settings, the states and the caching.
+
+- **Place it on a page members sign in to**, such as the member portal. A visitor who is not signed in sees a sign-in card (or nothing, with "Hide the widget when no one is signed in"). The page holds only a heading and a loading state; the list loads after the page does and is never stored, so a page cache cannot show one member's communities to another.
+- **Words**: heading, button, "not in any communities", "cannot be loaded", the signed out message and the sign in button are all editable. "Show each community's description" is optional. Colours and the card corner are on the Style tab.
+- **Set up**: the Agend account slug (Settings > Agend Apps > Identity) is needed for the buttons; the optional single sign-on connection slug is under Settings > Agend Apps > Community. Without the account slug the communities still list, with no button, and only administrators are told why.
+- **It needs an Agend change** that adds `include=channels` to the channel membership route. Until Agend ships it, members see "not available right now" rather than an error.
+- Needs the `loop.memberships.read` scope. Needs Agend Apps Core 1.91.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
+
 ## Directory map and location search
 
 Four pieces, each usable on its own, so a directory can be laid out however its design needs:

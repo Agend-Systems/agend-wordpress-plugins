@@ -52,6 +52,16 @@ class Agend_Apps_Community_Admin {
 			)
 		);
 
+		register_setting(
+			Agend_Apps_Admin::OPTION_GROUP,
+			AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'agend_apps_community_clean_connection_slug',
+				'default'           => '',
+			)
+		);
+
 		add_settings_section(
 			self::SECTION,
 			__( 'Community', 'agend-apps-core' ),
@@ -67,7 +77,27 @@ class Agend_Apps_Community_Admin {
 			self::SECTION
 		);
 
+		add_settings_field(
+			AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION,
+			__( 'Single sign-on connection for My Communities', 'agend-apps-core' ),
+			array( $this, 'render_sso_connection_field' ),
+			Agend_Apps_Admin::PAGE_SLUG,
+			self::SECTION
+		);
+
 		$this->move_above_cache();
+	}
+
+	/**
+	 * Renders the optional SSO connection slug used by the My Communities links.
+	 */
+	public function render_sso_connection_field(): void {
+		printf(
+			'<input type="text" id="%1$s" name="%1$s" value="%2$s" class="regular-text" autocomplete="off" />',
+			esc_attr( AGEND_APPS_COMMUNITY_OPTION_SSO_CONNECTION ),
+			esc_attr( agend_apps_community_sso_connection() )
+		);
+		echo '<p class="description">' . esc_html__( 'Optional. The slug of the Agend single sign-on connection that signs members in when they choose Access community on the My Communities page. Leave empty to let Agend choose. The My Communities links also need the Agend account slug, set in Settings > Identity and SSO.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**
@@ -185,7 +215,7 @@ class Agend_Apps_Community_Admin {
 		$url = wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_CLEAR ), self::ACTION_CLEAR );
 
 		echo '<p><a class="button" href="' . esc_url( $url ) . '">' . esc_html__( 'Clear community content', 'agend-apps-core' ) . '</a></p>';
-		echo '<p class="description">' . esc_html__( 'Community content is kept for a few minutes so your website stays fast. If you remove or change a post and need it gone from your website straight away, clear it here.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Community content is kept for a few minutes so your website stays fast. If you remove or change a post, or change who is in a channel, and need your website to show it straight away, clear it here.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**
