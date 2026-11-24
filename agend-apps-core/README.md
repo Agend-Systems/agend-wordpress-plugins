@@ -1587,6 +1587,19 @@ authors in the Agend Elementor README. The pieces here:
   any other value of either is dropped. Gateway statuses pass through (403
   without the geocoding feature, 404 for no match, 503 while the geocoder is
   down), so the browser can tell them apart.
+- **Place search limit**: `/directory/geocode` is public and spends the site's
+  key, so each visitor gets 10 searches in a 60-second window that starts at
+  their first search (`agend_apps_directory_geocode_throttle()`). Searches
+  served from the WordPress cache count too. The 11th is answered 429
+  `agend_apps_geocode_rate_limited` before any gateway call, with
+  `Retry-After` and `Cache-Control: no-store`, and the Location filter shows
+  it as "Place search is busy". The visitor is `REMOTE_ADDR` alone, never a
+  forwarded header or the `agend_apps_visitor_ip` filter, because a client
+  can vary those to escape the limit. An IPv6 address counts against its /64,
+  and an IPv4-mapped address counts as its IPv4 address. The counter's
+  transient key is `wp_hash()` of that bucket, so no address is stored.
+  Concurrent requests can overshoot by the number in flight, because
+  transients have no atomic increment.
 - **Points first**: the map asks for `projection=points` (each listing's id,
   name and coordinates) with no `limit`, so the gateway's points cap of
   20,000 applies, and draws every pin. A pin's details are the listing's map
@@ -1640,9 +1653,18 @@ authors in the Agend Elementor README. The pieces here:
   OpenStreetMap's tile servers are for light use only, so a live site needs
   a CARTO key.
 - **Attribution**: the map drops Leaflet's own credit (and its flag) and
-  keeps the tile layer's attribution, restyled small. The OpenStreetMap
-  credit (and CARTO's, with a key) is a licence requirement of the map data:
-  restyle it, never hide it.
+  keeps the tile layer's attribution, restyled small, then appends
+  "Locations: Amazon Location Service" for the pins' coordinates. The credit
+  is added after the `agend_apps_records_directory_map_tiles` filter, so a
+  site that swaps its tiles keeps it. Every credit is a licence requirement
+  of the map data: the OpenStreetMap credit, CARTO's with a key, and
+  Amazon's. Restyle them, never hide them. On a narrow map the credits wrap
+  short of the scale bar.
+- **Place search credit**: when the Location filter draws its place box, it
+  also draws "Place search © OpenStreetMap contributors" beneath it
+  (`agend_apps_records_render_filter_place_search_credit()`), because the
+  gateway answers place searches from OpenStreetMap's Nominatim. The credit
+  is hidden together with the place box.
 - **Gestures**: with "Zoom with the mouse wheel" off (the default) the map
   uses Google Maps' cooperative gestures. A plain wheel scrolls the page and
   shows "Use Ctrl + scroll to zoom the map" (Command on a Mac); Ctrl or
