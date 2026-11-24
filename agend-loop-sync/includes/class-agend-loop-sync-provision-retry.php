@@ -41,6 +41,13 @@ class Agend_Loop_Sync_Provision_Retry {
 	const MAX_ATTEMPTS = 24;
 
 	/**
+	 * Most queued members one retry loads and sends, oldest first. A little
+	 * over the gateway's 2000 creations an hour, since some will turn out to
+	 * be linked or already in Loop; the rest wait for the next hour.
+	 */
+	const RUN_LIMIT = 2500;
+
+	/**
 	 * Whether a skip reason is worth retrying.
 	 *
 	 * @param string $reason The gateway's skip reason.
@@ -51,11 +58,19 @@ class Agend_Loop_Sync_Provision_Retry {
 	}
 
 	/**
-	 * The queue, keyed by WordPress user id.
+	 * The queue, keyed by WordPress user id, oldest first.
 	 *
+	 * @param bool $fresh Read the stored option again rather than this
+	 *                    request's cached copy. Every read-modify-write does,
+	 *                    so a long retry run does not overwrite what a sign-in
+	 *                    queued or settled while it ran.
 	 * @return array<int, array{reason: string, attempts: int, since: int}>
 	 */
-	public static function queued(): array {
+	public static function queued( bool $fresh = false ): array {
+		if ( $fresh ) {
+			wp_cache_delete( Agend_Loop_Sync_Settings::OPT_PROVISION_RETRY, 'options' );
+		}
+
 		$stored = get_option( Agend_Loop_Sync_Settings::OPT_PROVISION_RETRY, array() );
 		if ( ! is_array( $stored ) ) {
 			return array();
@@ -87,7 +102,7 @@ class Agend_Loop_Sync_Provision_Retry {
 			return;
 		}
 
-		$queue = self::queued();
+		$queue = self::queued( true );
 		foreach ( $reasons as $wp_id => $reason ) {
 			$wp_id = (int) $wp_id;
 			if ( $wp_id <= 0 ) {
@@ -111,7 +126,11 @@ class Agend_Loop_Sync_Provision_Retry {
 	 * @return void
 	 */
 	public static function remove( array $wp_ids ): void {
-		$queue = self::queued();
+		if ( array() === $wp_ids ) {
+			return;
+		}
+
+		$queue = self::queued( true );
 		$size  = count( $queue );
 		foreach ( $wp_ids as $wp_id ) {
 			unset( $queue[ (int) $wp_id ] );
@@ -150,6 +169,20 @@ class Agend_Loop_Sync_Provision_Retry {
 	}
 
 	/**
+	 * Schedules the retry again when members are waiting but no retry is
+	 * scheduled, as after the plugin is deactivated (which clears the event
+	 * and keeps the queue) and activated again. Runs on init; reads the queue
+	 * only when no retry is scheduled.
+	 *
+	 * @return void
+	 */
+	public static function ensure_scheduled(): void {
+		if ( 0 === self::next_run() && array() !== self::queued() ) {
+			self::schedule();
+		}
+	}
+
+	/**
 	 * When the next retry runs, or 0 when none is scheduled.
 	 *
 	 * @return int Unix timestamp.
@@ -168,9 +201,14 @@ class Agend_Loop_Sync_Provision_Retry {
 	 * Sends every queued member again, with provisioning, then re-queues the
 	 * ones still held up and schedules the next retry. Runs from WP-Cron.
 	 *
-	 * Provisioning turned off empties the queue: there is nothing left to
-	 * retry. Anything else in the way (the plugin or member sync off, dry run,
-	 * or a known missing scope) leaves the queue as it is for the next hour.
+	 * Provisioning turned off, or blocked by something only a person can fix
+	 * (a missing scope, an old Agend Apps Core), empties the queue: there is
+	 * nothing a retry can do, and the backfill sends everyone again once it is
+	 * fixed. The plugin or member sync being off, or dry run, leaves the queue
+	 * for the next hour.
+	 *
+	 * Sends at most RUN_LIMIT members, oldest first, and drops members who can
+	 * no longer be sent (no membership number or a bad email).
 	 *
 	 * @return array<string, mixed> The run summary, as the backfill reports it.
 	 */
@@ -186,11 +224,23 @@ class Agend_Loop_Sync_Provision_Retry {
 			return array();
 		}
 
+		$blocker = Agend_Loop_Sync_Settings::provision_blocker();
+		if ( '' !== $blocker ) {
+			Agend_Loop_Sync_Logger::warning(
+				'Provisioning is blocked; cleared the provisioning retry queue. Run the backfill again once it is fixed',
+				array(
+					'members' => count( $queue ),
+					'blocker' => $blocker,
+				)
+			);
+			self::clear();
+			return array();
+		}
+
 		if (
 			! Agend_Loop_Sync_Settings::is_enabled()
 			|| ! Agend_Loop_Sync_Settings::is_user_sync_enabled()
 			|| Agend_Loop_Sync_Settings::is_dry_run()
-			|| ! Agend_Loop_Sync_Settings::should_provision()
 		) {
 			self::schedule();
 			return array();
@@ -198,7 +248,7 @@ class Agend_Loop_Sync_Provision_Retry {
 
 		$users = array();
 		$gone  = array();
-		foreach ( array_keys( $queue ) as $wp_id ) {
+		foreach ( array_slice( array_keys( $queue ), 0, self::RUN_LIMIT ) as $wp_id ) {
 			$user = get_userdata( $wp_id );
 			if ( $user instanceof WP_User ) {
 				$users[] = $user;
@@ -209,10 +259,12 @@ class Agend_Loop_Sync_Provision_Retry {
 		self::remove( $gone );
 
 		$summary = Agend_Loop_Sync_User_Sync::sync_users( $users, true );
+		self::remove( $summary['unsendable_ids'] ?? array() );
 
 		// Count this retry against everyone it reached; members it did not send
-		// (deferred behind a rate limit) keep their count.
-		$queue = self::queued();
+		// (deferred behind a rate limit, or past this run's limit) keep their
+		// count.
+		$queue = self::queued( true );
 		$drop  = array();
 		foreach ( $summary['attempted_ids'] ?? array() as $wp_id ) {
 			if ( ! isset( $queue[ $wp_id ] ) ) {

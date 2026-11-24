@@ -47,6 +47,12 @@ class Agend_Loop_Sync_Settings {
 	 */
 	const PROVISION_MIN_CORE_VERSION = '1.94.0';
 
+	/**
+	 * Transient set when the gateway refuses provisioning for a missing scope,
+	 * so syncs stop asking for an hour even while the key's scopes are unknown.
+	 */
+	const PROVISION_REFUSED_TRANSIENT = 'agend_loop_sync_provision_refused';
+
 	const OPT_RULE_SYNC        = 'agend_loop_sync_rule_sync_enabled';
 	const OPT_RULES            = 'agend_loop_sync_rules';
 	const OPT_ACCESS_STATUSES  = 'agend_loop_sync_access_statuses';
@@ -554,6 +560,8 @@ class Agend_Loop_Sync_Settings {
 	 * - `core_too_old`: agend-apps-core cannot send the field on a bulk sync.
 	 * - `scope_missing`: the site key's scopes are known and do not include
 	 *   `loop.users.provision`, so the gateway would refuse every sync with 403.
+	 * - `scope_refused`: the gateway refused provisioning for a missing scope
+	 *   within the last hour.
 	 *
 	 * An unknown scope list does not block: the request is sent and a refusal is
 	 * reported where it happens.
@@ -569,7 +577,20 @@ class Agend_Loop_Sync_Settings {
 			return 'scope_missing';
 		}
 
+		if ( false !== get_transient( self::PROVISION_REFUSED_TRANSIENT ) ) {
+			return 'scope_refused';
+		}
+
 		return '';
+	}
+
+	/**
+	 * Records that the gateway refused provisioning for a missing scope.
+	 *
+	 * @return void
+	 */
+	public static function note_provision_refused(): void {
+		set_transient( self::PROVISION_REFUSED_TRANSIENT, time(), HOUR_IN_SECONDS );
 	}
 
 	/**

@@ -233,6 +233,8 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 						<?php $als_provision_blocker = Agend_Loop_Sync_Settings::provision_blocker(); ?>
 						<?php if ( 'scope_missing' === $als_provision_blocker ) : ?>
 							<p><strong><?php esc_html_e( 'The site key does not hold loop.users.provision, so no accounts are being created. Member sync carries on without it. Ask Agend to grant the scope.', 'agend-loop-sync' ); ?></strong></p>
+						<?php elseif ( 'scope_refused' === $als_provision_blocker ) : ?>
+							<p><strong><?php esc_html_e( 'Agend refused to create accounts in the last hour because the site key does not hold loop.users.provision, so none are being created. Member sync carries on without it. Ask Agend to grant the scope.', 'agend-loop-sync' ); ?></strong></p>
 						<?php elseif ( 'core_too_old' === $als_provision_blocker ) : ?>
 							<p><strong>
 								<?php

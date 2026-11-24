@@ -218,13 +218,43 @@ final class ProvisioningTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function a_key_without_the_scope_is_reported_once_and_not_retried(): void {
+	public function a_scope_refusal_syncs_the_member_without_provisioning_and_pauses_it(): void {
 		$this->turn_on();
-		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_user'] = $this->gateway_error( 403, 'INSUFFICIENT_SCOPES', 'Missing required scopes: loop.users.provision' );
+		Loop_Sync_Test_State::$responders['agend_apps_loop_sync_user'] = fn( $args ) => ! empty( $args[0]['provision'] )
+			? $this->gateway_error( 403, 'INSUFFICIENT_SCOPES', 'Missing required scopes: loop.users.provision' )
+			: array(
+				'success' => true,
+				'data'    => array( 'external_id' => 1001 ),
+			);
+
+		$synced = ( new Agend_Loop_Sync_User_Sync() )->sync_user( loop_sync_test_user( 7, '1001' ) );
+
+		$calls = Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_user' );
+		$this->assertTrue( $synced );
+		$this->assertCount( 2, $calls );
+		$this->assertArrayNotHasKey( 'provision', $calls[1][0] );
+		$this->assertCount( 1, $this->logged( 'error', 'lacks loop.users.provision' ) );
+		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+
+		// Paused: the next member's sync does not ask again.
+		Agend_Loop_Sync_User_Sync::reset_request_state();
+		( new Agend_Loop_Sync_User_Sync() )->sync_user( loop_sync_test_user( 8, '1002' ) );
+		$this->assertSame( 'scope_refused', Agend_Loop_Sync_Settings::provision_blocker() );
+		$this->assertArrayNotHasKey( 'provision', Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_user' )[2][0] );
+	}
+
+	#[Test]
+	public function a_lasting_skip_takes_a_queued_member_off_the_queue(): void {
+		$this->turn_on();
+		Agend_Loop_Sync_Provision_Retry::add( array( 7 => 'rate_limited' ) );
+		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_user'] = $this->gateway_error(
+			404,
+			'NOT_FOUND',
+			'No Loop user for external id 1001 (a@example.com); provisioning was skipped: consent_required.'
+		);
 
 		( new Agend_Loop_Sync_User_Sync() )->sync_user( loop_sync_test_user( 7, '1001' ) );
 
-		$this->assertCount( 1, $this->logged( 'error', 'lacks loop.users.provision' ) );
 		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
 	}
 
@@ -324,19 +354,33 @@ final class ProvisioningTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function a_scope_refusal_stops_the_backfill_with_a_clear_error(): void {
+	public function a_scope_refusal_carries_the_backfill_on_without_provisioning(): void {
 		$this->turn_on();
 		for ( $id = 1; $id <= 150; $id++ ) {
 			loop_sync_test_user( $id, (string) ( 1000 + $id ) );
 		}
-		Loop_Sync_Test_State::$responses['agend_apps_loop_bulk_sync_users'] = $this->gateway_error( 403, 'INSUFFICIENT_SCOPES', 'Missing required scopes: loop.users.provision' );
+		Loop_Sync_Test_State::$responders['agend_apps_loop_bulk_sync_users'] = fn( $args ) => $args[2]
+			? $this->gateway_error( 403, 'INSUFFICIENT_SCOPES', 'Missing required scopes: loop.users.provision' )
+			: array(
+				'success' => true,
+				'data'    => array(
+					'total'     => count( $args[0] ),
+					'succeeded' => count( $args[0] ),
+					'failed'    => 0,
+					'results'   => array(),
+				),
+			);
 
 		$summary = Agend_Loop_Sync_User_Sync::backfill_all();
 
-		$this->assertCount( 1, Loop_Sync_Test_State::calls_to( 'agend_apps_loop_bulk_sync_users' ) );
+		$calls = Loop_Sync_Test_State::calls_to( 'agend_apps_loop_bulk_sync_users' );
+		$this->assertSame( array( true, false, false ), array_column( $calls, 2 ) );
+		$this->assertSame( 150, $summary['sent'] );
+		$this->assertSame( 2, $summary['batches'] );
 		$this->assertTrue( $summary['provisioning']['refused'] );
 		$this->assertStringContainsString( 'loop.users.provision', $summary['errors'][0] );
 		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+		$this->assertSame( 'scope_refused', Agend_Loop_Sync_Settings::provision_blocker() );
 	}
 
 	#[Test]
@@ -352,6 +396,23 @@ final class ProvisioningTest extends LoopSyncTestCase {
 			array( 'request_failed', 'request_failed' ),
 			array_column( Agend_Loop_Sync_Provision_Retry::queued(), 'reason' )
 		);
+	}
+
+	#[Test]
+	public function a_server_error_is_retried_but_a_rejected_batch_is_not(): void {
+		$this->turn_on();
+		loop_sync_test_user( 1, '1001' );
+		Loop_Sync_Test_State::$responses['agend_apps_loop_bulk_sync_users'] = $this->gateway_error( 502, 'BAD_GATEWAY', 'Upstream failed' );
+
+		Agend_Loop_Sync_User_Sync::backfill_all();
+		$this->assertCount( 1, Agend_Loop_Sync_Provision_Retry::queued() );
+
+		Agend_Loop_Sync_Provision_Retry::clear();
+		Loop_Sync_Test_State::$responses['agend_apps_loop_bulk_sync_users'] = $this->gateway_error( 400, 'VALIDATION_ERROR', 'users.0.email is invalid' );
+
+		Agend_Loop_Sync_User_Sync::backfill_all();
+		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+		$this->assertSame( 'VALIDATION_ERROR', $this->logged( 'error', 'User backfill batch failed' )[0]['context']['code'] );
 	}
 
 	#[Test]
@@ -405,6 +466,91 @@ final class ProvisioningTest extends LoopSyncTestCase {
 
 		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
 		$this->assertSame( 1, $this->logged( 'error', 'Gave up creating a Loop account' )[0]['context']['wp_id'] );
+		$this->assertFalse( $this->retry_scheduled() );
+	}
+
+	#[Test]
+	public function a_batch_that_keeps_failing_still_reaches_the_attempt_limit(): void {
+		$this->turn_on();
+		loop_sync_test_user( 1, '1001' );
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_PROVISION_RETRY,
+			array(
+				1 => array(
+					'reason'   => 'request_failed',
+					'attempts' => Agend_Loop_Sync_Provision_Retry::MAX_ATTEMPTS - 1,
+					'since'    => 1,
+				),
+			)
+		);
+		Loop_Sync_Test_State::$responses['agend_apps_loop_bulk_sync_users'] = new WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+
+		Agend_Loop_Sync_Provision_Retry::run();
+
+		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+		$this->assertCount( 1, $this->logged( 'error', 'Gave up creating a Loop account' ) );
+	}
+
+	#[Test]
+	public function a_queued_member_who_can_no_longer_be_sent_is_dropped(): void {
+		$this->turn_on();
+		loop_sync_test_user( 1, null );
+		Agend_Loop_Sync_Provision_Retry::add( array( 1 => 'rate_limited' ) );
+
+		Agend_Loop_Sync_Provision_Retry::run();
+
+		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_bulk_sync_users' ) );
+		$this->assertFalse( $this->retry_scheduled() );
+	}
+
+	#[Test]
+	public function a_blocked_provisioning_empties_the_queue_at_the_next_retry(): void {
+		$this->turn_on();
+		loop_sync_test_user( 1, '1001' );
+		Agend_Loop_Sync_Provision_Retry::add( array( 1 => 'rate_limited' ) );
+		Agend_Loop_Sync_Settings::note_provision_refused();
+
+		Agend_Loop_Sync_Provision_Retry::run();
+
+		$this->assertSame( array(), Agend_Loop_Sync_Provision_Retry::queued() );
+		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_bulk_sync_users' ) );
+		$this->assertFalse( $this->retry_scheduled() );
+		$this->assertSame( 'scope_refused', $this->logged( 'warning', 'Provisioning is blocked' )[0]['context']['blocker'] );
+	}
+
+	#[Test]
+	public function a_retry_sends_at_most_its_limit_oldest_first(): void {
+		$this->turn_on();
+		$queue = array();
+		for ( $id = 1; $id <= Agend_Loop_Sync_Provision_Retry::RUN_LIMIT + 5; $id++ ) {
+			loop_sync_test_user( $id, (string) ( 100000 + $id ) );
+			$queue[ $id ] = 'rate_limited';
+		}
+		Agend_Loop_Sync_Provision_Retry::add( $queue );
+
+		Agend_Loop_Sync_Provision_Retry::run();
+
+		$sent = array_merge( ...array_map( static fn( $call ) => $call[0], Loop_Sync_Test_State::calls_to( 'agend_apps_loop_bulk_sync_users' ) ) );
+		$this->assertCount( Agend_Loop_Sync_Provision_Retry::RUN_LIMIT, $sent );
+		$this->assertSame( 100001, $sent[0]['external_id'] );
+	}
+
+	#[Test]
+	public function a_queue_left_without_a_scheduled_retry_is_scheduled_again(): void {
+		Agend_Loop_Sync_Provision_Retry::add( array( 1 => 'rate_limited' ) );
+		// What deactivation does: the event goes, the queue stays.
+		wp_clear_scheduled_hook( AGEND_LOOP_SYNC_PROVISION_RETRY_HOOK );
+
+		Agend_Loop_Sync_Provision_Retry::ensure_scheduled();
+
+		$this->assertTrue( $this->retry_scheduled() );
+	}
+
+	#[Test]
+	public function an_empty_queue_schedules_nothing(): void {
+		Agend_Loop_Sync_Provision_Retry::ensure_scheduled();
+
 		$this->assertFalse( $this->retry_scheduled() );
 	}
 

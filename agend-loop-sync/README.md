@@ -581,18 +581,25 @@ What happens to each member is reported, never with their name or email:
 | `conflict` | Another login already holds the member's membership number. Ask Agend to look into it. |
 
 **Retries.** Members skipped as `rate_limited` or `provisioning_failed`, or in
-a batch that got no answer, wait in a queue and are sent again about an hour
-later, until their account exists or 24 tries have run. Once a backfill meets
-the hourly limit it stops sending and queues the rest, so a large backfill
-finishes over several hours on its own. The settings screen shows how many
-members are waiting and when the next try runs. Turning the setting off
-empties the queue at the next try.
+a batch that got no answer, a server error or a rate limit, wait in a queue
+and are sent again about an hour later, until their account exists or 24
+tries have run. A batch the gateway rejects as invalid or unauthorised is
+logged and not retried, since it would fail the same way. Once a backfill
+meets the hourly limit it stops sending and queues the rest, so a large
+backfill finishes over several hours on its own. Each retry sends at most
+2500 queued members, oldest first. A queued member who loses their
+membership number, or whose email becomes invalid, is dropped. The settings
+screen shows how many members are waiting and when the next try runs.
+Turning the setting off empties the queue at the next try.
 
 **Safeguards.** When the site key's scopes are known and do not include
 `loop.users.provision`, nothing asks for provisioning and the settings screen
-says so, so member sync is never refused for it. If the gateway refuses
-anyway (403), the backfill stops with an error naming the scope. Creating
-accounts also needs Agend Apps Core 1.94.0 or later.
+says so. If the gateway refuses anyway (403), the member is synced again
+without provisioning, the backfill carries on without it, and provisioning
+pauses for an hour; the settings screen says so too. While provisioning is
+blocked by a missing scope or an old Agend Apps Core, the next retry empties
+the queue: run the backfill again once it is fixed. Creating accounts also
+needs Agend Apps Core 1.94.0 or later.
 
 ## Safety and reliability
 

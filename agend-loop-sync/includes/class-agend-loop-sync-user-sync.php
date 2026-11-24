@@ -252,6 +252,20 @@ class Agend_Loop_Sync_User_Sync {
 
 		$response = agend_apps_loop_sync_user( $payload );
 
+		// The gateway refuses the whole request when the key lacks the
+		// provisioning scope. Note it, so later syncs stop asking, and sync the
+		// member without it rather than not at all.
+		if ( $provision && is_wp_error( $response ) && self::is_scope_refusal( $response ) ) {
+			Agend_Loop_Sync_Settings::note_provision_refused();
+			Agend_Loop_Sync_Logger::error(
+				'Loop account creation was refused: the site key lacks loop.users.provision; synced without it',
+				array( 'wp_id' => (int) $user->ID )
+			);
+			unset( $payload['provision'] );
+			$provision = false;
+			$response  = agend_apps_loop_sync_user( $payload );
+		}
+
 		if ( is_wp_error( $response ) ) {
 			return $this->handle_sync_error( $user, $response, $provision );
 		}
@@ -286,14 +300,6 @@ class Agend_Loop_Sync_User_Sync {
 	 * @return bool Always false.
 	 */
 	private function handle_sync_error( WP_User $user, WP_Error $error, bool $provision ): bool {
-		if ( $provision && self::is_scope_refusal( $error ) ) {
-			Agend_Loop_Sync_Logger::error(
-				'Loop account creation was refused: the site key lacks loop.users.provision',
-				array( 'wp_id' => (int) $user->ID )
-			);
-			return false;
-		}
-
 		$reason = $provision ? self::skip_reason_from_error( $error ) : '';
 		if ( '' !== $reason ) {
 			Agend_Loop_Sync_Logger::warning(
@@ -305,6 +311,10 @@ class Agend_Loop_Sync_User_Sync {
 			);
 			if ( Agend_Loop_Sync_Provision_Retry::is_retryable( $reason ) ) {
 				Agend_Loop_Sync_Provision_Retry::add( array( (int) $user->ID => $reason ) );
+			} else {
+				// Waiting will not help, so a retry already queued would only
+				// repeat this answer.
+				Agend_Loop_Sync_Provision_Retry::remove( array( (int) $user->ID ) );
 			}
 			return false;
 		}
@@ -354,6 +364,29 @@ class Agend_Loop_Sync_User_Sync {
 		}
 
 		return in_array( $match[1], self::SKIP_REASONS, true ) ? $match[1] : 'unknown';
+	}
+
+	/**
+	 * Whether a failed request is worth sending again later: no answer at all
+	 * (a transport error), a server error, or a rate limit. A request the
+	 * gateway rejected as invalid or unauthorised would fail the same way.
+	 *
+	 * @param WP_Error $error The error.
+	 * @return bool
+	 */
+	public static function is_passing_failure( WP_Error $error ): bool {
+		if ( 'agend_apps_rate_limited' === $error->get_error_code() ) {
+			return true;
+		}
+
+		$data   = $error->get_error_data();
+		$status = is_array( $data ) && isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
+
+		if ( 'agend_api_error' !== $error->get_error_code() || 0 === $status ) {
+			return true;
+		}
+
+		return 429 === $status || $status >= 500;
 	}
 
 	/**
@@ -460,7 +493,9 @@ class Agend_Loop_Sync_User_Sync {
 		$items = array();
 		foreach ( $users as $user ) {
 			$item = self::bulk_item( $user, $summary );
-			if ( null !== $item ) {
+			if ( null === $item ) {
+				$summary['unsendable_ids'][] = (int) $user->ID;
+			} else {
 				$items[ (int) $user->ID ] = $item;
 			}
 		}
@@ -470,7 +505,10 @@ class Agend_Loop_Sync_User_Sync {
 		$done     = array();
 		$deferred = false;
 
-		foreach ( array_chunk( $items, self::BATCH_SIZE, true ) as $chunk ) {
+		$chunks = array_chunk( $items, self::BATCH_SIZE, true );
+		$count  = count( $chunks );
+		for ( $index = 0; $index < $count; $index++ ) {
+			$chunk = $chunks[ $index ];
 			if ( $deferred ) {
 				foreach ( array_keys( $chunk ) as $wp_id ) {
 					$retry[ $wp_id ] = 'rate_limited';
@@ -495,17 +533,28 @@ class Agend_Loop_Sync_User_Sync {
 
 			$response = agend_apps_loop_bulk_sync_users( array_values( $chunk ), $idp, $provision );
 
+			// Counted whether or not the request succeeds, so a member whose
+			// batch keeps failing still reaches the retry limit.
+			$summary['attempted_ids'] = array_merge( $summary['attempted_ids'], array_keys( $chunk ) );
+
 			if ( is_wp_error( $response ) ) {
+				// A missing scope refuses every batch. Note it, then send this
+				// batch and the rest without provisioning so members are still
+				// refreshed.
 				if ( $provision && self::is_scope_refusal( $response ) ) {
+					Agend_Loop_Sync_Settings::note_provision_refused();
 					$summary['provisioning']['refused'] = true;
-					$summary['errors'][]                = 'Agend refused to create Loop accounts: the site key does not hold loop.users.provision. Turn off "Create Loop accounts before first sign-in" or ask Agend to grant the scope.';
-					Agend_Loop_Sync_Logger::error( 'Loop account creation was refused: the site key lacks loop.users.provision' );
-					break;
+					$summary['errors'][]                = 'Agend refused to create Loop accounts: the site key does not hold loop.users.provision. Members were synced without creating accounts. Ask Agend to grant the scope, or turn off "Create Loop accounts".';
+					Agend_Loop_Sync_Logger::error( 'Loop account creation was refused: the site key lacks loop.users.provision; syncing without it' );
+					$provision = false;
+					--$summary['batches'];
+					--$index;
+					continue;
 				}
 
 				$summary['errors'][] = (string) self::error_context( $response )['error'];
 				Agend_Loop_Sync_Logger::error( 'User backfill batch failed', self::error_context( $response ) );
-				if ( $provision ) {
+				if ( $provision && self::is_passing_failure( $response ) ) {
 					foreach ( array_keys( $chunk ) as $wp_id ) {
 						$retry[ $wp_id ] = 'request_failed';
 					}
@@ -513,11 +562,10 @@ class Agend_Loop_Sync_User_Sync {
 				continue;
 			}
 
-			$data                     = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
-			$summary['sent']         += count( $chunk );
-			$summary['succeeded']    += (int) ( $data['succeeded'] ?? 0 );
-			$summary['failed']       += (int) ( $data['failed'] ?? 0 );
-			$summary['attempted_ids'] = array_merge( $summary['attempted_ids'], array_keys( $chunk ) );
+			$data                  = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+			$summary['sent']      += count( $chunk );
+			$summary['succeeded'] += (int) ( $data['succeeded'] ?? 0 );
+			$summary['failed']    += (int) ( $data['failed'] ?? 0 );
 
 			if ( ! $provision ) {
 				continue;
@@ -570,11 +618,15 @@ class Agend_Loop_Sync_User_Sync {
 			}
 		}
 
-		if ( $provision ) {
+		// Keyed on what the run set out to do: a scope refusal part way turns
+		// $provision off, but the members it already queued or settled count.
+		if ( $summary['provision'] ) {
 			Agend_Loop_Sync_Provision_Retry::remove( $done );
 			Agend_Loop_Sync_Provision_Retry::add( $retry );
 			$summary['provisioning']['queued'] = count( $retry );
 		}
+
+		$summary['attempted_ids'] = array_values( array_unique( $summary['attempted_ids'] ) );
 
 		return $summary;
 	}
@@ -627,6 +679,7 @@ class Agend_Loop_Sync_User_Sync {
 			'provision'         => $provision,
 			'errors'            => array(),
 			'attempted_ids'     => array(),
+			'unsendable_ids'    => array(),
 		);
 
 		if ( $provision ) {
@@ -652,7 +705,7 @@ class Agend_Loop_Sync_User_Sync {
 	 * @return array<string, mixed>
 	 */
 	public static function loggable_summary( array $summary ): array {
-		unset( $summary['attempted_ids'] );
+		unset( $summary['attempted_ids'], $summary['unsendable_ids'] );
 		return $summary;
 	}
 }
