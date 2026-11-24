@@ -51,6 +51,11 @@
   // credit for the job: every 3 seconds for up to 30 seconds.
   var POLL_INTERVAL = 3000;
   var POLL_TRIES = 10;
+  // The statuses listed under "Current": jobs still on their way to the board
+  // or on it. Every other status is listed under "Past".
+  var CURRENT = { checking_credit: true, pending: true, published: true };
+  // Stroke icons, as the path data of a 24px box.
+  var ICONS = { plus: 'M12 5v14M5 12h14', open: 'M7 17 17 7M8 7h9v9' };
 
   /** An id for one attempt to post a job, kept while its outcome is unknown. */
   function requestId() {
@@ -73,6 +78,23 @@
       node.textContent = String(text);
     }
     return node;
+  }
+
+  function icon(name) {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'agend-member-jobs__icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', ICONS[name]);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function trimmed(value) {
+    return typeof value === 'string' ? value.trim() : '';
   }
 
   function nonce() {
@@ -179,9 +201,9 @@
     return {
       credits: { available: 2 },
       items: [
-        { id: 'sample-1', title: 'SMSF Accountant', status: 'pending', submitted_at: now.toISOString() },
-        { id: 'sample-2', title: 'Senior Auditor', status: 'published', submitted_at: now.toISOString(), expires_at: later.toISOString() },
-        { id: 'sample-3', title: 'Paraplanner', status: 'rejected', submitted_at: now.toISOString(), rejection_reason: m.reason },
+        { id: 'sample-1', title: 'Senior Auditor', status: 'published', submitted_at: now.toISOString(), expires_at: later.toISOString(), location_city: 'Melbourne', location_state: 'VIC', employment_type: 'full-time', location_type: 'hybrid' },
+        { id: 'sample-2', title: 'SMSF Accountant', status: 'pending', submitted_at: now.toISOString(), location_city: 'Brisbane', location_state: 'QLD', employment_type: 'full-time', location_type: 'on-site' },
+        { id: 'sample-3', title: 'Paraplanner', status: 'rejected', submitted_at: now.toISOString(), location_type: 'remote', employment_type: 'contract', rejection_reason: m.sampleReason },
       ],
     };
   }
@@ -304,6 +326,100 @@
     return links;
   };
 
+  /**
+   * The credits panel: the member's balance beside the Buy and Post a job
+   * buttons. With no credits it says so, and the first Buy button takes the
+   * lead in place of Post a job.
+   */
+  MemberJobs.prototype.drawCredits = function () {
+    var self = this;
+    var cfg = self.cfg;
+    var m = self.m;
+    var count = self.creditCount();
+
+    var panel = el('div', 'agend-member-jobs__credits' + (count === 0 ? ' agend-member-jobs__credits--none' : ''));
+    var summary = el('div', 'agend-member-jobs__credits-summary');
+    if (count !== null) {
+      summary.appendChild(el('span', 'agend-member-jobs__credits-count', String(count)));
+    }
+    var words = el('div', 'agend-member-jobs__credits-words');
+    var label;
+    var note = '';
+    if (count === null) {
+      label = self.creditsFailed ? m.creditsUnknown : '';
+    } else if (count === 0) {
+      label = m.noCreditsTitle;
+      note = cfg.text.noCredits;
+    } else {
+      label = count === 1 ? m.creditsOne : m.creditsMany;
+      note = cfg.text.creditsNote;
+    }
+    if (label) {
+      words.appendChild(el('p', 'agend-member-jobs__credits-text', label));
+    }
+    if (note) {
+      words.appendChild(el('p', 'agend-member-jobs__credits-note', note));
+    }
+    summary.appendChild(words);
+    panel.appendChild(summary);
+
+    var actions = el('div', 'agend-member-jobs__toolbar');
+    var links = count === 0
+      ? self.buyLinks('agend-member-jobs__button agend-member-jobs__button--secondary', 'agend-member-jobs__button')
+      : self.buyLinks('agend-member-jobs__button agend-member-jobs__button--secondary');
+    links.forEach(function (link) {
+      actions.appendChild(link);
+    });
+    if (count !== 0) {
+      var post = el('button', 'agend-member-jobs__button');
+      post.type = 'button';
+      post.disabled = self.preview;
+      post.appendChild(icon('plus'));
+      post.appendChild(document.createTextNode(cfg.text.post));
+      post.addEventListener('click', function () {
+        self.say('');
+        self.drawForm(null);
+      });
+      actions.appendChild(post);
+    }
+    if (actions.childNodes.length) {
+      panel.appendChild(actions);
+    }
+    if (count === 0 && links.length) {
+      panel.appendChild(el('p', 'agend-member-jobs__note', m.buyNote));
+    }
+    return panel;
+  };
+
+  /** A job's place, employment type and work arrangement on one line. */
+  MemberJobs.prototype.metaLine = function (item) {
+    var options = (this.m.form && this.m.form.options) || {};
+    function label(group, key) {
+      key = trimmed(key);
+      return key && options[group] && options[group][key] ? options[group][key] : '';
+    }
+    var place = [trimmed(item.location_city), trimmed(item.location_state)].filter(Boolean).join(' ');
+    return [place, label('employment_type', item.employment_type), label('location_type', item.location_type)].filter(Boolean).join(' · ');
+  };
+
+  /** The line under a job's submitted date: what has happened to it since. */
+  MemberJobs.prototype.dateNote = function (item, status) {
+    var m = this.m;
+    if ((status === 'published' || status === 'expired') && item.expires_at) {
+      return format(m.expiresOn, formatDate(item.expires_at));
+    }
+    if (status === 'pending') {
+      return m.inReview;
+    }
+    if (status === 'rejected' || status === 'withdrawn') {
+      return m.creditReturned;
+    }
+    if (status === 'filled' || status === 'closed') {
+      return m.offBoard;
+    }
+    return '';
+  };
+
   MemberJobs.prototype.drawList = function () {
     var self = this;
     var cfg = self.cfg;
@@ -325,50 +441,7 @@
       return;
     }
 
-    var count = self.creditCount();
-
-    if (count === 0) {
-      // No credits: the buy box takes the place of the credits line.
-      var empty = el('div', 'agend-member-jobs__empty-credits');
-      empty.appendChild(el('p', 'agend-member-jobs__empty-title', m.noCreditsTitle));
-      if (cfg.text.noCredits) {
-        empty.appendChild(el('p', '', cfg.text.noCredits));
-      }
-      var links = self.buyLinks('agend-member-jobs__button agend-member-jobs__button--ghost', 'agend-member-jobs__button');
-      if (links.length) {
-        var row = el('div', 'agend-member-jobs__toolbar');
-        links.forEach(function (link) {
-          row.appendChild(link);
-        });
-        empty.appendChild(row);
-        empty.appendChild(el('p', 'agend-member-jobs__note', m.buyNote));
-      }
-      root.appendChild(empty);
-    } else {
-      var bar = el('div', 'agend-member-jobs__credits');
-      var line = el('p', 'agend-member-jobs__credits-text');
-      if (count === null) {
-        line.textContent = self.creditsFailed ? m.creditsUnknown : '';
-      } else {
-        line.appendChild(el('strong', '', format(count === 1 ? m.creditsOne : m.creditsMany, count)));
-      }
-      bar.appendChild(line);
-
-      var actions = el('div', 'agend-member-jobs__toolbar');
-      var post = el('button', 'agend-member-jobs__button', cfg.text.post);
-      post.type = 'button';
-      post.disabled = self.preview;
-      post.addEventListener('click', function () {
-        self.say('');
-        self.drawForm(null);
-      });
-      actions.appendChild(post);
-      self.buyLinks('agend-member-jobs__link').forEach(function (link) {
-        actions.appendChild(link);
-      });
-      bar.appendChild(actions);
-      root.appendChild(bar);
-    }
+    root.appendChild(self.drawCredits());
 
     if (self.items === null) {
       root.appendChild(el('p', 'agend-member-jobs__notice', m.loadFailed));
@@ -381,24 +454,46 @@
     }
 
     var wrap = el('div', 'agend-member-jobs__table-wrap');
-    var table = el('table', 'agend-member-jobs__table');
+    // at-table-reset: the Agend theme's opt-out from its own table margins and borders.
+    var table = el('table', 'agend-member-jobs__table at-table-reset');
     var thead = el('thead');
     var headRow = el('tr');
-    [m.columns.job, m.columns.status, m.columns.submitted, m.columns.actions].forEach(function (label, index) {
-      var th = el('th', '', label);
-      th.scope = 'col';
+    [m.columns.job, m.columns.status, m.columns.dates, m.columns.actions].forEach(function (label, index) {
+      // The actions column keeps its shaded cell; only its label is hidden.
+      var th = index === 3 ? el('th') : el('th', '', label);
       if (index === 3) {
-        th.className = 'agend-member-jobs__sr';
+        th.appendChild(el('span', 'agend-member-jobs__sr', label));
       }
+      th.scope = 'col';
       headRow.appendChild(th);
     });
     thead.appendChild(headRow);
     table.appendChild(thead);
-    var tbody = el('tbody');
+
+    // Current jobs first, then past ones, each keeping the order Agend gave.
+    var groups = { current: [], past: [] };
     self.items.forEach(function (item) {
-      tbody.appendChild(self.drawItem(item));
+      groups[CURRENT[String(item.status || '')] ? 'current' : 'past'].push(item);
     });
-    table.appendChild(tbody);
+    ['current', 'past'].forEach(function (key) {
+      var items = groups[key];
+      if (!items.length) {
+        return;
+      }
+      var tbody = el('tbody', 'agend-member-jobs__group agend-member-jobs__group--' + key);
+      var groupRow = el('tr', 'agend-member-jobs__group-row');
+      var heading = el('th', 'agend-member-jobs__group-heading', (m.groups && m.groups[key]) || key);
+      heading.colSpan = 4;
+      heading.scope = 'rowgroup';
+      heading.appendChild(document.createTextNode(' '));
+      heading.appendChild(el('span', 'agend-member-jobs__group-count', format(items.length === 1 ? m.jobsOne : m.jobsMany, items.length)));
+      groupRow.appendChild(heading);
+      tbody.appendChild(groupRow);
+      items.forEach(function (item) {
+        tbody.appendChild(self.drawItem(item));
+      });
+      table.appendChild(tbody);
+    });
     wrap.appendChild(table);
     root.appendChild(wrap);
 
@@ -420,22 +515,33 @@
 
     var job = el('td', 'agend-member-jobs__job');
     job.appendChild(el('span', 'agend-member-jobs__title', item.title || ''));
-    if (status === 'published' && item.expires_at) {
-      job.appendChild(el('span', 'agend-member-jobs__sub', format(m.expiresOn, formatDate(item.expires_at))));
+    var meta = self.metaLine(item);
+    if (meta) {
+      job.appendChild(el('span', 'agend-member-jobs__sub', meta));
     }
     if (status === 'rejected' && item.rejection_reason) {
-      job.appendChild(el('span', 'agend-member-jobs__sub', m.reason + ' ' + item.rejection_reason));
+      job.appendChild(el('span', 'agend-member-jobs__reason', m.reason + ' ' + item.rejection_reason));
     }
     if (status === 'no_credit' || status === 'checking_credit') {
       job.appendChild(el('span', 'agend-member-jobs__sub', status === 'no_credit' ? m.noCreditNote : m.checkingNote));
     }
     tr.appendChild(job);
 
-    var statusCell = el('td');
-    statusCell.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + status.replace(/[^a-z-]/g, ''), (m.status && m.status[status]) || status));
+    var modifier = status.replace(/[^a-z-]/g, '');
+    var statusCell = el('td', 'agend-member-jobs__status-cell');
+    statusCell.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + modifier, (m.status && m.status[status]) || status));
     tr.appendChild(statusCell);
 
-    tr.appendChild(el('td', 'agend-member-jobs__date', formatDate(item.submitted_at)));
+    var dates = el('td', 'agend-member-jobs__date');
+    var submitted = formatDate(item.submitted_at);
+    if (submitted) {
+      dates.appendChild(el('span', 'agend-member-jobs__date-line', format(m.submittedOn, submitted)));
+    }
+    var dateNote = self.dateNote(item, status);
+    if (dateNote) {
+      dates.appendChild(el('span', 'agend-member-jobs__date-note agend-member-jobs__date-note--' + modifier, dateNote));
+    }
+    tr.appendChild(dates);
 
     var a = m.actions || {};
     var cell = el('td', 'agend-member-jobs__actions-cell');
@@ -443,8 +549,9 @@
     cell.appendChild(buttons);
     tr.appendChild(cell);
 
-    function button(label, onClick) {
-      var b = el('button', 'agend-member-jobs__action', label);
+    // `danger` marks the actions that take a job off the board or out of review.
+    function button(label, onClick, danger) {
+      var b = el('button', 'agend-member-jobs__action' + (danger ? ' agend-member-jobs__action--danger' : ''), label);
       b.type = 'button';
       b.disabled = self.preview;
       b.addEventListener('click', onClick);
@@ -452,18 +559,32 @@
       return b;
     }
 
-    function confirmThen(question, run) {
+    // `from` is the label of the action that asked: Cancel puts focus back on it.
+    // Focus starts on Cancel, so one Enter press never confirms by accident.
+    function confirmThen(question, run, danger, from) {
       buttons.textContent = '';
+      buttons.classList.add('agend-member-jobs__actions--confirm');
       buttons.appendChild(el('span', 'agend-member-jobs__confirm', question));
-      var yes = button(a.yes, function () {
-        yes.disabled = true;
-        no.disabled = true;
-        run();
-      });
+      var yes = button(
+        a.yes,
+        function () {
+          yes.disabled = true;
+          no.disabled = true;
+          run();
+        },
+        danger
+      );
       var no = button(a.no, function () {
-        tr.parentNode.replaceChild(self.drawItem(item), tr);
+        var fresh = self.drawItem(item);
+        tr.parentNode.replaceChild(fresh, tr);
+        var back = Array.prototype.filter.call(fresh.querySelectorAll('.agend-member-jobs__action'), function (b) {
+          return b.textContent === from;
+        })[0];
+        if (back) {
+          back.focus();
+        }
       });
-      yes.focus();
+      no.focus();
     }
 
     if (status === 'pending') {
@@ -471,28 +592,52 @@
         self.say('');
         self.drawForm(item);
       });
-      button(a.withdraw, function () {
-        confirmThen(a.withdrawConfirm, function () {
-          self.act(item, '/withdraw', {}, a.withdrawn);
-        });
-      });
+      button(
+        a.withdraw,
+        function () {
+          confirmThen(
+            a.withdrawConfirm,
+            function () {
+              self.act(item, '/withdraw', {}, a.withdrawn);
+            },
+            true,
+            a.withdraw
+          );
+        },
+        true
+      );
     } else if (status === 'published') {
       var url = jobUrl(self.cfg, item.slug);
       if (url) {
         var view = el('a', 'agend-member-jobs__action', a.view);
         view.href = url;
+        view.appendChild(icon('open'));
         buttons.appendChild(view);
       }
       button(a.filled, function () {
-        confirmThen(a.filledConfirm, function () {
-          self.act(item, '/close', { filled: true }, a.closed);
-        });
+        confirmThen(
+          a.filledConfirm,
+          function () {
+            self.act(item, '/close', { filled: true }, a.closed);
+          },
+          false,
+          a.filled
+        );
       });
-      button(a.close, function () {
-        confirmThen(a.closeConfirm, function () {
-          self.act(item, '/close', { filled: false }, a.closed);
-        });
-      });
+      button(
+        a.close,
+        function () {
+          confirmThen(
+            a.closeConfirm,
+            function () {
+              self.act(item, '/close', { filled: false }, a.closed);
+            },
+            true,
+            a.close
+          );
+        },
+        true
+      );
     } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired' || status === 'no_credit') && (self.creditCount() || 0) > 0) {
       // A fresh submission prefilled from this one: it uses a new credit.
       button(a.again, function () {

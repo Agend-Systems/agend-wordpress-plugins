@@ -1306,6 +1306,12 @@ credits" above).
   said so. The rest (`checking_credit`, `pending`, `no_credit`, `rejected`,
   `withdrawn`, `closed`) pass through. The browser never gets `credit_ref`,
   `account_id` or `contact`.
+- **The list** groups the member's jobs into Current (`checking_credit`,
+  `pending`, `published`) and Past (the rest), in the order Agend returns
+  them, with the counts of the jobs loaded so far. Each row shows the place,
+  employment type and work arrangement, a status pill, the submitted date and
+  what has happened since. The table carries the Agend theme's
+  `at-table-reset` class so the theme's table margins stay out of its panel.
 - **Withdraw** a pending job and Agend frees its credit; **close** a live one
   and it does not, because the listing ran. The site forgets its cached credit
   count after a post, a settled check and a withdrawal.

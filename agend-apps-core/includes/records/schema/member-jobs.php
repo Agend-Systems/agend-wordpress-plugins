@@ -102,6 +102,13 @@ function agend_apps_records_schema_member_jobs(): array {
 						'default' => __( 'Buy job credits', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'credits_note',
+						'label'       => __( 'Credits note', 'agend-apps-core' ),
+						'type'        => 'textarea',
+						'default'     => __( 'Each job uses one credit.', 'agend-apps-core' ),
+						'description' => __( 'Shown under the member\'s credit count, for example how long credits last. Leave empty to hide.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'no_credits_message',
 						'label'   => __( 'No credits message', 'agend-apps-core' ),
 						'type'    => 'textarea',

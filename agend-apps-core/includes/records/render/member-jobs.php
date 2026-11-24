@@ -166,12 +166,13 @@ function agend_apps_records_member_jobs_build_config( array $s ): array {
 		'buyUrl'      => 1 === preg_match( '#^https?://#i', $buy_url ) || 0 === strpos( $buy_url, '/' ) ? $buy_url : '',
 		'buy'         => function_exists( 'agend_apps_member_jobs_buy_options' ) ? agend_apps_member_jobs_buy_options() : array(),
 		'text'        => array(
-			'heading'   => $text( 'heading', $defaults['heading'] ),
-			'intro'     => $text( 'intro', $defaults['intro'] ),
-			'post'      => $text( 'post_label', $defaults['post_label'] ),
-			'buy'       => $text( 'buy_label', $defaults['buy_label'] ),
-			'noCredits' => $text( 'no_credits_message', $defaults['no_credits_message'] ),
-			'success'   => $text( 'success_message', $defaults['success_message'] ),
+			'heading'     => $text( 'heading', $defaults['heading'] ),
+			'intro'       => $text( 'intro', $defaults['intro'] ),
+			'post'        => $text( 'post_label', $defaults['post_label'] ),
+			'buy'         => $text( 'buy_label', $defaults['buy_label'] ),
+			'noCredits'   => $text( 'no_credits_message', $defaults['no_credits_message'] ),
+			'creditsNote' => $text( 'credits_note', $defaults['credits_note'] ),
+			'success'     => $text( 'success_message', $defaults['success_message'] ),
 		),
 		'form'        => array(
 			'required'   => $rules['required'],
@@ -198,10 +199,9 @@ function agend_apps_records_member_jobs_messages(): array {
 	return array(
 		'loading'        => __( 'Loading your jobs…', 'agend-apps-core' ),
 		'loadFailed'     => __( 'Your jobs could not be loaded. Please reload the page to try again.', 'agend-apps-core' ),
-		/* translators: %d: number of job credits. */
-		'creditsOne'     => __( 'You have %d job credit.', 'agend-apps-core' ),
-		/* translators: %d: number of job credits. */
-		'creditsMany'    => __( 'You have %d job credits.', 'agend-apps-core' ),
+		// Shown beside the number of credits, which sits in its own box.
+		'creditsOne'     => __( 'job credit available', 'agend-apps-core' ),
+		'creditsMany'    => __( 'job credits available', 'agend-apps-core' ),
 		'creditsUnknown' => __( 'Your job credits could not be checked just now.', 'agend-apps-core' ),
 		'none'           => __( 'You have not posted any jobs yet.', 'agend-apps-core' ),
 		'noCreditsTitle' => __( 'You have no job credits', 'agend-apps-core' ),
@@ -209,15 +209,27 @@ function agend_apps_records_member_jobs_messages(): array {
 		'columns'        => array(
 			'job'       => __( 'Job', 'agend-apps-core' ),
 			'status'    => __( 'Status', 'agend-apps-core' ),
-			'submitted' => __( 'Submitted', 'agend-apps-core' ),
+			'dates'     => __( 'Dates', 'agend-apps-core' ),
 			'actions'   => __( 'Actions', 'agend-apps-core' ),
 		),
+		'groups'         => array(
+			'current' => __( 'Current', 'agend-apps-core' ),
+			'past'    => __( 'Past', 'agend-apps-core' ),
+		),
+		/* translators: %d: number of jobs. */
+		'jobsOne'        => __( '%d job', 'agend-apps-core' ),
+		/* translators: %d: number of jobs. */
+		'jobsMany'       => __( '%d jobs', 'agend-apps-core' ),
 		'more'           => __( 'Show more', 'agend-apps-core' ),
 		/* translators: %s: a date. */
 		'submittedOn'    => __( 'Submitted %s', 'agend-apps-core' ),
 		/* translators: %s: a date. */
 		'expiresOn'      => __( 'Listed until %s', 'agend-apps-core' ),
+		'inReview'       => __( 'With our team for review', 'agend-apps-core' ),
+		'creditReturned' => __( 'Credit returned', 'agend-apps-core' ),
+		'offBoard'       => __( 'Taken off the board', 'agend-apps-core' ),
 		'reason'         => __( 'Reason:', 'agend-apps-core' ),
+		'sampleReason'   => __( 'Please add the salary range, then post it again.', 'agend-apps-core' ),
 		'noCreditNote'   => __( 'No job credit was available, so this job was not submitted.', 'agend-apps-core' ),
 		'checkingNote'   => __( 'We are checking your job credit.', 'agend-apps-core' ),
 		'status'         => array(
