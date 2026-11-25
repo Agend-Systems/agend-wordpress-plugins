@@ -1399,6 +1399,25 @@
   }
 }
 
+/* -- Filter sidebar: phone width ------------------------------------------- */
+
+/* "Suburb or postcode" gets a row of its own, so neither the placeholder nor a
+   typed suburb is cut off. The radius and "Use my location" share the row
+   under it, so the panel is no taller. */
+@container agend-jobs (max-width: 480px) {
+  .agend-jobs-sb-search .agend-jobs-near__row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'place place'
+      'radius locate';
+    align-items: center;
+  }
+
+  .agend-jobs-sb-search .agend-jobs-near__locate {
+    justify-self: end;
+  }
+}
+
 /* -- Job page: header panel ------------------------------------------------- */
 
 .agend-jobs-hero {
