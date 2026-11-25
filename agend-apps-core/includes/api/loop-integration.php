@@ -179,13 +179,31 @@ function agend_apps_loop_list_committees( int $page = 1, int $limit = 50 ) {
 }
 
 /**
+ * The gateway path for one committee, optionally with a sub-resource.
+ *
+ * The unique id is percent-encoded with its colons left as they are. The
+ * gateway reads the id from the raw request path without decoding it, so an
+ * encoded colon arrives as a literal `%3A` and the committee is not found:
+ * every community rule channel (`rule:<slug>`) would 404 on read, members,
+ * moderator and archive. A colon is valid in a path segment (RFC 3986 pchar),
+ * and the committee upsert carries the same id in its body unencoded.
+ *
+ * @param string $unique_id Committee unique id.
+ * @param string $suffix    Optional sub-resource, starting with `/` (for example `/members`).
+ * @return string The path, relative to the gateway base URL.
+ */
+function agend_apps_loop_committee_path( string $unique_id, string $suffix = '' ): string {
+	return '/loop/integration/committees/' . str_replace( '%3A', ':', rawurlencode( $unique_id ) ) . $suffix;
+}
+
+/**
  * Gets a single committee channel by its stable unique id.
  *
  * @param string $unique_id Committee unique id.
  * @return array|WP_Error Decoded committee on success, or WP_Error on failure.
  */
 function agend_apps_loop_get_committee( string $unique_id ) {
-	$path = '/loop/integration/committees/' . rawurlencode( $unique_id );
+	$path = agend_apps_loop_committee_path( $unique_id );
 
 	$response = agend_apps_api()->request( 'GET', $path, array() );
 
@@ -218,7 +236,7 @@ function agend_apps_loop_get_committee( string $unique_id ) {
  *                        The gateway answers 400 for an unknown IdP and 404 for an unknown committee.
  */
 function agend_apps_loop_get_committee_members( string $unique_id, string $idp_entity_id ) {
-	$path = '/loop/integration/committees/' . rawurlencode( $unique_id ) . '/members';
+	$path = agend_apps_loop_committee_path( $unique_id, '/members' );
 
 	/**
 	 * Filters the committee-members request args before the request is sent.
@@ -313,7 +331,7 @@ function agend_apps_loop_sync_committee( array $committee ) {
  * @return array|WP_Error Decoded { status: 'archived' } on success, or WP_Error on failure.
  */
 function agend_apps_loop_archive_committee( string $unique_id, string $visibility = 'hidden' ) {
-	$path = '/loop/integration/committees/' . rawurlencode( $unique_id );
+	$path = agend_apps_loop_committee_path( $unique_id );
 
 	/**
 	 * Filters the committee-archive request args before the request is sent.
@@ -353,7 +371,7 @@ function agend_apps_loop_archive_committee( string $unique_id, string $visibilit
  * @return array|WP_Error Decoded { status: 'updated' } on success, or WP_Error on failure.
  */
 function agend_apps_loop_set_committee_moderator( string $unique_id, string $role, int $wp_user_id ) {
-	$path = '/loop/integration/committees/' . rawurlencode( $unique_id ) . '/moderator';
+	$path = agend_apps_loop_committee_path( $unique_id, '/moderator' );
 
 	/**
 	 * Filters the committee-moderator request args before the request is sent.
