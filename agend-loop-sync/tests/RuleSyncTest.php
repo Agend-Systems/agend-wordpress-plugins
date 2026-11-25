@@ -40,15 +40,17 @@ final class RuleSyncTest extends RuleTestCase {
 		$this->assertSame( array( 'rule:all-fellows' ), array_keys( $payloads ) );
 		$this->assertSame(
 			array(
-				'idp_entity_id' => 'https://idp.example.com/saml/metadata',
-				'unique_id'     => 'rule:all-fellows',
-				'name'          => 'All Fellows',
-				'is_active'     => true,
-				'roster'        => array(
+				'idp_entity_id'        => 'https://idp.example.com/saml/metadata',
+				'unique_id'            => 'rule:all-fellows',
+				'name'                 => 'All Fellows',
+				'is_active'            => true,
+				'roster'               => array(
 					array( 'external_id' => 100, 'channel_role' => 'member' ),
 					array( 'external_id' => 300, 'channel_role' => 'member' ),
 				),
-				'mode'          => 'replace',
+				'mode'                 => 'replace',
+				'member_can_leave'     => true,
+				'allow_manual_members' => true,
 			),
 			$payloads['rule:all-fellows']
 		);
@@ -318,19 +320,10 @@ final class RuleSyncTest extends RuleTestCase {
 	}
 
 	#[Test]
-	public function the_optional_channel_flags_are_off_unless_the_filter_allows_them(): void {
+	public function the_channel_flags_are_sent_unless_the_filter_turns_them_off(): void {
 		$this->add_rule( 'Locked', array( 'member_can_leave' => '0', 'allow_manual_members' => '0' ) );
 		$this->add_rule( 'Open' );
 		$this->add_member( 1, '100' );
-
-		$this->rule_sync()->run();
-
-		$payloads = $this->payloads();
-		$this->assertArrayNotHasKey( 'member_can_leave', $payloads['rule:locked'] );
-		$this->assertArrayNotHasKey( 'allow_manual_members', $payloads['rule:locked'] );
-
-		Loop_Sync_Test_State::$calls = array();
-		Agend_Test_WP::set_filter( 'agend_loop_sync_send_rule_channel_flags', true );
 
 		$this->rule_sync()->run();
 
@@ -339,13 +332,23 @@ final class RuleSyncTest extends RuleTestCase {
 		$this->assertFalse( $payloads['rule:locked']['allow_manual_members'] );
 		$this->assertTrue( $payloads['rule:open']['member_can_leave'] );
 		$this->assertTrue( $payloads['rule:open']['allow_manual_members'] );
+
+		Loop_Sync_Test_State::$calls = array();
+		Agend_Test_WP::set_filter( 'agend_loop_sync_send_rule_channel_flags', false );
+
+		$this->rule_sync()->run();
+
+		$payloads = $this->payloads();
+		$this->assertArrayNotHasKey( 'member_can_leave', $payloads['rule:locked'] );
+		$this->assertArrayNotHasKey( 'allow_manual_members', $payloads['rule:locked'] );
+		$this->assertArrayNotHasKey( 'member_can_leave', $payloads['rule:open'] );
+		$this->assertArrayNotHasKey( 'allow_manual_members', $payloads['rule:open'] );
 	}
 
 	#[Test]
 	public function the_manual_members_flag_always_travels_with_a_roster(): void {
 		// The gateway refuses allow_manual_members without a roster (400), so the
 		// flag must never go on a request that has none, an emptied rule included.
-		Agend_Test_WP::set_filter( 'agend_loop_sync_send_rule_channel_flags', true );
 		$this->add_rule( 'Open' );
 		$this->add_rule( 'Specialists', array( 'membership_types' => 'Specialist' ) );
 		$this->add_member( 1, '100', 'Financial', 'Fellow' );

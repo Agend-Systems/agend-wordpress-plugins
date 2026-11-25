@@ -434,7 +434,7 @@ Turn on **Community rules** on **Settings > Loop Sync**, then add rules in the
 | Combine criteria | `all` (default): every criterion that is filled in must pass. `any`: one passing is enough. A rule with no criteria matches every member. The lapse rule applies on top of either. |
 | Lapse rule | Whether the access statuses below apply to this rule (default on). |
 | Always include | Membership numbers, each optionally `= owner`, `moderator` or `member` (default member), who are in the channel whatever the criteria and lapse rule say, such as a staff moderator. If such a member also meets the criteria, the highest role wins. |
-| Channel options | Whether members can leave and whether staff can add members by hand. Sent to Loop only when enabled by a filter; see [Optional channel flags](#optional-channel-flags). |
+| Channel options | Whether members can leave and whether staff can add members by hand. Sent to Loop with every run; see [Optional channel flags](#optional-channel-flags). |
 
 Up to 50 rules, each with up to 2000 members (the gateway's roster limit; a
 rule over it is not synced and the run says so).
@@ -525,19 +525,22 @@ outcome. **Recent rule activity** lists the log entries about rules.
 
 #### Optional channel flags
 
-Agend is adding two optional channel settings, `member_can_leave` and
-`allow_manual_members`, to the committee payload. Each rule stores both
-(default true). They are sent with the roster only when the
-`agend_loop_sync_send_rule_channel_flags` filter returns true (default false),
-because a gateway that does not know them may reject the request. Turn the
-filter on once the gateway supports them:
+Each rule stores two channel settings, `member_can_leave` and
+`allow_manual_members` (both default true), and sends them with its roster on
+every run. The Agend gateway accepts them from release 2026-11-25. They always
+travel with a roster, because the gateway refuses `allow_manual_members`
+without one.
+
+To leave them out, for example against an older gateway that rejects unknown
+fields, return false from `agend_loop_sync_send_rule_channel_flags`. Loop then
+keeps whatever the channel already stores:
 
 ```php
-add_filter( 'agend_loop_sync_send_rule_channel_flags', '__return_true' );
+add_filter( 'agend_loop_sync_send_rule_channel_flags', '__return_false' );
 ```
 
-The filter receives the rule as its second argument, so it can be enabled per
-rule.
+The filter receives the rule as its second argument, so it can be turned off
+per rule. Before 1.7.0 the default was false.
 
 ### Initial backfill
 
@@ -638,7 +641,7 @@ needs Agend Apps Core 1.94.0 or later.
 | Member | IdP entity ID, membership number, email, display name, WordPress role slugs. Loop stores only the display name; the email is used to find the account when the membership number does not match. |
 | Committee | IdP entity ID, committee slug and name, active flag, sync mode, and for each member: membership number, channel role, the original committee role name, and email (when valid). Loop uses the email only if the membership number does not match an account. While members are queued for hand-over, also their membership numbers. |
 
-| Community rule | IdP entity ID, the rule's key (`rule:<slug>`) and name, active flag, sync mode, and for each member: membership number and channel role. No email or name is sent. With the optional flags filter on, also `member_can_leave` and `allow_manual_members`. |
+| Community rule | IdP entity ID, the rule's key (`rule:<slug>`) and name, active flag, sync mode, and for each member: membership number and channel role. No email or name is sent. Also `member_can_leave` and `allow_manual_members`, unless the flags filter turns them off. |
 
 No other profile data is sent.
 
@@ -736,8 +739,7 @@ settles it or you clear it.
 8. If the site uses community rules, tick **Community rules**, save, check the
    statuses that keep access, add the rules, and run **Run rules now** with
    dry run on. Check **Recent rule activity** shows the rosters you expect,
-   then turn dry run off and run it again. Enable the optional channel flags
-   filter only once the gateway supports them.
+   then turn dry run off and run it again.
 9. Confirm the schedule, and make sure WP-Cron fires (see below).
 
 ## Things to know
@@ -846,5 +848,9 @@ settles it or you clear it.
   member who leaves a channel places. Member sync and backfill logs no longer
   carry the member's email in a gateway error message. Nothing else changes
   while the setting is off.
+- Version 1.7.0 sends each rule's `member_can_leave` and
+  `allow_manual_members` by default, now the Agend gateway accepts them;
+  `agend_loop_sync_send_rule_channel_flags` defaults to true and can return
+  false to leave them out.
 - Tests live in `tests/` and run as part of the repository's PHPUnit suite
   (`composer test` from the repository root).

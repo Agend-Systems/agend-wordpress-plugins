@@ -1348,7 +1348,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 								<input type="checkbox" name="rule[allow_manual_members]" value="1" <?php checked( $als_form['allow_manual_members'] ); ?> />
 								<?php esc_html_e( 'Staff can add members by hand in Loop', 'agend-loop-sync' ); ?>
 							</label>
-							<p class="description"><?php esc_html_e( 'Only sent to Loop once the gateway supports them and the agend_loop_sync_send_rule_channel_flags filter returns true.', 'agend-loop-sync' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Sent to Loop with every run. Members added by hand in Loop are never removed by the sync.', 'agend-loop-sync' ); ?></p>
 						</td>
 					</tr>
 				</tbody>
