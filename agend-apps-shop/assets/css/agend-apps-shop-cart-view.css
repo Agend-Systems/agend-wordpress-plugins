@@ -230,10 +230,33 @@
 	overflow: hidden;
 }
 
-.agend-apps-shop-cart-view .agend-shop-offer__action {
+.agend-apps-shop-cart-view .agend-shop-offer__booking {
 	grid-column: 2;
 	grid-row: 1 / span 3;
 	justify-self: start;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .5rem;
+	max-width: 100%;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__price {
+	color: var(--agend-shop-heading);
+	font-size: 1.1rem;
+	font-weight: 700;
+	line-height: 1.25;
+	font-variant-numeric: tabular-nums;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__price small {
+	color: var(--agend-shop-body);
+	font-size: .8rem;
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__action {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -269,7 +292,14 @@
 
 @container (max-width: 42rem) {
 	.agend-apps-shop-cart-view .agend-shop-offer__summary { grid-template-columns: minmax(0, 1fr); }
-	.agend-apps-shop-cart-view .agend-shop-offer__action { grid-column: 1; grid-row: auto; margin-top: .9rem; }
+	.agend-apps-shop-cart-view .agend-shop-offer__booking {
+		grid-column: 1;
+		grid-row: auto;
+		flex-flow: row wrap;
+		align-items: center;
+		gap: .5rem 1rem;
+		margin-top: .9rem;
+	}
 }
 
 @container (max-width: 29rem) {

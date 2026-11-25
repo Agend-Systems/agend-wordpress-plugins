@@ -560,8 +560,18 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( typeof offer.shortDescription === 'string' && offer.shortDescription.trim() ) {
 				summary.appendChild( textEl( 'p', 'agend-shop-offer__description', offer.shortDescription ) );
 			}
+			const booking = textEl( 'div', 'agend-shop-offer__booking' );
+			let priceLabel = '';
+			if ( quick && Number.isSafeInteger( offer.quickAdd.unitAmount ) && offer.quickAdd.unitAmount >= 0 &&
+				typeof offer.quickAdd.currency === 'string' && /^[A-Z]{3}$/i.test( offer.quickAdd.currency ) ) {
+				const amount = offer.quickAdd.unitAmount;
+				const price = textEl( 'div', 'agend-shop-offer__price', amount === 0 ? 'Free' : formatCurrency( amount, offer.quickAdd.currency ) );
+				if ( amount > 0 ) price.appendChild( textEl( 'small', '', ' per ticket' ) );
+				priceLabel = price.textContent;
+				booking.appendChild( price );
+			}
 			const action = textEl( quick ? 'button' : 'a', 'agend-shop-offer__action', quick ? 'Add to cart' : 'Choose tickets' );
-			action.setAttribute( 'aria-label', action.textContent + ' — ' + offer.name );
+			action.setAttribute( 'aria-label', [ action.textContent, offer.name, priceLabel ].filter( Boolean ).join( ' — ' ) );
 			if ( quick ) {
 				action.type = 'button';
 				action.addEventListener( 'click', () => addOffer( offer, action ) );
@@ -570,7 +580,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				selection.hash = 'agend-tickets';
 				action.href = selection.href;
 			}
-			summary.appendChild( action );
+			booking.appendChild( action );
+			summary.appendChild( booking );
 			card.appendChild( summary );
 			return card;
 		}

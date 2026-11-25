@@ -116,7 +116,7 @@ const workshop = {
   name: 'Practical leadership workshop', shortDescription: 'Practice a conversation in a small group.',
   imageUrl: 'https://shop.example/media/leadership.jpg', startDate: '2027-01-05T23:30:00Z',
   allDay: false, timezone: 'Australia/Adelaide', venueType: 'physical',
-  quickAdd: { ticketId: '2d84780d-0323-4774-8a80-cbb0187d2ba8' },
+  quickAdd: { ticketId: '2d84780d-0323-4774-8a80-cbb0187d2ba8', unitAmount: 1500, currency: 'AUD' },
 };
 
 test('the cart presents event details and adds one workshop to the existing order', async (t) => {
@@ -140,6 +140,8 @@ test('the cart presents event details and adds one workshop to the existing orde
   assert.match(section.querySelector('time').textContent, /6/);
   assert.match(section.textContent, /In person/);
   assert.match(section.textContent, /Practice a conversation/);
+  assert.equal(section.querySelector('.agend-shop-offer__price').textContent, new Intl.NumberFormat(undefined, { style: 'currency', currency: 'AUD' }).format(15) + ' per ticket');
+  assert.match(section.querySelector('button').getAttribute('aria-label'), /15\.00 per ticket/);
   const read = calls.find(({url}) => url.endsWith('/cart/recommendations'));
   assert.equal(read.options.cache, 'no-store');
   assert.equal(read.options.headers['X-Cart-Session'], 'token');
@@ -173,10 +175,23 @@ test('ticket choices go to the configured event detail and old metadata stays op
   const { dom } = await setup(t, { offers: [pick, pick, { ...pick, slug: '//offsite.test' }], eventUrl: '/?page_id=7&amp;agend_event=agend-event-slug' });
   const section = dom.querySelector('.agend-shop-offers');
   assert.equal(section.querySelectorAll('article').length, 1);
-  assert.equal(section.querySelector('img, time, b, button'), null);
+  assert.equal(section.querySelector('img, time, b, button, .agend-shop-offer__price'), null);
   const link = section.querySelector('.agend-shop-offer__action');
   assert.equal(link.textContent, 'Choose tickets');
   assert.equal(link.href, 'https://shop.example/?page_id=7&agend_event=workshop#agend-tickets');
+});
+
+test('a verified zero price is free and a legacy quick add without a price stays unpriced', async (t) => {
+  const { ticketId } = workshop.quickAdd;
+  const { dom } = await setup(t, { offers: [
+    { ...workshop, quickAdd: { ticketId, unitAmount: 0, currency: 'AUD' } },
+    { ...workshop, slug: 'legacy', quickAdd: { ticketId } },
+  ] });
+  const [free, legacy] = dom.querySelectorAll('.agend-shop-offer');
+  assert.equal(free.querySelector('.agend-shop-offer__price').textContent, 'Free');
+  assert.match(free.querySelector('button').getAttribute('aria-label'), /Free/);
+  assert.equal(legacy.querySelector('.agend-shop-offer__price'), null);
+  assert.equal(legacy.querySelector('button').textContent, 'Add to cart');
 });
 
 test('cart updates discard obsolete suggestions and checkout remains available during a failed read', async (t) => {
