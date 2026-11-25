@@ -59,7 +59,7 @@ const AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
 const AGEND_APPS_RECORDS_EVENTS_CART_RECOMMENDATIONS_OPTION = 'agend_apps_events_cart_recommendations';
 
 /**
- * Whether the Events widgets show recommendations after a ticket add.
+ * Whether the Shop cart shows event recommendations.
  */
 function agend_apps_records_events_cart_recommendations_enabled(): bool {
 	return '1' === get_option( AGEND_APPS_RECORDS_EVENTS_CART_RECOMMENDATIONS_OPTION, '' );
@@ -361,7 +361,7 @@ function agend_apps_records_settings_init(): void {
 
 	add_settings_field(
 		AGEND_APPS_RECORDS_EVENTS_CART_RECOMMENDATIONS_OPTION,
-		__( 'Event recommendations after adding tickets', 'agend-apps-core' ),
+		__( 'Event recommendations in the cart', 'agend-apps-core' ),
 		'agend_apps_records_settings_field_events_cart_recommendations',
 		'agend-elementor',
 		'agend_elementor_section_detail'
@@ -828,7 +828,7 @@ function agend_apps_records_settings_field_events_cart_recommendations(): void {
 	?>
 	<label>
 		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_EVENTS_CART_RECOMMENDATIONS_OPTION ); ?>" value="1" <?php checked( agend_apps_records_events_cart_recommendations_enabled() ); ?> />
-		<?php esc_html_e( 'Show a confirmation with related events before opening the cart', 'agend-apps-core' ); ?>
+		<?php esc_html_e( 'Show related events on the cart page', 'agend-apps-core' ); ?>
 	</label>
 	<p class="description"><?php esc_html_e( 'Requires Agend Apps Shop and a cart page. Configure related events in Agend Events.', 'agend-apps-core' ); ?></p>
 	<?php

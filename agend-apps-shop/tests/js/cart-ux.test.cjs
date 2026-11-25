@@ -5,12 +5,14 @@ const { test } = require('node:test');
 const { JSDOM } = require('jsdom');
 
 const source = readFileSync(join(__dirname, '../../assets/js/agend-apps-shop-cart-view.js'), 'utf8');
+const sessionSource = readFileSync(join(__dirname, '../../assets/js/agend-apps-shop-cart-session.js'), 'utf8');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 async function setup(t, {
   member = false, query = '', amount = 2000, attendees = [], browseUrl = 'https://shop.example/events/',
   signIn = false, payOnInvoice = '1', invoice = null, invoiceReply = null, portalHomeUrl = '',
   quantity = 1, productType = 'event_tickets', mutationStatus = 200,
+  offers = null, addOffer, cartStatus = 'open', eventUrl = '/events/event/agend-event-slug/',
 } = {}) {
   let buyer = member ? '<div class="agend-shop-cart-payment" hidden></div>' : '<input class="agend-shop-buyer-name"><input class="agend-shop-buyer-email">';
   if (signIn) {
@@ -28,6 +30,7 @@ async function setup(t, {
           <tbody class="agend-shop-cart-items"></tbody>
           <tfoot><tr><td class="agend-shop-cart-total-amount"></td></tr></tfoot>
         </table>
+        ${offers ? `<section class="agend-shop-offers" data-event-url="${eventUrl}" hidden><h2>Recommended for your booking</h2><div class="agend-shop-offers__cards"></div></section><p class="agend-shop-offers-message" role="status" tabindex="-1"></p>` : ''}
         ${buyer}
         ${checkoutButton}
         <div class="agend-shop-cart-message"></div><a class="agend-shop-keep-browsing" href="/members/">Keep browsing</a>
@@ -52,12 +55,19 @@ async function setup(t, {
     product_type: productType,
     metadata: { event_slug: 'event', attendees },
   };
-  window.agendApps = { restUrl: 'https://shop.example/api/' };
+  const items = [item];
+  window.agendApps = { restUrl: 'https://shop.example/api/', nonce: 'wp-nonce' };
   window.agendAppsShop = { continueShoppingUrl: browseUrl, payOnInvoice, portalHomeUrl };
-  window.AgendCartSession = { getToken: () => 'token', getHeaders: () => ({}) };
+  window.eval(sessionSource);
+  window.AgendCartSession.setToken('token');
   window.fetch = async (url, options = {}) => {
     calls.push({ url, options });
-    let payload = { data: { items: [item], total_amount: amount, currency: 'AUD' } };
+    let payload = { data: { items, total_amount: items.reduce((sum, row) => sum + row.unit_amount * row.quantity, 0), currency: 'AUD', status: cartStatus } };
+    if (url.endsWith('/cart/recommendations')) {
+      const list = typeof offers === 'function' ? await offers(items) : offers;
+      return { ok: true, status: 200, json: async () => ({ data: { source: null, recommendations: list } }) };
+    }
+    if (url.endsWith('/cart/items')) return addOffer(items, JSON.parse(options.body));
     if (url.endsWith('/cart/checkout-options')) {
       const option = typeof invoice === 'function' ? await invoice() : invoice;
       return { ok: true, status: 200, json: async () => ({ data: { invoice: option, membershipInstalments: null } }) };
@@ -100,6 +110,119 @@ const namedAttendee = {
   beneficiary_name: 'Alex',
   beneficiary_email: 'alex@example.test',
 };
+
+const workshop = {
+  type: 'event', eventId: '6a7f02ad-43ff-43fa-afe9-2abc46e15b4e', slug: 'workshop',
+  name: 'Practical leadership workshop', shortDescription: 'Practice a conversation in a small group.',
+  imageUrl: 'https://shop.example/media/leadership.jpg', startDate: '2027-01-05T23:30:00Z',
+  allDay: false, timezone: 'Australia/Adelaide', venueType: 'physical',
+  quickAdd: { ticketId: '2d84780d-0323-4774-8a80-cbb0187d2ba8' },
+};
+
+test('the cart presents event details and adds one workshop to the existing order', async (t) => {
+  let finish;
+  const { dom, calls, window } = await setup(t, {
+    offers: [workshop], // Even a stale suggestion is filtered against the refreshed cart.
+    addOffer: (items, payload) => new Promise((resolve) => {
+      assert.deepEqual(payload, { productType: 'event_tickets', productId: workshop.quickAdd.ticketId, quantity: 1 });
+      finish = () => {
+        items.push({ ...items[0], id: '2', name: workshop.name, unit_amount: 1500, metadata: { event_slug: 'workshop' } });
+        resolve({ ok: true, status: 200, json: async () => ({ data: { guestSessionToken: 'retained-session' } }) });
+      };
+    }),
+  });
+  const section = dom.querySelector('.agend-shop-offers');
+  assert.equal(section.hidden, false);
+  assert.equal(section.querySelector('h3 a').href, 'https://shop.example/events/event/workshop/');
+  assert.equal(section.querySelector('img').src, workshop.imageUrl);
+  assert.equal(section.querySelector('img').alt, '');
+  assert.equal(section.querySelector('time').dateTime, workshop.startDate);
+  assert.match(section.querySelector('time').textContent, /6/);
+  assert.match(section.textContent, /In person/);
+  assert.match(section.textContent, /Practice a conversation/);
+  const read = calls.find(({url}) => url.endsWith('/cart/recommendations'));
+  assert.equal(read.options.cache, 'no-store');
+  assert.equal(read.options.headers['X-Cart-Session'], 'token');
+  assert.equal(read.options.headers['X-WP-Nonce'], 'wp-nonce');
+
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  const unsaved = dom.querySelector('.agend-shop-attendee-name');
+  unsaved.value = 'Delegate in progress';
+  const button = section.querySelector('button');
+  button.click();
+  button.click();
+  assert.equal(button.disabled, true);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').disabled, true);
+  assert.equal(calls.filter(({ url }) => url.endsWith('/cart/items')).length, 1);
+  finish();
+  await tick();
+  assert.equal(window.AgendCartSession.getToken(), 'retained-session');
+  assert.equal(unsaved, dom.querySelector('.agend-shop-attendee-name'));
+  assert.equal(unsaved.value, 'Delegate in progress');
+  assert.match(dom.querySelector('.agend-shop-cart-items').textContent, /Practical leadership workshop/);
+  assert.match(dom.querySelector('.agend-shop-cart-total-amount').textContent, /35\.00/);
+  assert.match(dom.querySelector('.agend-shop-btn-proceed-checkout').textContent, /35\.00/);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').disabled, false);
+  assert.equal(section.hidden, true);
+  assert.match(dom.activeElement.textContent, /Practical leadership workshop added to your cart/);
+});
+
+test('ticket choices go to the configured event detail and old metadata stays optional', async (t) => {
+  const pick = { type: 'event', slug: 'workshop', name: '<b>Workshop</b>', imageUrl: 'javascript:void(0)' };
+  const { dom } = await setup(t, { offers: [pick, pick, { ...pick, slug: '//offsite.test' }], eventUrl: '/?page_id=7&amp;agend_event=agend-event-slug' });
+  const section = dom.querySelector('.agend-shop-offers');
+  assert.equal(section.querySelectorAll('article').length, 1);
+  assert.equal(section.querySelector('img, time, b, button'), null);
+  const link = section.querySelector('.agend-shop-offer__action');
+  assert.equal(link.textContent, 'Choose tickets');
+  assert.equal(link.href, 'https://shop.example/?page_id=7&agend_event=workshop#agend-tickets');
+});
+
+test('cart updates discard obsolete suggestions and checkout remains available during a failed read', async (t) => {
+  let first, second;
+  const { dom, window } = await setup(t, { offers: () => new Promise((resolve, reject) => {
+    if (first) second = reject; else first = resolve;
+  }) });
+  dom.dispatchEvent(new window.CustomEvent('agend:cart:updated'));
+  await tick();
+  second(new Error('Unavailable'));
+  first([workshop]);
+  await tick();
+  assert.equal(dom.querySelector('.agend-shop-offers').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').disabled, false);
+});
+
+test('an ineligible add explains the refusal and leaves the original total and checkout available', async (t) => {
+  const { dom } = await setup(t, { offers: [workshop], addOffer: () => ({
+    ok: false, status: 409, json: async () => ({ data: { body: { error: { message: 'Ticket sold out.' } } } }),
+  }) });
+  dom.querySelector('.agend-shop-offer__action').click();
+  await tick();
+  assert.equal(dom.querySelector('.agend-shop-offers-message').textContent, 'Ticket sold out.');
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').disabled, false);
+  assert.match(dom.querySelector('.agend-shop-cart-total-amount').textContent, /20\.00/);
+});
+
+test('locked carts, carts without tickets and sites with the setting off skip the lookup', async (t) => {
+  for (const opts of [{ offers: [workshop], cartStatus: 'locked' }, { offers: [workshop], productType: 'courses' }, {}]) {
+    const { calls } = await setup(t, opts);
+    assert.equal(calls.some(({url}) => url.endsWith('/cart/recommendations')), false);
+  }
+});
+
+test('a lost add reply checks the cart before enabling another attempt', async (t) => {
+  const { dom, calls } = await setup(t, { offers: [workshop], addOffer: (items) => {
+    items.push({ ...items[0], id: '2', name: workshop.name, metadata: { event_slug: workshop.slug } });
+    throw new Error('Lost response');
+  } });
+  dom.querySelector('.agend-shop-offer__action').click();
+  await tick();
+  assert.equal(calls.filter(({ url }) => url.endsWith('/cart/items')).length, 1);
+  assert.equal(dom.querySelector('.agend-shop-offers').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-offers-message').textContent, workshop.name + ' added to your cart.');
+  assert.match(dom.querySelector('.agend-shop-btn-proceed-checkout').textContent, /40\.00/);
+});
 
 test('guest buyer details copy only on request and offsite continuation falls back', async (t) => {
   const { dom } = await setup(t, {

@@ -62,6 +62,18 @@ final class CartViewRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_enable_the_cart_recommendation_section_only_when_configured(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/settings.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/pages.php';
+		self::assertStringNotContainsString( 'agend-shop-offers', agend_apps_records_render_cart_view( array() ) );
+		update_option( AGEND_APPS_RECORDS_EVENTS_CART_RECOMMENDATIONS_OPTION, '1' );
+		$html = agend_apps_records_render_cart_view( array() );
+		self::assertStringContainsString( 'class="agend-shop-offers"', $html );
+		self::assertStringContainsString( 'Recommended for your booking', $html );
+		self::assertLessThan( strpos( $html, 'agend-shop-cart-actions' ), strpos( $html, 'agend-shop-offers' ) );
+	}
+
+	#[Test]
 	public function should_prompt_for_sign_in_without_buyer_fields_or_checkout_when_sign_in_is_required(): void {
 		$_SERVER['REQUEST_URI'] = '/cart/?continue=%2Fevents%2F';
 		try {

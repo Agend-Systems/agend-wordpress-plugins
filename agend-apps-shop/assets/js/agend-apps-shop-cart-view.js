@@ -150,6 +150,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var paymentEl        = wrapper.querySelector( '.agend-shop-cart-payment' );
 		var confirmationEl   = wrapper.querySelector( '.agend-shop-invoice-confirmation' );
 		var signInLink       = wrapper.querySelector( '.agend-shop-cart-signin-link' );
+		var offersEl         = wrapper.querySelector( '.agend-shop-offers' );
+		var offerMessage     = wrapper.querySelector( '.agend-shop-offers-message' );
+		var cartRequest      = 0;
+		var addingOffer      = false;
 
 		var signedIn = 'true' === wrapper.dataset.memberSignedIn;
 		var eventTicketsOnly = false;
@@ -284,7 +288,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				'.agend-shop-atc-qty-input, .agend-shop-qty-input, .agend-shop-btn-remove-item, .agend-shop-btn-clear-cart, .agend-shop-btn-proceed-checkout'
 			);
 			controls.forEach( function ( el ) {
-				el.disabled = disabled;
+				el.disabled = disabled || ( el === checkoutBtn && addingOffer );
 			} );
 		}
 		function lockInputs(id) {
@@ -310,7 +314,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		/**
 		 * Loads the cart from the REST API and renders it.
 		 */
-		function loadCart(liveUpdate = false) {
+		function loadCart(liveUpdate = false, preserveRows = false) {
+			const request = ++cartRequest;
+			if ( offersEl ) offersEl.hidden = true;
 			// After an order on invoice the confirmation stays on screen; the
 			// now-empty cart is not shown over it.
 			if ( orderPlaced ) {
@@ -328,11 +334,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				showLoading();
 			}
 
-			fetch( restUrl + 'cart', {
+			return fetch( restUrl + 'cart', {
 				method: 'GET',
 				headers: AgendCartSession.getHeaders(),
 			} )
 				.then( function ( response ) {
+					if ( request !== cartRequest ) return null;
 					if ( 400 === response.status ) {
 						loadingEl.setAttribute( 'hidden', '' );
 						emptyEl.removeAttribute( 'hidden' );
@@ -351,12 +358,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				.then( function ( data ) {
 					// The 400 / error branches above already updated the UI and
 					// resolved to null; nothing more to do.
-					if ( ! data ) {
+					if ( ! data || request !== cartRequest ) {
 						return;
 					}
 					if ( data.data ) {
-						renderCart( data.data );
-						return;
+						renderCart( data.data, preserveRows );
+						return data.data.cart || data.data;
 					}
 					// An empty or just-cleared cart responds with
 					// { success: true, data: null }. Show the empty state instead
@@ -367,6 +374,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					emptyEl.removeAttribute( 'hidden' );
 				} )
 				.catch( function () {
+					if ( request !== cartRequest ) return;
 					loadingEl.setAttribute( 'hidden', '' );
 					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
 					unlockAllInputs()
@@ -383,7 +391,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 *
 		 * @param {Object} data Cart object, or a wrapper with a `cart` property.
 		 */
-		function renderCart( data ) {
+		function renderCart( data, preserveRows ) {
 			loadingEl.setAttribute( 'hidden', '' );
 			clearMessage();
 
@@ -391,6 +399,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var items = ( cart && cart.items ) || [];
 			var isLocked = 'locked' === cart.status;
 			cartLocked = isLocked;
+			emptyEl.hidden = true;
+			contentEl.hidden = true;
 			// Invalidate options for the previous cart, including empty/terminal carts.
 			clearTimeout( optionsTimer );
 			++optionsRequest;
@@ -430,13 +440,28 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			// Render rows. Event-ticket lines that carry their event slug get a
 			// collapsible per-seat attendee editor row directly beneath them
 			// (SPEC-CORE-20260721 US-5.3).
-			tbodyEl.innerHTML = '';
+			// A cart suggestion adds a new line. Keep unchanged rows and their
+			// attendee editors so unsaved names and field values survive the add.
+			var oldRows = new Map();
+			if ( preserveRows && ! isLocked ) {
+				Array.from( tbodyEl.rows ).forEach( function ( row ) {
+					if ( row.cartItem ) oldRows.set( row.cartItem.id, { row: row, panel: row.nextElementSibling } );
+				} );
+			}
+			var rows = document.createDocumentFragment();
 			items.forEach( function ( item ) {
-				tbodyEl.appendChild( buildItemRow( item, isLocked ) );
+				var existing = oldRows.get( item.id );
+				if ( existing && JSON.stringify( existing.row.cartItem ) === JSON.stringify( item ) ) {
+					rows.appendChild( existing.row );
+					if ( existing.panel && existing.panel.classList.contains( 'agend-shop-attendee-panel' ) ) rows.appendChild( existing.panel );
+					return;
+				}
+				rows.appendChild( buildItemRow( item, isLocked ) );
 				if ( isEventTicketWithEvent( item ) && ! isLocked ) {
-					tbodyEl.appendChild( buildAttendeePanelRow( item ) );
+					rows.appendChild( buildAttendeePanelRow( item ) );
 				}
 			} );
+			tbodyEl.replaceChildren( rows );
 
 			// Render total.
 			if ( totalAmountEl ) {
@@ -448,6 +473,148 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			invoiceKey = null;
 			updateCheckoutLabel( cart.total_amount, cart.currency );
 			loadCheckoutOptions( isLocked || 0 === Number( cart.total_amount ) );
+			if ( offersEl && hasEventTickets && ! isLocked ) loadOffers( items, cartRequest );
+		}
+
+		/** A slow or unavailable suggestions read must never delay the cart. */
+		async function loadOffers( items, request ) {
+			const cards = offersEl.querySelector( '.agend-shop-offers__cards' );
+			const inCart = new Set( items.map( item => item.metadata && item.metadata.event_slug ).filter( Boolean ) );
+			const controller = new AbortController();
+			const timer = window.setTimeout( () => controller.abort(), 4500 );
+			try {
+				const response = await fetch( restUrl + 'cart/recommendations', {
+					headers: AgendCartSession.getHeaders(), cache: 'no-store', signal: controller.signal,
+				} );
+				if ( ! response.ok ) return;
+				const body = await response.json();
+				if ( request !== cartRequest || controller.signal.aborted || orderPlaced ) return;
+				const offers = body && body.data && body.data.recommendations;
+				if ( ! Array.isArray( offers ) ) return;
+				cards.replaceChildren();
+				for ( const offer of offers ) {
+					if ( ! offer || offer.type !== 'event' || typeof offer.slug !== 'string' || !/^[a-z0-9_-]+$/i.test( offer.slug ) ||
+						typeof offer.name !== 'string' || ! offer.name.trim() || inCart.has( offer.slug ) ) continue;
+					const card = buildOffer( offer );
+					if ( card ) {
+						cards.appendChild( card );
+						inCart.add( offer.slug );
+					}
+					if ( cards.childElementCount === 2 ) break;
+				}
+				offersEl.hidden = ! cards.childElementCount;
+			} catch ( error ) {
+				// Checkout is still available when suggestions cannot be loaded.
+			} finally {
+				window.clearTimeout( timer );
+			}
+		}
+
+		function buildOffer( offer ) {
+			const template = offersEl.dataset.eventUrl || '';
+			const href = template.includes( 'agend-event-slug' )
+				? safeContinueUrl( template.replace( 'agend-event-slug', encodeURIComponent( offer.slug ) ) ) : null;
+			const ticket = offer.quickAdd && offer.quickAdd.ticketId;
+			const quick = typeof ticket === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test( ticket );
+			if ( ! href && ! quick ) return null;
+
+			const card = textEl( 'article', 'agend-shop-offer' );
+			if ( typeof offer.imageUrl === 'string' && /^https?:\/\//i.test( offer.imageUrl ) ) {
+				const image = textEl( 'img', 'agend-shop-offer__photo' );
+				image.alt = '';
+				image.src = offer.imageUrl;
+				image.addEventListener( 'error', () => image.remove(), { once: true } );
+				card.appendChild( image );
+			}
+			const summary = textEl( 'div', 'agend-shop-offer__summary' );
+			const title = textEl( 'h3', 'agend-shop-offer__title' );
+			if ( href ) {
+				const link = textEl( 'a', '', offer.name );
+				link.href = href;
+				title.appendChild( link );
+			} else {
+				title.textContent = offer.name;
+			}
+			summary.appendChild( title );
+
+			const meta = textEl( 'div', 'agend-shop-offer__meta' );
+			if ( offer.startDate ) {
+				try {
+					const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test( offer.startDate );
+					const options = {
+						weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+						timeZone: dateOnly ? 'UTC' : ( offer.timezone || 'UTC' ),
+					};
+					if ( ! dateOnly && offer.allDay === false && offer.timezone ) {
+						Object.assign( options, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' } );
+					}
+					const date = new Intl.DateTimeFormat( document.documentElement.lang || undefined, options ).format( new Date( offer.startDate ) );
+					const time = textEl( 'time', '', date );
+					time.dateTime = offer.startDate;
+					meta.appendChild( time );
+				} catch ( error ) { /* Ignore an unrecognised date or time zone. */ }
+			}
+			const format = { physical: 'In person', in_person: 'In person', virtual: 'Online', online: 'Online', hybrid: 'Hybrid' }[ offer.venueType ];
+			if ( typeof format === 'string' ) meta.appendChild( textEl( 'span', '', format ) );
+			if ( meta.childElementCount ) summary.appendChild( meta );
+			if ( typeof offer.shortDescription === 'string' && offer.shortDescription.trim() ) {
+				summary.appendChild( textEl( 'p', 'agend-shop-offer__description', offer.shortDescription ) );
+			}
+			const action = textEl( quick ? 'button' : 'a', 'agend-shop-offer__action', quick ? 'Add to cart' : 'Choose tickets' );
+			action.setAttribute( 'aria-label', action.textContent + ' — ' + offer.name );
+			if ( quick ) {
+				action.type = 'button';
+				action.addEventListener( 'click', () => addOffer( offer, action ) );
+			} else {
+				const selection = new URL( href );
+				selection.hash = 'agend-tickets';
+				action.href = selection.href;
+			}
+			summary.appendChild( action );
+			card.appendChild( summary );
+			return card;
+		}
+
+		async function addOffer( offer, button ) {
+			if ( addingOffer || cartLocked || orderPlaced || offersEl.hidden || ( checkoutBtn && checkoutBtn.disabled ) ) return;
+			addingOffer = true;
+			button.disabled = true;
+			button.setAttribute( 'aria-busy', 'true' );
+			button.textContent = 'Adding…';
+			if ( checkoutBtn ) checkoutBtn.disabled = true;
+			offerMessage.textContent = '';
+			let message;
+			let refreshed = true;
+			try {
+				await AgendCartSession.addItem( { productType: 'event_tickets', productId: offer.quickAdd.ticketId, quantity: 1 } );
+				message = offer.name + ' added to your cart.';
+			} catch ( error ) {
+				if ( error.refused ) {
+					offerMessage.textContent = error.message;
+					return;
+				}
+				// A lost response can still mean the line was added. Re-read the
+				// authoritative cart before the buyer can attempt another add.
+				message = 'Check the items in your cart before trying again.';
+			} finally {
+				if ( message ) {
+					document.dispatchEvent( new CustomEvent( 'agend:cart:updated', { detail: { origin: wrapper } } ) );
+					refreshed = await loadCart( true, true );
+					const found = refreshed && refreshed.items && refreshed.items.some( item => item.metadata && item.metadata.event_slug === offer.slug );
+					offerMessage.textContent = found ? offer.name + ' added to your cart.' : message;
+					if ( ! refreshed ) {
+						const link = textEl( 'a', '', 'Refresh your cart' );
+						link.href = window.location.href;
+						offerMessage.append( ' ', link );
+					}
+					offerMessage.focus( { preventScroll: true } );
+				}
+				addingOffer = false;
+				if ( checkoutBtn ) checkoutBtn.disabled = cartLocked || ! refreshed;
+				button.disabled = false;
+				button.removeAttribute( 'aria-busy' );
+				button.textContent = 'Add to cart';
+			}
 		}
 
 		/**
@@ -494,6 +661,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 */
 		function buildItemRow( item, isLocked ) {
 			var tr = document.createElement( 'tr' );
+			tr.cartItem = item;
 			tr.dataset.ItemId = item.id
 
 			var subtotal = item.unit_amount * item.quantity;
@@ -2103,6 +2271,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		// Proceed to Checkout.
 		if ( checkoutBtn ) {
 			checkoutBtn.addEventListener( 'click', function () {
+				if ( addingOffer ) return;
 				if ( 'invoice' === paymentMethod && invoiceOption ) {
 					submitInvoice();
 					return;
@@ -2222,7 +2391,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		// Listen for cart updates from other widgets on the same page.
-		document.addEventListener( 'agend:cart:updated', function () {
+		document.addEventListener( 'agend:cart:updated', function ( event ) {
+			if ( event.detail && event.detail.origin === wrapper ) return;
+			if ( offerMessage ) offerMessage.textContent = '';
 			loadCart();
 		} );
 

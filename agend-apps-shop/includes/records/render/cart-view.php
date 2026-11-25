@@ -42,6 +42,7 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 	// silently dropping them here would be a visual regression on those sites.
 	$is_member     = '' !== agend_apps_get_bearer_token();
 	$guest_allowed = function_exists( 'agend_apps_shop_guest_checkout_allowed' ) && agend_apps_shop_guest_checkout_allowed();
+	$show_offers   = function_exists( 'agend_apps_records_events_cart_recommendations_enabled' ) && agend_apps_records_events_cart_recommendations_enabled();
 	$sign_in_url   = '';
 	if ( ! $is_member && ! $guest_allowed ) {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- passed to home_url(), which builds and escapes the return path.
@@ -82,6 +83,13 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 					</tr>
 				</tfoot>
 			</table>
+<?php if ( $show_offers ) : ?>
+				<section class="agend-shop-offers" aria-label="<?php esc_attr_e( 'Recommended events', 'agend-apps-shop' ); ?>" data-event-url="<?php echo esc_url( Agend_Apps_Records_Pages::detail_url( 'event', 'agend-event-slug' ) ); ?>" hidden>
+					<h2><?php esc_html_e( 'Recommended for your booking', 'agend-apps-shop' ); ?></h2>
+					<div class="agend-shop-offers__cards"></div>
+				</section>
+				<p class="agend-shop-offers-message" role="status" tabindex="-1"></p>
+			<?php endif; ?>
 
 			<?php if ( '' !== $sign_in_url ) : ?>
 				<div class="agend-shop-cart-signin">

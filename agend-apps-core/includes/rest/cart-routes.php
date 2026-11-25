@@ -106,7 +106,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 					'permission_callback' => array( $this, 'nonce_check' ),
 					'args'                => array(
 						'sourceEventId' => array(
-							'required' => true,
+							'required' => false,
 							'type'     => 'string',
 							'pattern'  => '^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$',
 						),

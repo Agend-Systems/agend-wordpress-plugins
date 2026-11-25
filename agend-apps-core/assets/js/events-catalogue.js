@@ -24,7 +24,6 @@
 
   var DEEP_LINK_PARAM = 'agend_event';
   var PAY_PARAM = 'agend_pay';
-  var EVENT_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
   // The organisation timezone (IANA name, from cfg.timezone) — the FALLBACK for
   // rendering event times when an event carries no timezone of its own. Event
@@ -143,6 +142,10 @@
     if (Array.isArray(attendees) && attendees.length) {
       payload.attendees = attendees;
     }
+    if (window.AgendCartSession && typeof window.AgendCartSession.addItem === 'function') {
+      return window.AgendCartSession.addItem(payload);
+    }
+    // Sites can update Core independently of Shop.
     return fetch(url, {
       method: 'POST',
       headers: headers,
@@ -1315,6 +1318,14 @@
     return null;
   }
 
+  // A cart's "Choose tickets" link opens the normal ticket selector once.
+  // Consume the fragment so Back to event details stays on the detail page.
+  function consumeTicketLink() {
+    if (window.location.hash !== '#agend-tickets') return false;
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+    return true;
+  }
+
   function eventCheckoutSignIn(cfg, slug, lines) {
     if (!cfg.checkoutSignInUrl) return null;
     var destination;
@@ -1613,7 +1624,7 @@
         addChain.then(function () {
           document.dispatchEvent(new CustomEvent('agend:cart:updated'));
           if (!wrap.isConnected) return;
-          if (cfg.cartPageUrl && cfg.cartRecommendations !== true) {
+          if (cfg.cartPageUrl) {
             window.location.assign(cartDestination(cfg));
           } else if (typeof onSuccess === 'function') {
             onSuccess(event, 'cart');
@@ -1760,71 +1771,6 @@
     return url;
   }
 
-  function renderCartRecommendations(event, cfg, slot, data) {
-    if (!data || !data.source || data.source.type !== 'event' || data.source.id !== event.id || !Array.isArray(data.recommendations)) {
-      return;
-    }
-    var list = el('ul');
-    data.recommendations.slice(0, 2).forEach(function (item) {
-      if (!item || item.type !== 'event' || typeof item.eventId !== 'string' || !EVENT_ID_PATTERN.test(item.eventId) ||
-          item.eventId === event.id || typeof item.slug !== 'string' || !/^[a-z0-9_-]+$/i.test(item.slug) ||
-          typeof item.name !== 'string' || !item.name.trim()) {
-        return;
-      }
-      var target = eventDetailUrl(cfg, item.slug);
-      if (target.origin !== window.location.origin || !/^https?:$/.test(target.protocol)) return;
-      target.searchParams.delete(PAY_PARAM);
-      target.searchParams.delete('agend_resume_booking');
-      target.hash = '';
-      var entry = el('li');
-      var link = el('a', null, item.name);
-      link.href = target.href;
-      entry.appendChild(link);
-      list.appendChild(entry);
-    });
-    if (!list.children.length) return;
-    var section = el('div', 'agend-ev-reg__recommendations');
-    section.appendChild(el('h3', null, 'Related events'));
-    section.appendChild(list);
-    slot.appendChild(section);
-  }
-
-  function loadCartRecommendations(event, cfg, slot) {
-    if (typeof event.id !== 'string' || !EVENT_ID_PATTERN.test(event.id) || typeof AbortController === 'undefined') return;
-    var controller = new AbortController();
-    var timer = window.setTimeout(cancel, 2500);
-    var url = restBase().replace(/\/$/, '') + '/cart/recommendations';
-    url += (url.indexOf('?') === -1 ? '?' : '&') + 'sourceEventId=' + encodeURIComponent(event.id);
-
-    function cancel() {
-      controller.abort();
-      cleanup();
-    }
-
-    function cleanup() {
-      window.clearTimeout(timer);
-      document.removeEventListener('agend:cart:updated', cancel);
-    }
-
-    document.addEventListener('agend:cart:updated', cancel);
-    Promise.resolve().then(function () {
-      return fetch(url, {
-        method: 'GET',
-        headers: cartHeaders(),
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-    }).then(function (res) {
-      return res.ok ? res.json() : null;
-    }).then(function (body) {
-      if (!controller.signal.aborted && slot.isConnected && body) {
-        renderCartRecommendations(event, cfg, slot, body.data);
-      }
-    }).catch(function () {
-      // A recommendation lookup cannot invalidate a successful ticket add.
-    }).finally(cleanup);
-  }
-
   // Post-flow confirmation. `mode` is 'cart' when tickets were added to the
   // shop cart (US: shop integration), otherwise a completed registration.
   function renderConfirmation(event, cfg, onBackToEvent, onBackToEvents, mode) {
@@ -1853,12 +1799,6 @@
       actions.appendChild(listBtn);
     }
     panel.appendChild(actions);
-    if (isCart && cfg.cartRecommendations === true && cfg.cartPageUrl) {
-      var recommendations = el('div');
-      recommendations.setAttribute('aria-live', 'polite');
-      panel.appendChild(recommendations);
-      loadCartRecommendations(event, cfg, recommendations);
-    }
     wrap.appendChild(panel);
     return wrap;
   }
@@ -1983,7 +1923,7 @@
     }
     // Show the confirmation screen on return from a paid registration. Only
     // the URL-binding instance reads the payment-return param (Decision 2.6).
-    if (bindsUrl && btn && !btn.disabled && checkoutSignInState(slug)) {
+    if (bindsUrl && btn && !btn.disabled && (consumeTicketLink() || checkoutSignInState(slug))) {
       btn.click();
     }
     if (bindsUrl && ssrPayState() === 'success') {
@@ -2215,7 +2155,7 @@
           ));
           return;
         }
-        if (bindsUrl && checkoutSignInState(slug)) {
+        if (bindsUrl && ((!event.sold_out && consumeTicketLink()) || checkoutSignInState(slug))) {
           showRegistration(event);
           return;
         }
@@ -2383,19 +2323,8 @@
 
   function initAll() {
     var nodes = document.querySelectorAll('.agend-events-catalogue[data-agend-events-config]');
-    if (nodes.length) {
-      document.addEventListener('agend:cart:updated', clearCartRecommendations);
-    }
     Array.prototype.forEach.call(nodes, function (root, index) {
       initWidget(root, index === 0);
-    });
-  }
-
-  // This listener outlives individual confirmations without retaining them.
-  // A change from any cart widget invalidates the eligibility we displayed.
-  function clearCartRecommendations() {
-    document.querySelectorAll('.agend-ev-reg__recommendations').forEach(function (section) {
-      section.remove();
     });
   }
 

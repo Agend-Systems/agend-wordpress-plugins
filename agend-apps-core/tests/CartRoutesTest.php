@@ -78,6 +78,30 @@ final class CartRoutesTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_get_recommendations_from_the_cart_when_no_source_is_requested(): void {
+		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/cart/recommendations' );
+		$request->set_header( 'X-Cart-Session', 'visitor-cart' );
+		$request->set_param( 'accountId', 'ignored' );
+		$expected = array( 'source' => null, 'recommendations' => array() );
+		Agend_Test_WP::queue_response( 200, array( 'data' => $expected ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->get_cart_recommendations( $request );
+		self::assertSame( $expected, $response->get_data()['data'] );
+		self::assertStringEndsWith( '/v1/cart/recommendations', Agend_Test_WP::$requests[0]['url'] );
+		self::assertSame( 'visitor-cart', Agend_Test_WP::$requests[0]['headers']['X-Cart-Session'] );
+		self::assertSame( 'private, no-store', $response->get_headers()['Cache-Control'] );
+	}
+
+	#[Test]
+	public function should_refresh_the_cart_after_a_gateway_timeout_with_unknown_add_outcome(): void {
+		$key = 'agend_apps_' . agend_apps_cart_cache_key( '', 'current-cart' );
+		set_transient( $key, array( 'items' => array() ), 300 );
+		Agend_Test_WP::queue_response( 504, array( 'message' => 'Gateway timeout' ) );
+		$result = agend_apps_cart_add_item( array( 'productType' => 'event_tickets', 'productId' => 'ticket', 'quantity' => 1 ), 'current-cart' );
+		self::assertTrue( is_wp_error( $result ) );
+		self::assertFalse( get_transient( $key ) );
+	}
+
+	#[Test]
 	public function should_forward_sanitised_guest_buyer_when_a_guest_checks_out(): void {
 		$request = $this->checkoutRequest();
 		$request->set_param( 'guest_buyer', array( 'name' => ' <b>Alex Example</b> ', 'email' => 'alex @example.test' ) );

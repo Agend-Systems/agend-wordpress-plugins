@@ -124,6 +124,159 @@
 	color: var( --agend-shop-heading );
 }
 
+/* Event recommendations borrow the venue imagery and type of the programme. */
+.agend-apps-shop-cart-view .agend-shop-offers {
+	margin: 1.5rem 0;
+	container-type: inline-size;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offers[hidden],
+.agend-apps-shop-cart-view .agend-shop-offers-message:empty {
+	display: none;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offers h2 {
+	margin: 0 0 .8rem;
+	font-size: 1.2rem;
+	font-weight: 650;
+	line-height: 1.25;
+	letter-spacing: -.015em;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offers__cards {
+	display: grid;
+	gap: .8rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer {
+	display: flex;
+	align-items: stretch;
+	min-width: 0;
+	overflow: hidden;
+	background: #fff;
+	border: 1px solid var(--agend-shop-border-strong);
+	border-radius: var(--agend-shop-radius);
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__photo {
+	display: block;
+	width: 28%;
+	max-width: 15rem;
+	flex: none;
+	min-height: 0;
+	object-fit: cover;
+	align-self: stretch;
+	/* Replaced elements must not impose their intrinsic photo height. */
+	height: auto;
+	aspect-ratio: 4 / 3;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__summary {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	column-gap: clamp(.8rem, 3cqi, 2rem);
+	align-content: center;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	padding: clamp(1rem, 2.6cqi, 1.5rem);
+	overflow-wrap: anywhere;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__title {
+	grid-column: 1;
+	margin: 0;
+	font-size: clamp(1.15rem, 2.8cqi, 1.5rem);
+	font-weight: 700;
+	line-height: 1.2;
+	letter-spacing: -.02em;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__title a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__title a:hover {
+	text-decoration: underline;
+	text-underline-offset: .15em;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__meta {
+	grid-column: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .35rem .65rem;
+	margin-top: .5rem;
+	font-size: .85rem;
+	font-weight: 600;
+	line-height: 1.45;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__meta > * + * {
+	padding-inline-start: .65rem;
+	border-inline-start: 1px solid var(--agend-shop-border-strong);
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__description {
+	grid-column: 1;
+	margin: .5rem 0 0;
+	font-size: .94rem;
+	line-height: 1.45;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__action {
+	grid-column: 2;
+	grid-row: 1 / span 3;
+	justify-self: start;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	min-height: 44px;
+	padding: .55rem 1rem;
+	border: 1px solid var(--agend-shop-heading);
+	border-radius: var(--agend-shop-radius);
+	background: #fff;
+	color: var(--agend-shop-heading);
+	font: inherit;
+	font-size: .9rem;
+	font-weight: 700;
+	line-height: 1.2;
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__action:hover,
+.agend-apps-shop-cart-view .agend-shop-offer__action:focus-visible {
+	background: var(--agend-shop-heading);
+	color: #fff;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer :focus-visible {
+	outline: 2px solid var(--agend-shop-heading);
+	outline-offset: 3px;
+}
+
+.agend-apps-shop-cart-view .agend-shop-offer__action:disabled { cursor: wait; }
+.agend-apps-shop-cart-view .agend-shop-offers-message { font-weight: 600; }
+
+@container (max-width: 42rem) {
+	.agend-apps-shop-cart-view .agend-shop-offer__summary { grid-template-columns: minmax(0, 1fr); }
+	.agend-apps-shop-cart-view .agend-shop-offer__action { grid-column: 1; grid-row: auto; margin-top: .9rem; }
+}
+
+@container (max-width: 29rem) {
+	.agend-apps-shop-cart-view .agend-shop-offer { flex-direction: column; }
+	.agend-apps-shop-cart-view .agend-shop-offer__photo { width: 100%; max-width: none; height: auto; aspect-ratio: 2.5 / 1; }
+}
+
 /* -- Quantity stepper ----------------------------------------------------- */
 
 .agend-apps-shop-cart-view .agend-shop-atc-quantity {
