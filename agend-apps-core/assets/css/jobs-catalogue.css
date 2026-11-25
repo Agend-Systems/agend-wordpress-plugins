@@ -1339,6 +1339,13 @@
     min-width: 9.5rem;
   }
 
+  /* The place field and the radius share a grid row: the radius takes the
+     width it needs and the place field the rest, so on a phone the radius
+     no longer runs past the panel's edge. */
+  .agend-jobs-sb-search .agend-jobs-near__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   /* One column, with the filter panel opening under the count bar that
      holds the Filters button rather than above it. */
   .agend-jobs-sb-layout {
