@@ -142,6 +142,10 @@
     if (Array.isArray(attendees) && attendees.length) {
       payload.attendees = attendees;
     }
+    if (window.AgendCartSession && typeof window.AgendCartSession.addItem === 'function') {
+      return window.AgendCartSession.addItem(payload);
+    }
+    // Sites can update Core independently of Shop.
     return fetch(url, {
       method: 'POST',
       headers: headers,
@@ -1314,6 +1318,14 @@
     return null;
   }
 
+  // A cart's "Choose tickets" link opens the normal ticket selector once.
+  // Consume the fragment so Back to event details stays on the detail page.
+  function consumeTicketLink() {
+    if (window.location.hash !== '#agend-tickets') return false;
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+    return true;
+  }
+
   function eventCheckoutSignIn(cfg, slug, lines) {
     if (!cfg.checkoutSignInUrl) return null;
     var destination;
@@ -1416,6 +1428,7 @@
 
     // ticketId -> { entry, qty, price, attendeeRows: [{name,email}] }
     var lines = {};
+    var addingToCart = false;
     var resume = checkoutSignInState(event.slug);
     var signIn = !isSignedIn && (cfg.onDetailPage || cfg.ssrDetail)
       ? eventCheckoutSignIn(cfg, event.slug, lines) : null;
@@ -1446,9 +1459,11 @@
         totalRow.appendChild(el('span', null, 'Total'));
         totalRow.appendChild(el('span', null, t === 0 ? 'Free' : '$' + t.toFixed(2)));
         summary.appendChild(totalRow);
-        submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
+        if (!addingToCart) {
+          submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
+        }
       }
-      submit.disabled = !any;
+      submit.disabled = addingToCart || !any;
     }
 
     function buildAttendeeRows(line, container) {
@@ -1566,6 +1581,7 @@
     }
 
     submit.addEventListener('click', function () {
+      if (addingToCart) return;
       errorBox.style.display = 'none';
 
       // Cart mode (Agend Apps Shop active): add the selected ticket lines to the
@@ -1591,6 +1607,7 @@
           (missingName.value.trim() ? incomplete.querySelector('input[type="email"]') : missingName).focus();
           return;
         }
+        addingToCart = true;
         submit.disabled = true;
         submit.textContent = 'Adding…';
         // Add lines sequentially so a single guest cart session token (returned
@@ -1598,19 +1615,22 @@
         var addChain = Promise.resolve();
         cartSelected.forEach(function (id) {
           var line = lines[id];
+          var quantity = line.qty;
+          var attendees = cartAttendeesForLine(line);
           addChain = addChain.then(function () {
-            return cartAddItem('event_tickets', id, line.qty, cartAttendeesForLine(line));
+            return cartAddItem('event_tickets', id, quantity, attendees);
           });
         });
         addChain.then(function () {
           document.dispatchEvent(new CustomEvent('agend:cart:updated'));
+          if (!wrap.isConnected) return;
           if (cfg.cartPageUrl) {
             window.location.assign(cartDestination(cfg));
           } else if (typeof onSuccess === 'function') {
             onSuccess(event, 'cart');
           }
         }).catch(function (err) {
-          submit.disabled = false;
+          addingToCart = false;
           refreshSummary();
           showError((err && err.message) || 'Unable to add to cart. Please try again.');
         });
@@ -1736,6 +1756,19 @@
     } catch (e) {
       return cfg.cartPageUrl;
     }
+  }
+
+  // Use the site's Events page or the current catalogue's normal detail link.
+  // URL parsing preserves plain permalinks such as /?page_id=42.
+  function eventDetailUrl(cfg, slug) {
+    var base = cfg.detailBase || (cfg.prettyLinks && cfg.basePath);
+    var url = new URL(base || window.location.href, window.location.href);
+    if (cfg.prettyLinks && base) {
+      url.pathname = url.pathname.replace(/\/?$/, '/') + 'event/' + encodeURIComponent(slug) + '/';
+    } else {
+      url.searchParams.set(DEEP_LINK_PARAM, slug);
+    }
+    return url;
   }
 
   // Post-flow confirmation. `mode` is 'cart' when tickets were added to the
@@ -1890,7 +1923,7 @@
     }
     // Show the confirmation screen on return from a paid registration. Only
     // the URL-binding instance reads the payment-return param (Decision 2.6).
-    if (bindsUrl && btn && !btn.disabled && checkoutSignInState(slug)) {
+    if (bindsUrl && btn && !btn.disabled && (consumeTicketLink() || checkoutSignInState(slug))) {
       btn.click();
     }
     if (bindsUrl && ssrPayState() === 'success') {
@@ -1986,36 +2019,6 @@
     catalogueEl.appendChild(pager);
     }
 
-    // Build the canonical detail URL for a slug. The dedicated Events page
-    // (cfg.detailBase) takes priority over everything else: pretty path
-    // (/{page}/event/{slug}/) when permalinks are on, else the legacy
-    // ?agend_event= query param on that page. With no dedicated page
-    // configured, falls back to the host page path (US-1.2), and finally to
-    // the legacy query param on the current URL.
-    function deepLinkUrl(slug) {
-      if (cfg.detailBase) {
-        var detailBase = cfg.detailBase;
-        if (detailBase.charAt(detailBase.length - 1) !== '/') {
-          detailBase += '/';
-        }
-        if (cfg.prettyLinks) {
-          return detailBase + 'event/' + encodeURIComponent(slug) + '/';
-        }
-        var sep = detailBase.indexOf('?') === -1 ? '?' : '&';
-        return detailBase + sep + DEEP_LINK_PARAM + '=' + encodeURIComponent(slug);
-      }
-      if (cfg.prettyLinks && cfg.basePath) {
-        var base = cfg.basePath;
-        if (base.charAt(base.length - 1) !== '/') {
-          base += '/';
-        }
-        return base + 'event/' + encodeURIComponent(slug) + '/';
-      }
-      var url = new URL(window.location.href);
-      url.searchParams.set(DEEP_LINK_PARAM, slug);
-      return url.toString();
-    }
-
     // Opens an item: in place when the widget is on the detail page (or no
     // dedicated page is configured), otherwise navigates there.
     function mountFilters(target) {
@@ -2045,7 +2048,7 @@
         showDetail(slug, true);
         return;
       }
-      window.location.assign(deepLinkUrl(slug));
+      window.location.assign(eventDetailUrl(cfg, slug).href);
     }
 
     // Templated cards are raw HTML, so clicks are delegated from the grid. A
@@ -2107,7 +2110,7 @@
       try {
         var target;
         if (slug) {
-          target = deepLinkUrl(slug);
+          target = eventDetailUrl(cfg, slug).href;
         } else if (cfg.prettyLinks && cfg.basePath) {
           // Returning to the catalogue: drop the /event/{slug}/ path segment.
           target = cfg.basePath;
@@ -2152,7 +2155,7 @@
           ));
           return;
         }
-        if (bindsUrl && checkoutSignInState(slug)) {
+        if (bindsUrl && ((!event.sold_out && consumeTicketLink()) || checkoutSignInState(slug))) {
           showRegistration(event);
           return;
         }

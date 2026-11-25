@@ -93,5 +93,24 @@
 
 			return headers;
 		},
+
+		/** Add a line through the normal cart validation and retain the guest cart. */
+		addItem: async function ( item ) {
+			const headers = this.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+			const base = ( window.agendApps && window.agendApps.restUrl ) || '/wp-json/agend-apps/v1/';
+			const response = await fetch( base.replace( /\/$/, '' ) + '/cart/items', {
+				method: 'POST', headers, body: JSON.stringify( item ),
+			} );
+			const body = await response.json();
+			if ( ! response.ok || body.success === false ) {
+				const detail = body.data && body.data.body && body.data.body.error;
+				const error = new Error( ( detail && detail.message ) || body.message || 'Unable to add to cart. Please try again.' );
+				error.refused = response.status >= 400 && response.status < 500;
+				throw error;
+			}
+			if ( body.data && body.data.guestSessionToken ) this.setToken( body.data.guestSessionToken );
+			return body.data;
+		},
 	};
 }() );

@@ -30,6 +30,7 @@ function agend_apps_register_cart_routes(): void {
  *
  * Exposes:
  * - `GET    /agend-apps/v1/cart`            — retrieve cart.
+ * - `GET    /agend-apps/v1/cart/recommendations` — related events for the current cart.
  * - `POST   /agend-apps/v1/cart/items`      — add item.
  * - `POST   /agend-apps/v1/cart/items/attendees` — set item attendees.
  * - `PUT    /agend-apps/v1/cart/items/{id}` — update item.
@@ -92,6 +93,24 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_cart' ),
 					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/recommendations',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_cart_recommendations' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'sourceEventId' => array(
+							'required' => false,
+							'type'     => 'string',
+							'pattern'  => '^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$',
+						),
+					),
 				),
 			)
 		);
@@ -380,6 +399,24 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns event recommendations for the current cart identity.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_cart_recommendations( WP_REST_Request $request ): WP_REST_Response {
+		$identity = $this->get_identity( $request );
+		$result   = agend_apps_cart_get_recommendations(
+			(string) $request->get_param( 'sourceEventId' ),
+			$identity['cart_session'],
+			$identity['bearer_token']
+		);
+		$response = $this->prepare_api_response( $result );
+		$response->header( 'Cache-Control', 'private, no-store' );
+		return $response;
 	}
 
 	/**

@@ -685,6 +685,20 @@ The member login surface follows the same pattern:
 its own edit-mode notice for that case and otherwise echoes the core
 renderer.
 
+### Events: recommendations in the cart
+
+With Agend Apps Shop active and a cart page configured, enable **Event
+recommendations in the cart** under **Settings → Agend Widgets →
+Detail Pages**. Configure each event's recommendations in Agend Events.
+The site's API key needs the existing `cart.items.browse` scope.
+
+The Events catalogue opens the configured cart page after a successful add.
+The Shop Cart View block or Elementor widget displays up to two related
+events for the tickets in the cart. Delegates can add a single eligible
+ticket from its card. When a ticket choice or attendee details are needed,
+the card links to the configured Events detail page. The cart refreshes the
+items and total after an add.
+
 ### Directory: require sign-in to view details
 
 The directory catalogue's `require_login_for_detail` setting (Detail View, off by

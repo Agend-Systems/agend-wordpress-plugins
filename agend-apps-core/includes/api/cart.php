@@ -89,9 +89,34 @@ function agend_apps_cart_get( string $cart_session, string $bearer_token = '' ) 
 }
 
 /**
+ * Reads the current buyer's event recommendations without caching.
+ *
+ * @param string $source_event_id Optional source event UUID. Empty uses the events in the cart.
+ * @param string $cart_session    Guest cart session token.
+ * @param string $bearer_token    Member bearer token, or empty for a guest.
+ * @return array|WP_Error Gateway response.
+ */
+function agend_apps_cart_get_recommendations( string $source_event_id, string $cart_session, string $bearer_token ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/cart/recommendations',
+		array(
+			'query'               => '' === $source_event_id ? array() : array( 'sourceEventId' => $source_event_id ),
+			'cart_session'        => $cart_session,
+			'bearer_token'        => $bearer_token,
+			'bearer_resolved'     => true,
+			'timeout'             => 2,
+			'scope_recheck'       => false,
+			'isolated_rate_limit' => true, // Keep an optional lookup from blocking checkout locally.
+		)
+	);
+}
+
+/**
  * Adds an item to the cart.
  *
- * Clears any cached cart for the given identity after a successful add.
+ * Clears the identity's cached cart after an add attempt. A gateway timeout
+ * can arrive after the item was committed, so the next read must recheck it.
  *
  * @param array  $item         Item payload forwarded as the request body.
  * @param string $cart_session Cart session token forwarded as `X-Cart-Session`.
@@ -121,12 +146,12 @@ function agend_apps_cart_add_item( array $item, string $cart_session, string $be
 
 	$response = agend_apps_api()->request( 'POST', '/cart/items', $args );
 
+	$cache_key = agend_apps_cart_cache_key( $bearer_token, $cart_session );
+	delete_transient( 'agend_apps_' . $cache_key );
+
 	if ( is_wp_error( $response ) ) {
 		return $response;
 	}
-
-	$cache_key = agend_apps_cart_cache_key( $bearer_token, $cart_session );
-	delete_transient( 'agend_apps_' . $cache_key );
 
 	/**
 	 * Filters the decoded cart add-item response before it is returned.
