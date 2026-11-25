@@ -79,7 +79,8 @@ directly and never modifies the membership plugin.
   [Handing members to the sync](#handing-members-to-the-sync)). Community
   rules need the same `loop.committees.browse`, `loop.committees.create` and
   `loop.committees.delete` scopes as committee sync (see
-  [Community rules](#community-rules)).
+  [Community rules](#community-rules)), and Agend Apps Core 1.95.1 or later
+  to archive a rule's channel.
 - **Agend Membership** (`iugo-membership-kiosk`), active. Provides access to
   Upbeat and the `imk_membership_number` user meta used to identify members.
 - Single sign-on from this site into Loop (the Agend SAML IdP). The plugin
@@ -511,7 +512,10 @@ roster to the gateway. Two runs never overlap.
   on a complete, non-dry run only. A rule that matches nobody is not archived:
   on a complete run it sends an empty roster, which removes the memberships
   the sync added while members added by hand stay; in merge mode nothing is
-  sent.
+  sent. Archiving needs Agend Apps Core 1.95.1 or later. Older versions
+  encode the colon in `rule:<slug>`, the gateway does not find the channel,
+  and every complete run logs `Archive rule:<slug>: ... not found` while the
+  channel stays live.
 - **Dry run.** Logs "would sync rule" and "would archive rule channel" and
   sends nothing.
 

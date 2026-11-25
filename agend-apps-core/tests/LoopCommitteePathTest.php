@@ -64,6 +64,18 @@ final class LoopCommitteePathTest extends TestCase {
 	}
 
 	#[Test]
+	public function every_colon_is_kept(): void {
+		$this->assertSame( '/loop/integration/committees/rule:a:b', agend_apps_loop_committee_path( 'rule:a:b' ) );
+	}
+
+	#[Test]
+	public function an_id_that_already_holds_an_encoded_colon_is_never_decoded(): void {
+		// The literal text "%3A" is part of the id, so its percent sign is
+		// encoded and the gateway sees the id exactly as given.
+		$this->assertSame( '/loop/integration/committees/a%253Ab', agend_apps_loop_committee_path( 'a%3Ab' ) );
+	}
+
+	#[Test]
 	public function archiving_a_rule_channel_sends_the_colon(): void {
 		$this->ok( array( 'status' => 'archived' ) );
 
