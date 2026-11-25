@@ -1314,7 +1314,9 @@ credits" above).
   `at-table-reset` class so the theme's table margins stay out of its panel.
 - **Withdraw** a pending job and Agend frees its credit; **close** a live one
   and it does not, because the listing ran. The site forgets its cached credit
-  count after a post, a settled check and a withdrawal.
+  count after a post, a settled check and a withdrawal. Agend's count can lag
+  a few seconds behind a withdrawal, so after one the panel shows at least the
+  count it had before plus the credit returned.
 - **Fields**: everything `POST /v1/jobs/submissions` takes in `job` except the
   logo (the gateway only accepts an `https` address the site hosts, and there
   is no upload yet). The description is typed as plain text and sent as

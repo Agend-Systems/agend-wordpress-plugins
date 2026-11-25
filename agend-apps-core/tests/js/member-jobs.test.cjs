@@ -55,7 +55,7 @@ const items = [
   { id: 'd', title: 'New role', status: 'pending', submitted_at: '2026-11-24T00:00:00Z' },
 ];
 
-async function view(t, available, list = items) {
+async function view(t, available, list = items, override = null) {
   const dom = new JSDOM('<!doctype html><div class="agend-member-jobs"></div>', { url: 'https://example.test/my-account/my-jobs/' });
   t.after(() => dom.window.close());
   const { document } = dom.window;
@@ -80,7 +80,8 @@ async function view(t, available, list = items) {
   };
   Object.defineProperty(document, 'readyState', { value: 'complete' });
   const window = { agendApps: { nonce: 'n' }, addEventListener() {}, crypto: dom.window.crypto, location: dom.window.location };
-  new Function('window', 'document', 'fetch', source)(window, document, fetch);
+  const send = override ? (url, options) => override(url, options, fetch) : fetch;
+  new Function('window', 'document', 'fetch', source)(window, document, send);
   await settle();
   await settle();
   return root;
@@ -187,4 +188,27 @@ test('one credit reads in the singular, and a failed credit check says it is unk
   const unknown = await view(t, undefined);
   assert.equal(text(unknown.querySelector('.agend-member-jobs__credits-text')), 'Unknown.');
   assert.equal(unknown.querySelector('.agend-member-jobs__credits-count'), null);
+});
+
+test('after a withdraw the returned credit shows, even while Agend still counts it as spent', async (t) => {
+  const pending = [{ id: 'p', title: 'New role', status: 'pending', submitted_at: '2026-11-24T00:00:00Z' }];
+  const run = async (withdrawOk) => {
+    const root = await view(t, 3, pending, (url, options, plain) => {
+      if (options && options.method === 'POST') {
+        return Promise.resolve(withdrawOk
+          ? { ok: true, status: 200, json: async () => ({ success: true, data: { id: 'p', status: 'withdrawn' } }) }
+          : { ok: false, status: 500, json: async () => ({ success: false, message: 'Failed.' }) });
+      }
+      return plain(url, options);
+    });
+    const action = (label) => [...root.querySelectorAll('.agend-member-jobs__action')].find((b) => text(b) === label);
+    action('Withdraw').click();
+    action('Yes').click();
+    await settle();
+    await settle();
+    await settle();
+    return text(root.querySelector('.agend-member-jobs__credits-count'));
+  };
+  assert.equal(await run(true), '4');
+  assert.equal(await run(false), '3');
 });
