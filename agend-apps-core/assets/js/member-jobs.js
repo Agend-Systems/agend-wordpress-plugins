@@ -233,7 +233,10 @@
     this.load();
   };
 
-  MemberJobs.prototype.load = function () {
+  // `atLeast`: the fewest credits the panel may show. Withdrawing a job
+  // returns its credit, but Agend's count can lag a few seconds behind, so
+  // the panel would otherwise still show the credit as spent.
+  MemberJobs.prototype.load = function (atLeast) {
     var self = this;
     self.page = 1;
     return Promise.all([request(self.cfg, 'GET', '?page=1'), request(self.cfg, 'GET', '/credits')]).then(function (results) {
@@ -253,6 +256,9 @@
 
       self.credits = credits.ok ? credits.json.data : null;
       self.creditsFailed = !credits.ok;
+      if (self.credits && typeof atLeast === 'number' && self.creditCount() < atLeast) {
+        self.credits.available = atLeast;
+      }
       if (!credits.ok && BLOCKING_CODES[credits.json.code] && !self.blocked) {
         self.blocked = credits.json.message || self.m.loadFailed;
       }
@@ -598,7 +604,7 @@
           confirmThen(
             a.withdrawConfirm,
             function () {
-              self.act(item, '/withdraw', {}, a.withdrawn);
+              self.act(item, '/withdraw', {}, a.withdrawn, true);
             },
             true,
             a.withdraw
@@ -703,15 +709,18 @@
     window.setTimeout(ask, POLL_INTERVAL);
   };
 
-  MemberJobs.prototype.act = function (item, suffix, body, done) {
+  // `returnsCredit`: the action gives the job's credit back (Withdraw).
+  MemberJobs.prototype.act = function (item, suffix, body, done, returnsCredit) {
     var self = this;
+    var before = self.creditCount();
     request(self.cfg, 'POST', '/' + encodeURIComponent(item.id) + suffix, body).then(function (result) {
       if (result.ok) {
         self.notice = { text: done, error: false };
       } else {
         self.notice = { text: errorText(result, self.m), error: true };
       }
-      self.load().then(function () {
+      var atLeast = result.ok && returnsCredit && before !== null ? before + 1 : undefined;
+      self.load(atLeast).then(function () {
         var status = self.root.querySelector('[data-agend-mj-status]');
         if (status) {
           status.focus();
