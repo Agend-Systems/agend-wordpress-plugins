@@ -660,15 +660,15 @@ class Agend_Loop_Sync_Rule_Sync {
 		/**
 		 * Filters whether the optional channel flags are sent with a rule's roster.
 		 *
-		 * The flags `member_can_leave` and `allow_manual_members` need a gateway
-		 * that accepts them; a gateway that does not may reject the request for an
-		 * unknown field, so they are off by default. Return true once the gateway
-		 * supports them.
+		 * The Agend gateway accepts `member_can_leave` and `allow_manual_members`
+		 * (Agend release 2026-11-25), so they are sent by default. Return false to
+		 * leave them out, for example against an older or self-hosted gateway that
+		 * rejects unknown fields; Loop then keeps the channel's stored values.
 		 *
-		 * @param bool  $send Whether to send the flags. Default false.
+		 * @param bool  $send Whether to send the flags. Default true.
 		 * @param array $rule The rule.
 		 */
-		if ( apply_filters( 'agend_loop_sync_send_rule_channel_flags', false, $rule ) ) {
+		if ( apply_filters( 'agend_loop_sync_send_rule_channel_flags', true, $rule ) ) {
 			$payload['member_can_leave']     = (bool) $rule['member_can_leave'];
 			$payload['allow_manual_members'] = (bool) $rule['allow_manual_members'];
 		}
