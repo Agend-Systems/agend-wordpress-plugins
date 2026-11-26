@@ -26,6 +26,14 @@ final class EventDetailContentTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_disable_registration_when_the_purchase_window_has_closed(): void {
+		$html = $this->render( array( 'purchase_end_at' => '2000-01-01T00:00:00Z' ) );
+		self::assertStringContainsString( 'Registration closed', $html );
+		self::assertStringContainsString( 'data-agend-event-slug="conference" disabled', $html );
+		self::assertStringContainsString( 'Add to Calendar', $html );
+	}
+
+	#[Test]
 	public function should_render_presenters_after_description_when_speakers_are_present(): void {
 		$html = $this->render( array( 'speakers' => array(
 			array( 'name' => 'Alex <Example>', 'title' => 'Director & Founder', 'bio' => '<p>Presenter biography.</p>', 'photo_url' => 'https://example.test/photo.jpg' ),

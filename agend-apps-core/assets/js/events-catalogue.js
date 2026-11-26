@@ -655,6 +655,13 @@
     return container;
   }
 
+  function registrationWindowMessage(event) {
+    var now = Date.now();
+    if (Date.parse(event.purchase_end_at) <= now) return 'Registration closed';
+    if (Date.parse(event.purchase_start_at) > now) return 'Registration not open yet';
+    return '';
+  }
+
   function renderDetail(event, cfg, onBack, onRegister) {
     var wrap = el('div', 'agend-ev-detail');
 
@@ -771,16 +778,17 @@
       reg.appendChild(el('div', 'agend-ev-detail__registered', '✓ You’re registered for this event'));
     }
 
-    var ctaLabel = event.sold_out
-      ? 'Sold Out'
-      : (isRegistered ? 'Register Another Attendee' : 'Register Now');
+    var unavailable = registrationWindowMessage(event) || (event.sold_out ? 'Sold Out' : '');
+    var ctaLabel = unavailable || (isRegistered ? 'Register Another Attendee' : 'Register Now');
     var registerBtn = el('button', 'agend-ev-detail__cta', ctaLabel);
-    if (event.sold_out) {
-      registerBtn.disabled = true;
-    }
+    registerBtn.disabled = !!unavailable;
     registerBtn.setAttribute('data-agend-event-slug', event.slug);
     registerBtn.addEventListener('click', function () {
-      if (!event.sold_out && typeof onRegister === 'function') {
+      var windowMessage = registrationWindowMessage(event);
+      if (windowMessage) {
+        registerBtn.textContent = windowMessage;
+        registerBtn.disabled = true;
+      } else if (typeof onRegister === 'function') {
         onRegister(event);
       }
     });
@@ -1260,24 +1268,26 @@
   // the gateway re-resolves it at registration time, so this is display-only.
   function ticketTierPrice(entry, group) {
     var tiers = (entry && entry.pricingTiers) || [];
+    var value;
     if (tiers.length) {
       var tier = tiers[0].tier || tiers[0];
-      var v;
       if (group === 'corporate') {
-        v = tier.corporate_price != null ? tier.corporate_price : tier.member_price;
-      } else if (group === 'member') {
-        v = tier.member_price;
+        value = tier.corporate_price != null ? tier.corporate_price : tier.member_price;
       } else {
-        v = tier.non_member_price;
+        value = group === 'member' ? tier.member_price : tier.non_member_price;
       }
-      if (v === null || v === undefined) {
-        v = tier.non_member_price != null ? tier.non_member_price : tier.member_price;
+      if (value == null) {
+        value = tier.non_member_price != null ? tier.non_member_price : tier.member_price;
       }
-      return typeof v === 'string' ? parseFloat(v) : (v || 0);
+    } else {
+      var ticket = (entry && entry.ticket) || entry || {};
+      value = ticket.price != null ? ticket.price : ticket.base_price;
     }
-    var t = (entry && entry.ticket) || entry || {};
-    var p = t.price != null ? t.price : t.base_price;
-    return typeof p === 'string' ? parseFloat(p) : (p || 0);
+    if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') {
+      return null;
+    }
+    var price = Number(value);
+    return Number.isFinite(price) && price >= 0 ? price : null;
   }
 
   // The viewer's server-resolved price group, or '' when signed out. Presence
@@ -1360,6 +1370,12 @@
 
     wrap.appendChild(el('h2', 'agend-ev-reg__title', 'Register: ' + (event.name || '')));
     wrap.appendChild(el('div', 'agend-ev-reg__meta', dateRange(event.start_date, event.end_date, event.timezone)));
+
+    var unavailable = registrationWindowMessage(event);
+    if (unavailable) {
+      wrap.appendChild(el('p', 'agend-ev-status', unavailable));
+      return wrap;
+    }
 
     var status = el('div', 'agend-ev-status', 'Loading tickets…');
     wrap.appendChild(status);
@@ -1473,7 +1489,9 @@
     }
 
     apiGet('/events/' + encodeURIComponent(event.slug) + '/tickets', {}).then(function (body) {
-      var items = unwrapList(body).items;
+      var items = unwrapList(body).items.filter(function (entry) {
+        return ticketTierPrice(entry, group) !== null;
+      });
       status.style.display = 'none';
       form.style.display = '';
       if (!items.length) {
@@ -1567,6 +1585,12 @@
 
     submit.addEventListener('click', function () {
       errorBox.style.display = 'none';
+      var unavailable = registrationWindowMessage(event);
+      if (unavailable) {
+        showError(unavailable);
+        submit.disabled = true;
+        return;
+      }
 
       // Cart mode (Agend Apps Shop active): add the selected ticket lines to the
       // shop cart instead of registering and paying immediately. Any per-seat
@@ -1879,6 +1903,11 @@
         btn.disabled = true;
         apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
           var event = unwrapOne(body);
+          var unavailable = event && registrationWindowMessage(event);
+          if (unavailable) {
+            btn.textContent = unavailable;
+            return;
+          }
           btn.disabled = false;
           if (event && event.slug) {
             openSsrRegistration(root, detailEl, event, cfg);
