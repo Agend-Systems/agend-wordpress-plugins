@@ -294,6 +294,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-endpoint-scopes.php';
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
+	add_filter( 'wp_saml_idp_nameid_options', 'agend_apps_saml_idp_nameid_options' );
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/account-link-state.php';

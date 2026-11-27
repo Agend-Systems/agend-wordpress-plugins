@@ -118,6 +118,127 @@ function agend_apps_cli_scrub_secrets_plan( bool $idp_class_exists, bool $includ
 	);
 }
 
+/**
+ * Why `wp agend-apps backfill-external-ids` must not run on this site, or an
+ * empty string when it may.
+ *
+ * Outside `wordpress` sign-in mode, or with an external id meta key
+ * configured, {@see agend_apps_ensure_external_id()} resolves the configured
+ * value and mints nothing, so the command would report success while doing
+ * nothing.
+ *
+ * @return string The refusal message, or "" when the backfill may run.
+ */
+function agend_apps_cli_backfill_refusal(): string {
+	if ( ! Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		return __( 'This site is not in WordPress account sign-in mode, so members are not identified by a minted external id. Nothing was changed.', 'agend-apps-core' );
+	}
+
+	if ( ! agend_apps_guid_external_id_active() ) {
+		return __( 'A member ID meta key is configured on Settings > Identity and SSO, so members are identified by that key, not a minted external id. Nothing was changed.', 'agend-apps-core' );
+	}
+
+	return '';
+}
+
+/**
+ * Gives every user a minted external id, one page of user ids at a time.
+ *
+ * Pure apart from {@see agend_apps_ensure_external_id()}: the caller supplies
+ * the pages, so the unit suite can drive it without `WP_User_Query`. Paging
+ * stops at the first page shorter than `$batch_size`.
+ *
+ * A user who already resolves an external id is counted and left alone.
+ * Otherwise a dry run counts them as would-mint and writes nothing; a real
+ * run mints through {@see agend_apps_ensure_external_id()}, which never
+ * overwrites and returns the winner's value on a concurrent mint, so a
+ * re-run is safe and mints nothing.
+ *
+ * @param callable $fetch_page Takes a 1-based page number and the page size,
+ *                             returns that page's user ids.
+ * @param bool     $dry_run    Count only; write nothing.
+ * @param int      $batch_size Users per page (at least 1).
+ * @return array{scanned: int, existing: int, minted: int, failed: int}
+ *         `minted` counts would-mint users on a dry run.
+ */
+function agend_apps_cli_backfill_external_ids( callable $fetch_page, bool $dry_run, int $batch_size ): array {
+	$batch_size = max( 1, $batch_size );
+	$counts     = array(
+		'scanned'  => 0,
+		'existing' => 0,
+		'minted'   => 0,
+		'failed'   => 0,
+	);
+
+	for ( $page = 1; ; $page++ ) {
+		$user_ids = (array) $fetch_page( $page, $batch_size );
+
+		foreach ( $user_ids as $user_id ) {
+			$user_id = (int) $user_id;
+			++$counts['scanned'];
+
+			if ( $user_id <= 0 ) {
+				++$counts['failed'];
+				continue;
+			}
+
+			if ( '' !== agend_apps_user_external_id( $user_id ) ) {
+				++$counts['existing'];
+				continue;
+			}
+
+			if ( $dry_run ) {
+				++$counts['minted'];
+				continue;
+			}
+
+			if ( '' === agend_apps_ensure_external_id( $user_id ) ) {
+				++$counts['failed'];
+				continue;
+			}
+
+			++$counts['minted'];
+		}
+
+		if ( count( $user_ids ) < $batch_size ) {
+			break;
+		}
+	}
+
+	return $counts;
+}
+
+/**
+ * One page of this site's user ids, in id order, for
+ * {@see agend_apps_cli_backfill_external_ids()}.
+ *
+ * Thin `WP_User_Query` wrapper, kept out of the unit suite like
+ * {@see agend_apps_connect_nameid_empty_count()}. Clears the runtime object
+ * cache first, so a large site's user meta does not pile up across pages.
+ *
+ * @param int $page       1-based page number.
+ * @param int $batch_size Users per page.
+ * @return int[]
+ */
+function agend_apps_cli_backfill_fetch_page( int $page, int $batch_size ): array {
+	if ( function_exists( 'wp_cache_flush_runtime' ) ) {
+		wp_cache_flush_runtime();
+	}
+
+	$query = new WP_User_Query(
+		array(
+			'fields'      => 'ID',
+			'orderby'     => 'ID',
+			'order'       => 'ASC',
+			'number'      => $batch_size,
+			'paged'       => $page,
+			'count_total' => false,
+		)
+	);
+
+	return array_map( 'intval', (array) $query->get_results() );
+}
+
 if ( ! class_exists( 'Agend_Apps_CLI' ) ) :
 	/**
 	 * `wp agend-apps <command>` -- registered only in a WP-CLI context, from
@@ -195,6 +316,62 @@ if ( ! class_exists( 'Agend_Apps_CLI' ) ) :
 			} catch ( Throwable $e ) {
 				WP_CLI::error( $e->getMessage() );
 			}
+		}
+
+		/**
+		 * Gives every existing user a minted Agend external id (GUID).
+		 *
+		 * Users created before this site switched to WordPress account
+		 * sign-in mode have none, so they cannot be linked to Agend, and the
+		 * IdP asserts an empty NameID for them once it asserts the GUID.
+		 * Never changes an existing value, so it is safe to run again.
+		 * Refuses unless the site is in WordPress account sign-in mode with
+		 * no member ID meta key configured. Prints counts only.
+		 *
+		 * ## OPTIONS
+		 *
+		 * [--dry-run]
+		 * : Report how many users would get an external id, and write nothing.
+		 *
+		 * ## EXAMPLES
+		 *
+		 *     wp agend-apps backfill-external-ids --dry-run
+		 *     wp agend-apps backfill-external-ids
+		 *
+		 * @param array $args       Positional arguments (unused).
+		 * @param array $assoc_args Associative arguments: `dry-run`.
+		 */
+		public function backfill_external_ids( array $args, array $assoc_args ): void {
+			$refusal = agend_apps_cli_backfill_refusal();
+
+			if ( '' !== $refusal ) {
+				WP_CLI::error( $refusal );
+				return;
+			}
+
+			$dry_run = ! empty( $assoc_args['dry-run'] );
+			$counts  = agend_apps_cli_backfill_external_ids( 'agend_apps_cli_backfill_fetch_page', $dry_run, 500 );
+
+			// translators: %d: number of users checked.
+			WP_CLI::log( sprintf( __( 'Users checked: %d', 'agend-apps-core' ), $counts['scanned'] ) );
+			// translators: %d: number of users who already had an external id.
+			WP_CLI::log( sprintf( __( 'Already had an external id: %d', 'agend-apps-core' ), $counts['existing'] ) );
+			// translators: %d: number of users given, or on a dry run who would be given, an external id.
+			$minted_label = $dry_run ? __( 'Would mint: %d', 'agend-apps-core' ) : __( 'Minted: %d', 'agend-apps-core' );
+			WP_CLI::log( sprintf( $minted_label, $counts['minted'] ) );
+			// translators: %d: number of users who could not be given an external id.
+			WP_CLI::log( sprintf( __( 'Failed: %d', 'agend-apps-core' ), $counts['failed'] ) );
+
+			if ( $counts['failed'] > 0 ) {
+				WP_CLI::error( __( 'Some users could not be given an external id. Run the command again.', 'agend-apps-core' ) );
+				return;
+			}
+
+			WP_CLI::success(
+				$dry_run
+					? __( 'Dry run: nothing was written.', 'agend-apps-core' )
+					: __( 'Every user has an Agend external id.', 'agend-apps-core' )
+			);
 		}
 	}
 endif;
