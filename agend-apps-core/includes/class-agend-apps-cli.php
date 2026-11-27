@@ -148,12 +148,12 @@ function agend_apps_cli_backfill_refusal(): string {
  * the pages, so the unit suite can drive it without `WP_User_Query`. Paging
  * stops at the first page shorter than `$batch_size`.
  *
- * A user who already has a GUID is counted and left alone. A user who
- * resolves an external id from somewhere else (the default
- * `imk_membership_number` meta, or the `agend_apps_current_user_external_id`
- * filter) is counted as `other_id` and also left alone: minting would not
- * change what the plugin resolves them on, and the IdP, asserting the GUID,
- * sends an empty NameID for them. Otherwise a dry run counts them as
+ * A user whose external id resolves to their GUID is counted and left alone.
+ * A user who resolves on something else (the default `imk_membership_number`
+ * meta, or the `agend_apps_current_user_external_id` filter), whether or not
+ * they also hold a GUID, is counted as `other_id` and also left alone:
+ * minting would not change what the plugin resolves them on, and the IdP,
+ * asserting the GUID, sends a NameID that disagrees with it. Otherwise a dry run counts them as
  * would-mint and writes nothing; a real run mints through
  * {@see agend_apps_ensure_external_id()}, which never overwrites and returns
  * the winner's value on a concurrent mint, so a re-run is safe and mints
@@ -189,12 +189,15 @@ function agend_apps_cli_backfill_external_ids( callable $fetch_page, bool $dry_r
 				continue;
 			}
 
-			if ( '' !== (string) get_user_meta( $user_id, AGEND_APPS_EXTERNAL_ID_META, true ) ) {
+			$guid     = (string) get_user_meta( $user_id, AGEND_APPS_EXTERNAL_ID_META, true );
+			$resolved = agend_apps_user_external_id( $user_id );
+
+			if ( '' !== $guid && $resolved === $guid ) {
 				++$counts['existing'];
 				continue;
 			}
 
-			if ( '' !== agend_apps_user_external_id( $user_id ) ) {
+			if ( '' !== $resolved || '' !== $guid ) {
 				++$counts['other_id'];
 				continue;
 			}
@@ -256,7 +259,7 @@ function agend_apps_cli_backfill_report( array $counts, bool $dry_run ): array {
 	$warnings = array();
 
 	if ( $counts['other_id'] > 0 ) {
-		$warnings[] = __( 'Some users are identified by another external id (the imk_membership_number user meta, or the agend_apps_current_user_external_id filter), so they were not given a GUID. An IdP asserting the GUID as NameID sends an empty NameID for them, and they cannot be linked.', 'agend-apps-core' );
+		$warnings[] = __( 'Some users are identified by another external id (the imk_membership_number user meta, or the agend_apps_current_user_external_id filter), so they were not given a GUID. An IdP asserting the GUID as NameID sends an empty value, or one that disagrees with that id, for them, and they cannot be linked.', 'agend-apps-core' );
 	}
 
 	$error = '';
@@ -412,6 +415,8 @@ if ( ! class_exists( 'Agend_Apps_CLI' ) ) :
 		 *
 		 *     wp agend-apps backfill-external-ids --dry-run
 		 *     wp agend-apps backfill-external-ids
+		 *
+		 * @subcommand backfill-external-ids
 		 *
 		 * @param array $args       Positional arguments (unused).
 		 * @param array $assoc_args Associative arguments: `dry-run`.

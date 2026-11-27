@@ -151,6 +151,18 @@ final class CliBackfillExternalIdsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_count_a_user_with_a_guid_who_resolves_on_the_member_number_as_other_id_when_run(): void {
+		$GLOBALS['agend_test_user_meta'][1]['imk_membership_number']      = 'M-1';
+		$GLOBALS['agend_test_user_meta'][1][ \AGEND_APPS_EXTERNAL_ID_META ] = 'held-guid';
+
+		$counts = \agend_apps_cli_backfill_external_ids( $this->pages( array( 1 ) ), false, 5 );
+
+		$this->assertSame( 1, $counts['other_id'] );
+		$this->assertSame( 0, $counts['existing'] );
+		$this->assertSame( 'held-guid', $GLOBALS['agend_test_user_meta'][1][ \AGEND_APPS_EXTERNAL_ID_META ] );
+	}
+
+	#[Test]
 	public function should_count_a_user_resolved_by_the_external_id_filter_as_other_id_when_run(): void {
 		add_filter(
 			'agend_apps_current_user_external_id',
@@ -186,6 +198,13 @@ final class CliBackfillExternalIdsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_name_the_subcommand_with_hyphens_because_wp_cli_keeps_method_underscores(): void {
+		$doc = (string) ( new \ReflectionMethod( \Agend_Apps_CLI::class, 'backfill_external_ids' ) )->getDocComment();
+
+		$this->assertMatchesRegularExpression( '/@subcommand backfill-external-ids\s/', $doc );
+	}
+
+	#[Test]
 	public function should_report_counts_and_succeed_when_every_user_has_a_guid(): void {
 		$report = \agend_apps_cli_backfill_report( $this->counts( array( 'scanned' => 3, 'existing' => 1, 'minted' => 2 ) ), false );
 
@@ -217,7 +236,7 @@ final class CliBackfillExternalIdsTest extends TestCase {
 		$report = \agend_apps_cli_backfill_report( $this->counts( array( 'scanned' => 2, 'other_id' => 1, 'minted' => 1 ) ), false );
 
 		$this->assertCount( 1, $report['warnings'] );
-		$this->assertStringContainsString( 'empty NameID', $report['warnings'][0] );
+		$this->assertStringContainsString( 'cannot be linked', $report['warnings'][0] );
 		$this->assertStringNotContainsString( 'Every user has a GUID', $report['success'] );
 	}
 

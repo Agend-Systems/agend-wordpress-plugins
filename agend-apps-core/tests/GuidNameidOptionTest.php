@@ -102,15 +102,15 @@ final class GuidNameidOptionTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_name_the_configured_key_and_warn_it_is_not_listed_when_the_settings_field_renders_with_a_meta_key(): void {
+	public function should_name_the_configured_key_in_the_check_before_saving_when_the_settings_field_renders_with_a_meta_key(): void {
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS );
 		update_option( 'agend_apps_external_id_meta_key', 'member_number' );
 
 		$html = $this->renderMetaKeyField();
 
-		$this->assertStringContainsString( '<code>member_number</code>', $html );
+		$this->assertSame( 2, substr_count( $html, '<code>member_number</code>' ) );
 		$this->assertStringNotContainsString( 'Agend external id (GUID)', $html );
-		$this->assertStringContainsString( 'Saving that form changes the NameID', $html );
+		$this->assertStringContainsString( 'saving that form changes the NameID', $html );
 	}
 
 	#[Test]
