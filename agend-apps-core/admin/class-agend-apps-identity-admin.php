@@ -697,7 +697,7 @@ class Agend_Apps_Identity_Admin {
 		echo '<p class="description">';
 
 		if ( function_exists( 'agend_apps_guid_external_id_active' ) && agend_apps_guid_external_id_active() ) {
-			esc_html_e( 'In agend-saml-idp, set this under Attribute Mapping > NameID Attribute by choosing "Agend external id (GUID)". Run "wp agend-apps backfill-external-ids" first, so existing users have one. That screen loads the saved NameID only after you choose the service provider, and only when the saved key is one of its options: if the dropdown then shows anything other than "Agend external id (GUID)", or nothing, saving that form changes the NameID.', 'agend-apps-core' );
+			esc_html_e( 'In agend-saml-idp, set the Agend service provider\'s NameID Format to unspecified, then set Attribute Mapping > NameID Attribute to "Agend external id (GUID)". Run "wp agend-apps backfill-external-ids" first, so existing users have one. That screen loads the saved NameID only after you choose the service provider, and only when the saved key is one of its options: if the dropdown then shows anything other than "Agend external id (GUID)", or nothing, saving that form changes the NameID.', 'agend-apps-core' );
 		} else {
 			esc_html_e( 'agend-saml-idp\'s Attribute Mapping screen does not list a configured meta key as a NameID option, so its dropdown shows a different value or none. Saving that form changes the NameID.', 'agend-apps-core' );
 		}

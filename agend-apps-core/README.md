@@ -150,11 +150,21 @@ NameID:
    wp agend-apps backfill-external-ids
    ```
 
-   The command never changes an existing value, so it is safe to run again. It
-   prints how many users already had one, were given one and failed, and
-   nothing about any user. It refuses outside `wordpress` mode or when a
-   Member ID Meta Key is configured.
-2. In agend-saml-idp, open Attribute Mapping, choose the Agend service provider
+   The command never changes an existing value, so it is safe to run again; run
+   it again if users were deleted while it ran, since that can make it miss a
+   user. It prints counts only, never anything about a user, and refuses
+   outside `wordpress` mode or when a Member ID Meta Key is configured. It
+   warns about users identified by another id (the `imk_membership_number`
+   user meta, or the `agend_apps_current_user_external_id` filter): they get
+   no GUID, so the IdP would assert an empty NameID for them. It fails on a
+   user whose `_agend_apps_external_id` is stored empty, which it never
+   overwrites: delete that value and run it again. On multisite it covers one
+   site's users; run it for each site with `--url`.
+2. In agend-saml-idp, on the Agend service provider, set **NameID Format** to
+   unspecified, as "Connect this site" does. A service provider created by
+   hand defaults to the email format, and the persistent and transient formats
+   ignore the NameID Attribute.
+3. In agend-saml-idp, open Attribute Mapping, choose the Agend service provider
    and set **NameID Attribute** to **Agend external id (GUID)**. This plugin
    adds that option only in `wordpress` mode with no Member ID Meta Key
    configured.
@@ -176,8 +186,8 @@ menu link does this, with no code:
    and leave its **Default Relay State** empty. "Connect this site" creates the
    service provider with unsolicited SSO off.
 2. Link "My account" to
-   `/?saml=idp-sso&idp_initiated=1&sp=<Agend SP entity id>`.
-   `idp_initiated=1` is required: without it agend-saml-idp's `idp-sso` route
+   `/?saml=idp-sso&idp_initiated=1&sp=<Agend SP entity id>`, with the entity
+   id URL-encoded. `idp_initiated=1` is required: without it agend-saml-idp's `idp-sso` route
    stops with "This endpoint is for IdP initiated SSO only". Leave out
    `RelayState`: with none, the Agend ACS sends the member to the portal home.
    agend-saml-idp throttles the link per member, and sends a signed-out visitor

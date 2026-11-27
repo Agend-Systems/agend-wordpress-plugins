@@ -73,6 +73,17 @@ final class GuidNameidOptionTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_hook_the_option_to_the_idp_filter_when_the_plugin_boots(): void {
+		$core = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/agend-apps-core.php' );
+
+		$this->assertStringContainsString( "add_filter( 'wp_saml_idp_nameid_options', 'agend_apps_saml_idp_nameid_options' );", $core );
+		$this->assertLessThan(
+			strpos( $core, "add_filter( 'wp_saml_idp_nameid_options'" ),
+			strpos( $core, "require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';" )
+		);
+	}
+
+	#[Test]
 	public function should_return_a_non_array_value_unchanged_when_another_filter_broke_the_options(): void {
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS );
 
