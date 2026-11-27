@@ -231,6 +231,46 @@ function agend_apps_ensure_external_id( int $user_id ): string {
 }
 
 /**
+ * Whether this site's members are identified by the minted GUID
+ * ({@see AGEND_APPS_EXTERNAL_ID_META}).
+ *
+ * True only in `wordpress` sign-in mode with no external id meta key
+ * configured: the same test {@see agend_apps_connect_nameid_meta_key()} uses to
+ * pick the GUID as the NameID source. With a meta key configured, members
+ * resolve on that key instead, and {@see agend_apps_ensure_external_id()}
+ * returns its value without minting.
+ *
+ * @return bool
+ */
+function agend_apps_guid_external_id_active(): bool {
+	return Agend_Apps_Settings::wordpress_idp_enabled()
+		&& '' === (string) get_option( 'agend_apps_external_id_meta_key', '' );
+}
+
+/**
+ * Adds the minted GUID to agend-saml-idp's NameID options.
+ *
+ * Hooked to `wp_saml_idp_nameid_options`, which builds the NameID dropdown on
+ * agend-saml-idp's Attribute Mapping screen. agend-saml-idp resolves a key it
+ * does not recognise through `get_user_meta()`, so choosing this option makes
+ * the IdP assert each member's GUID. Offered only when
+ * {@see agend_apps_guid_external_id_active()} holds, so a site that resolves
+ * members on another key is never offered a NameID that disagrees with it.
+ *
+ * @param mixed $options NameID options, keyed by user field or meta key.
+ * @return mixed The options, with the GUID added when it applies.
+ */
+function agend_apps_saml_idp_nameid_options( $options ) {
+	if ( ! is_array( $options ) || ! agend_apps_guid_external_id_active() ) {
+		return $options;
+	}
+
+	$options[ AGEND_APPS_EXTERNAL_ID_META ] = __( 'Agend external id (GUID)', 'agend-apps-core' );
+
+	return $options;
+}
+
+/**
  * Resolves the SAML IdP entity id (Issuer) for this site.
  *
  * Reads the WordPress SAML IdP plugin settings, falling back to the standard

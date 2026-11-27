@@ -134,6 +134,74 @@ shown the page rather than sent round again: the loop guard is the link state's
 diagnostics panel on the same settings page shows when a sign-in or pre-render
 round trip was issued, and why one was skipped.
 
+#### Setting the NameID by hand
+
+"Connect this site" maps the Agend service provider's NameID for you. Without
+it, set the mapping in agend-saml-idp. With no **Member ID Meta Key**
+configured, members are identified by a GUID this plugin mints into the
+`_agend_apps_external_id` user meta, and the IdP must assert that value as the
+NameID:
+
+1. Give every existing user a GUID. Users only get one when they register, so
+   users created before the site switched to `wordpress` mode have none:
+
+   ```sh
+   wp agend-apps backfill-external-ids --dry-run
+   wp agend-apps backfill-external-ids
+   ```
+
+   The command never changes an existing value, so it is safe to run again; run
+   it again if users were deleted while it ran, since that can make it miss a
+   user. It prints counts only, never anything about a user, and refuses
+   outside `wordpress` mode or when a Member ID Meta Key is configured. It
+   warns about users identified by another id (the `imk_membership_number`
+   user meta, or the `agend_apps_current_user_external_id` filter): they get
+   no GUID, so the IdP would assert an empty NameID for them. It fails on a
+   user whose `_agend_apps_external_id` is stored empty, which it never
+   overwrites: delete that value and run it again. On multisite it covers one
+   site's users; run it for each site with `--url`.
+2. In agend-saml-idp, on the Agend service provider, set **NameID Format** to
+   unspecified, as "Connect this site" does. A service provider created by
+   hand defaults to the email format, and the persistent and transient formats
+   ignore the NameID Attribute.
+3. In agend-saml-idp, open Attribute Mapping, choose the Agend service provider
+   and set **NameID Attribute** to **Agend external id (GUID)**. This plugin
+   adds that option only in `wordpress` mode with no Member ID Meta Key
+   configured.
+
+The Identity and SSO settings page names the key the IdP must assert. The
+Attribute Mapping screen shows the saved NameID only after you choose the
+service provider, and only when the saved key is one of its options. If the
+dropdown then shows anything else, or nothing, saving that form changes the
+NameID.
+
+#### Linking to the member portal
+
+The member portal replaces the WordPress account area. A member reaches it
+signed in through an IdP-initiated SAML sign-in; the portal's own sign-in page
+does not work for them, because their Agend login has no password. A plain
+menu link does this, with no code:
+
+1. In agend-saml-idp, on the Agend service provider, turn on unsolicited SSO
+   and leave its **Default Relay State** empty. "Connect this site" creates the
+   service provider with unsolicited SSO off.
+2. Link "My account" to
+   `/?saml=idp-sso&idp_initiated=1&sp=<Agend SP entity id>`, with the entity
+   id URL-encoded. `idp_initiated=1` is required: without it agend-saml-idp's `idp-sso` route
+   stops with "This endpoint is for IdP initiated SSO only". Leave out
+   `RelayState`: with none, the Agend ACS sends the member to the portal home.
+   agend-saml-idp throttles the link per member, and sends a signed-out visitor
+   to the WordPress login first.
+3. If you want a RelayState, it must be an absolute URL on an Agend app origin
+   or the organisation's active custom portal domain, and also be on the
+   service provider's unsolicited RelayState allowlist. The Agend ACS silently
+   replaces any other value with the portal home. A relative path resolves to
+   the API host, so never use one.
+4. Do not redirect the WooCommerce My Account page (`/my-account/`) to this
+   link at the web server while the site still uses the Agend theme's header
+   login form: that form posts to the My Account page, and a server redirect
+   drops the sign-in.
+
 ### Caching and identity
 
 `Agend_Apps_Cache::build_key()` and `Agend_Apps_Settings::get_cache_ttl()` are

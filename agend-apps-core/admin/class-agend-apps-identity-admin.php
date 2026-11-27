@@ -660,12 +660,17 @@ class Agend_Apps_Identity_Admin {
 
 	/**
 	 * Renders the external-id meta key text field (moved from
-	 * {@see Agend_Apps_Admin}, unchanged).
+	 * {@see Agend_Apps_Admin}).
 	 *
 	 * The user-meta key holding each member's Agend external id (the SAML
 	 * NameID the site's IdP asserts). IdP-plugin-agnostic by design: the value
 	 * depends on which IdP plugin the site runs, so it is configuration, not
 	 * code.
+	 *
+	 * In `wordpress` mode it also names the key this site's own IdP must
+	 * assert as NameID ({@see agend_apps_connect_nameid_meta_key()}), since an
+	 * admin who cannot run "Connect this site" sets that mapping by hand in
+	 * agend-saml-idp.
 	 */
 	public function render_external_id_meta_key_field(): void {
 		$value = get_option( 'agend_apps_external_id_meta_key', '' );
@@ -675,6 +680,32 @@ class Agend_Apps_Identity_Admin {
 		);
 		echo '<p class="description">';
 		esc_html_e( 'User-meta key holding each member\'s Agend external id (the SAML NameID your IdP asserts). Defaults to the Upbeat membership number.', 'agend-apps-core' );
+		echo '</p>';
+
+		if ( ! Agend_Apps_Settings::wordpress_idp_enabled() || ! function_exists( 'agend_apps_connect_nameid_meta_key' ) ) {
+			return;
+		}
+
+		echo '<p class="description">';
+		printf(
+			/* translators: %s: the user meta key the IdP must assert as NameID. */
+			esc_html__( 'In WordPress account sign-in mode, this site\'s identity provider must assert the user meta %s as the SAML NameID for the Agend service provider.', 'agend-apps-core' ),
+			'<code>' . esc_html( agend_apps_connect_nameid_meta_key() ) . '</code>'
+		);
+		echo '</p>';
+
+		echo '<p class="description">';
+
+		if ( function_exists( 'agend_apps_guid_external_id_active' ) && agend_apps_guid_external_id_active() ) {
+			esc_html_e( 'In agend-saml-idp, set the Agend service provider\'s NameID Format to unspecified, then set Attribute Mapping > NameID Attribute to "Agend external id (GUID)". Run "wp agend-apps backfill-external-ids" first, so existing users have one. That screen loads the saved NameID only after you choose the service provider, and only when the saved key is one of its options: if the dropdown then shows anything other than "Agend external id (GUID)", or nothing, saving that form changes the NameID.', 'agend-apps-core' );
+		} else {
+			printf(
+				/* translators: %s: the user meta key the IdP must assert as NameID. */
+				esc_html__( 'In agend-saml-idp, the Attribute Mapping screen loads the saved NameID only after you choose the service provider, and only when the saved key is one of its options; %s is listed only if another plugin adds it. If the dropdown then shows anything other than that key, or nothing, saving that form changes the NameID.', 'agend-apps-core' ),
+				'<code>' . esc_html( agend_apps_connect_nameid_meta_key() ) . '</code>'
+			);
+		}
+
 		echo '</p>';
 	}
 
