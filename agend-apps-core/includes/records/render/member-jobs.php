@@ -200,8 +200,8 @@ function agend_apps_records_member_jobs_messages(): array {
 		'loading'        => __( 'Loading your jobs…', 'agend-apps-core' ),
 		'loadFailed'     => __( 'Your jobs could not be loaded. Please reload the page to try again.', 'agend-apps-core' ),
 		// Shown beside the number of credits, which sits in its own box.
-		'creditsOne'     => __( 'job credit available', 'agend-apps-core' ),
-		'creditsMany'    => __( 'job credits available', 'agend-apps-core' ),
+		'creditsOne'     => __( 'Job Credit Available', 'agend-apps-core' ),
+		'creditsMany'    => __( 'Job Credits Available', 'agend-apps-core' ),
 		'creditsUnknown' => __( 'Your job credits could not be checked just now.', 'agend-apps-core' ),
 		'none'           => __( 'You have not posted any jobs yet.', 'agend-apps-core' ),
 		'noCreditsTitle' => __( 'You have no job credits', 'agend-apps-core' ),
